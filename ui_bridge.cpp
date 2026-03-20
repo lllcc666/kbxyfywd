@@ -124,7 +124,7 @@ void UIBridge::CallJSFunctionWithCheck(const std::wstring& funcName, const std::
 
 std::wstring UIBridge::EscapeJsonString(const std::wstring& input) {
     std::wstring result;
-    result.reserve(input.length());
+    result.reserve(input.length() * 2); // 预留更多空间，因为转义字符会增加长度
     
     for (wchar_t c : input) {
         switch (c) {
@@ -133,13 +133,24 @@ std::wstring UIBridge::EscapeJsonString(const std::wstring& input) {
             case L'\n': result += L"\\n"; break;
             case L'\r': result += L"\\r"; break;
             case L'\t': result += L"\\t"; break;
-            default:    result += c; break;
+            case L'\b': result += L"\\b"; break;
+            case L'\f': result += L"\\f"; break;
+            default:    
+                // 对于控制字符（小于0x20），使用\uXXXX格式
+                if (c < 0x20) {
+                    wchar_t buf[8];
+                    swprintf_s(buf, L"\\u%04x", static_cast<unsigned int>(c));
+                    result += buf;
+                } else {
+                    result += c; 
+                }
+                break;
         }
     }
     return result;
 }
 
-std::wstring UIBridge::FormatMessage(const wchar_t* format, ...) {
+std::wstring UIBridge::FormatString(const wchar_t* format, ...) {
     if (!format) return L"";
 
     va_list args;

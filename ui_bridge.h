@@ -123,7 +123,7 @@ public:
      * @param ... 可变参数
      * @return 格式化后的字符串
      */
-    static std::wstring FormatMessage(const wchar_t* format, ...);
+    static std::wstring FormatString(const wchar_t* format, ...);
 
 private:
     UIBridge() = default;

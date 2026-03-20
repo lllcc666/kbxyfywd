@@ -43,7 +43,11 @@ const char* SPIRITDATA_URL_PATTERNS[] = {
 // 原因：AS3 代码中 getShowDisplay() 函数返回第一个有 display 属性的妖怪
 // 如果给所有妖怪添加 display 属性，会导致返回错误的妖怪，显示错误的技能面板
 // 原始游戏只允许特定的 29 个妖怪显示技能 PP 值
+#ifdef _DEBUG
+constexpr bool DISABLE_MODIFICATION = false;
+#else
 constexpr bool DISABLE_MODIFICATION = true;
+#endif
 
 // 测试模式：直接返回原始数据，不进行任何处理
 constexpr bool TEST_BYPASS_MODE = false;

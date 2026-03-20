@@ -1,360 +1,124 @@
 # AGENTS.md - 卡布西游微端项目指南
 
-> **文档更新日期**: 2026年3月20日
+> **项目**: 基于 WebView2 的 Windows 桌面游戏辅助工具 (浮影微端 V1.04)
+> **仓库**: https://github.com/lllcc666/kbxyfywd
 
-## 最新活动资源下载
+## 技术栈
 
-**每周活动XML**:
-```
-http://enter.wanwan4399.com/bin-debug/assets/weekly/weeklyactivity
-```
-
-## 项目概述
-
-这是一个基于 **WebView2** 的 Windows 桌面应用程序，用于卡布西游游戏辅助工具（浮影微端）。
-
-**窗口标题**：`卡布西游浮影微端 V1.03`
-
-**GitHub 仓库**：https://github.com/lllcc666/kbxyfywd
-
-**技术栈**：
 | 组件 | 技术 |
 |------|------|
-| 语言 | C++17 (Win32 桌面应用) |
-| UI 框架 | WebView2 (Edge Chromium) + HTML/CSS/JavaScript |
-| 游戏嵌入 | WebBrowser 控件 (IE/ATL CAxWindow) |
-| 构建工具 | CMake 3.16+ |
+| 语言 | C++17 (Win32) |
+| UI | WebView2 + HTML/CSS/JS |
+| 游戏嵌入 | WebBrowser (IE/ATL CAxWindow) |
+| 构建 | CMake 3.16+ |
 | 包管理 | vcpkg |
-| Hook 框架 | MinHook |
-| 内存加载 | MemoryModule（DLL不落地） |
-| 压缩库 | zlib + minizip |
-| 版本控制 | Git |
+| Hook | MinHook |
+| 压缩 | zlib + minizip |
 | 平台 | Windows x64 |
 
----
+## 构建命令
 
-## 核心架构
+```powershell
+# 首次构建
+mkdir build_new && cd build_new
+cmake .. -G "Visual Studio 17 2022" -A x64
+cmake --build . --config Release
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         主窗口 (demo.cpp)                        │
-│  ┌─────────────────────┐    ┌─────────────────────────────────┐ │
-│  │   WebView2 控件     │    │      WebBrowser 控件 (IE)       │ │
-│  │   (辅助工具UI)      │    │      (游戏Flash页面)            │ │
-│  └──────────┬──────────┘    └─────────────────────────────────┘ │
-│             │                                                    │
-│             ▼                                                    │
-│  ┌──────────────────────────────────────────────────────────────┤
-│  │                    UIBridge (ui_bridge.h)                    │
-│  │              C++ ↔ JavaScript 双向通信桥梁                   │
-│  └──────────────────────────────────────────────────────────────┤
-└─────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    WPE Hook 模块 (wpe_hook.h/cpp)               │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
-│  │  HookedSend     │  │  HookedRecv     │  │ ResponseWaiter  │ │
-│  │  (发送拦截)     │  │  (接收拦截)     │  │  (响应等待)     │ │
-│  └────────┬────────┘  └────────┬────────┘  └─────────────────┘ │
-│           │                    │                                 │
-│           ▼                    ▼                                 │
-│  ┌─────────────────────────────────────────────────────────────┤
-│  │              ResponseDispatcher (响应分发器)                │
-│  │         根据 Opcode+Params 分发到对应处理器                 │
-│  └─────────────────────────────────────────────────────────────┘
-└─────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                  封包处理层 (packet_parser.h/cpp)               │
-│  ┌─────────────────┐  ┌─────────────────────────────────────┐  │
-│  │  PacketParser   │  │        数据结构定义                  │  │
-│  │  (封包解析)     │  │  GamePacket, BattleData, LingyuItem  │  │
-│  └─────────────────┘  └─────────────────────────────────────┘  │
-│  ┌─────────────────────────────────────────────────────────────┤
-│  │                    Opcode 命名空间                          │
-│  │              所有协议操作码的常量定义                        │
-│  └─────────────────────────────────────────────────────────────┘
-└─────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                 封包构建层 (packet_builder.h/cpp)               │
-│  ┌─────────────────────────────────────────────────────────────┤
-│  │                    PacketBuilder 类                         │
-│  │         链式调用构造封包，自动处理小端序编码                 │
-│  └─────────────────────────────────────────────────────────────┘
-└─────────────────────────────────────────────────────────────────┘
+# 增量构建
+cmake --build build_new --config Release
+
+# 运行
+.\build_new\bin\Release\WebView2Demo.exe
 ```
 
----
-
-## 模块职责
-
-| 模块 | 文件 | 职责 |
-|------|------|------|
-| **主程序** | `demo.cpp` | 窗口创建、WebView2初始化、消息循环、版本检查 |
-| **WPE Hook** | `wpe_hook.h/cpp` | 网络封包拦截、发送、响应等待、活动状态管理 |
-| **封包解析** | `packet_parser.h/cpp` | 封包解析、战斗数据处理、Opcode定义 |
-| **封包构建** | `packet_builder.h/cpp` | 封包构造器，链式调用，自动小端序 |
-| **UI桥接** | `ui_bridge.h/cpp` | C++与JavaScript通信桥梁 |
-| **数据拦截** | `data_interceptor.h/cpp` | HTTP响应拦截，修改游戏数据文件 |
-| **工具函数** | `utils.h/cpp` | 编码转换、线程同步、远程下载 |
-
----
-
-## 封包协议基础
-
-### 封包格式
-
-```
-┌───────────────┬───────────────┬───────────────┬───────────────┬───────────────┐
-│  Magic (2B)   │ Length (2B)   │ Opcode (4B)   │ Params (4B)   │  Body (变长)   │
-└───────────────┴───────────────┴───────────────┴───────────────┴───────────────┘
-     0-1字节         2-3字节         4-7字节         8-11字节        12+字节
-```
-
-- **Magic**: `0x5344` ("SD") 普通包，`0x5343` ("SC") 压缩包
-- **Length**: Body 长度（小端序）
-- **Opcode**: 操作码（小端序）
-- **Params**: 参数（小端序）
-- **Body**: 数据体（变长，所有数值字段都是小端序）
-
-### Opcode 计算（小端序）
-
-```
-Opcode = byte[0] | (byte[1] << 8) | (byte[2] << 16) | (byte[3] << 24)
-```
-
-**验证工具**：
-```python
-int.from_bytes(bytes.fromhex('14141200'), 'little')  # 输出: 1184788
-```
-
----
-
-## 核心工具类
-
-### PacketBuilder（封包构建器）
-
-**位置**: `packet_builder.h`
-
-**使用示例**:
-```cpp
-auto packet = PacketBuilder()
-    .SetOpcode(1185429)
-    .SetParams(770)
-    .WriteString("game_info")
-    .WriteInt32(activityId)
-    .Build();
-```
-
-### UIBridge（UI桥接器）
-
-**位置**: `ui_bridge.h`
-
-**主要方法**:
-- `UpdateHelperText()` - 更新辅助文本
-- `UpdateProgress()` - 更新进度显示
-- `NotifyTaskComplete()` - 通知任务完成
-- `ExecuteJS()` - 执行JavaScript代码
-
-### ResponseWaiter（响应等待器）
-
-**位置**: `wpe_hook.h`（内部类）
-
-**用途**: 高效等待服务器响应，替代 Sleep 轮询
-
-**使用方式**:
-```cpp
-SendPacket(s, data, size, expectedOpcode, timeoutMs);
-```
-
-### ResponseDispatcher（响应分发器）
-
-**位置**: `wpe_hook.h`
-
-**用途**: 根据 Opcode+Params 分发响应到对应处理器
-
-**使用示例**:
-```cpp
-ResponseDispatcher::Instance().Register(
-    Opcode::ACTIVITY_QUERY_BACK, 
-    788, 
-    ProcessStrawberryResponse
-);
-```
-
----
+**注意**: vcpkg 路径在 `CMakeLists.txt:30` 硬编码为 `d:/AItrace/CE/.trae/vcpkg-master`
 
 ## 项目结构
 
 ```
 kbwebui/
-├── .gitignore               # Git 忽略配置
-├── CMakeLists.txt           # CMake 构建配置
-├── AGENTS.md                # 项目文档
-│
-├── demo.cpp                 # 主程序入口
-├── wpe_hook.h/cpp           # WPE 网络封包拦截 Hook 模块
-├── packet_parser.h/cpp      # 游戏封包解析器 + Opcode定义
-├── packet_builder.h/cpp     # 封包构建器
-├── ui_bridge.h/cpp          # UI 桥接器
-├── data_interceptor.h/cpp   # Data文件拦截修改模块
-├── utils.h/cpp              # 工具函数
-│
-├── scripts/                 # Python 脚本工具
-│   ├── embed_dll.py         # DLL 转 C++ 头文件
-│   ├── embed_html.py        # HTML 转 C++ 头文件
-│   ├── download_swf.py      # SWF 下载脚本
-│   ├── parse_weekly.py   # 周活动下载
-│
-├── resources/               # 资源文件
-│   ├── app.ico              # 应用图标
-│   ├── app.rc               # 资源脚本
-│   └── ui.html              # Web 界面源文件
-│
-├── embedded/                # 嵌入数据头文件（自动生成）
-│   ├── webview2loader_data.h
-│   ├── zlib_data.h
-│   ├── minizip_helper.h
-│   ├── ui_html.h
-│   ├── minhook_data.h
-│   └── speed_x64_data.h
-│
-├── data/                    # 游戏数据缓存（XML）
-│   ├── sprite.xml           # 妖怪名称、系别
-│   ├── skill.xml            # 技能名称
-│   ├── tool.xml             # 道具名称
-│   ├── map.xml              # 地图名称
-│   ├── npc.xml              # NPC 数据
-│   ├── npcdialog.xml        # NPC 对话
-│   ├── npctransform.xml     # NPC 变换
-│   ├── bufInfo.xml          # Buff 信息
-│   ├── dailytask.xml        # 日常任务
-│   ├── errorInfo.xml        # 错误信息
-│   ├── monsternature.xml    # 妖怪性格
-│   ├── siteBuff.xml         # 场景 Buff
-│   ├── siteBuff_desc.xml    # 场景 Buff 描述
-│   └── taskinfo.xml         # 任务信息
-│
-└── build_new/               # 构建输出目录
+├── demo.cpp                 # 主窗口、WebView2 初始化、消息循环
+├── wpe_hook.h/cpp           # 网络封包拦截、发送、响应等待
+├── packet_parser.h/cpp      # 封包解析、Opcode 定义、数据结构
+├── packet_builder.h/cpp     # 封包构建器（链式调用）
+├── ui_bridge.h/cpp          # C++ ↔ JavaScript 通信桥梁
+├── data_interceptor.h/cpp   # HTTP 响应拦截修改
+├── utils.h/cpp              # 编码转换、线程同步、远程下载
+├── resources/               # 图标、资源脚本、ui.html
+├── embedded/                # 自动生成的嵌入数据头文件
+├── data/                    # 游戏数据 XML 缓存
+└── scripts/                 # Python 工具脚本
 ```
 
-> **注意**: `src/`（AS3反编译源码）和 `swf_cache/`（SWF缓存）已通过 .gitignore 排除，不会上传到 Git 仓库。
+## 封包协议
 
----
-
-## 构建和运行
-
-### 环境要求
-
-- Windows 10/11 x64
-- Visual Studio 2019/2022 (MSVC)
-- CMake 3.16+
-- vcpkg
-
-### 构建命令
-
-```powershell
-cd D:\AItrace\CE\.trae\kbwebui
-mkdir build_new
-cd build_new
-cmake .. -G "Visual Studio 17 2022" -A x64
-cmake --build . --config Release
+```
+┌──────────┬──────────┬──────────┬──────────┬──────────┐
+│ Magic 2B │ Len 2B   │Opcode 4B │Params 4B │Body 变长 │
+└──────────┴──────────┴──────────┴──────────┴──────────┘
 ```
 
-### 运行
+- **Magic**: `0x5344` 普通包, `0x5343` 压缩包
+- **所有数值**: 小端序
+- **Opcode 计算**: `byte[0] | (byte[1]<<8) | (byte[2]<<16) | (byte[3]<<24)`
 
-```powershell
-.\build_new\bin\Release\WebView2Demo.exe
+## 代码风格
+
+### 命名约定
+
+| 类型 | 风格 | 示例 |
+|------|------|------|
+| 类/函数 | `PascalCase` | `PacketBuilder`, `SendPacket()` |
+| 变量 | `camelCase` | `gameData`, `isRunning` |
+| 全局变量 | `g_` 前缀 | `g_hWnd`, `g_webview` |
+| 常量 | `UPPER_SNAKE_CASE` | `HEADER_SIZE`, `TIMEOUT_NORMAL` |
+| 命名空间 | `PascalCase` | `Opcode`, `PacketProtocol` |
+
+### 代码规范
+
+- **标准**: C++17, MSVC `/utf-8`
+- **字符串**: 中文用 `std::wstring`, 英文用 `std::string`
+- **线程同步**: RAII 风格 `CriticalSectionLock`
+- **头文件**: `#pragma once`, Doxygen 注释
+- **导入顺序**: Windows API → 标准库 → 第三方库 → 项目头文件
+
+### 封包构建示例
+
+```cpp
+auto packet = PacketBuilder()
+    .SetOpcode(1185429)
+    .SetParams(770)
+    .WriteString("game_info")
+    .Build();
 ```
 
----
+## 添加新功能
 
-## Git 版本控制
+1. `packet_parser.h` → 定义 Opcode 常量
+2. `wpe_hook.h` → 添加状态结构（如需要）
+3. `wpe_hook.cpp` → 实现发送函数
+4. `ResponseDispatcher::InitializeDefaultHandlers()` → 注册响应处理器
+5. `demo.cpp` → 添加 JavaScript 调用入口
 
-### 日常开发流程
+## 调试
 
-```powershell
-# 查看当前状态
-git status
-
-# 添加修改的文件
-git add .
-
-# 提交更改
-git commit -m "描述本次修改内容"
-
-# 推送到 GitHub
-git push
-```
-
-### 常用命令速查
-
-| 操作 | 命令 |
-|------|------|
-| 查看状态 | `git status` |
-| 查看修改内容 | `git diff` |
-| 查看提交历史 | `git log --oneline` |
-| 拉取远程更新 | `git pull` |
-
----
-
-## 开发规范
-
-### C++ 编码规范
-
-1. **编码**: MSVC 使用 `/utf-8` 强制 UTF-8 编码
-2. **标准**: C++17，使用 `std::wstring` 处理中文
-3. **命名**:
-   - 类名/函数名: `PascalCase`
-   - 变量名: `camelCase`
-   - 常量: `UPPER_SNAKE_CASE` (命名空间中使用 `constexpr`)
-   - 命名空间: `PascalCase`
-4. **线程同步**: 使用 RAII 风格的 `CriticalSectionLock`
-
-### 添加新功能的步骤
-
-1. **定义 Opcode**: 在 `packet_parser.h` 的 `Opcode` 命名空间中添加
-2. **添加状态**: 在 `wpe_hook.h` 中添加状态结构（如需要）
-3. **实现发送函数**: 在 `wpe_hook.cpp` 中实现封包发送
-4. **注册响应处理**: 在 `ResponseDispatcher::InitializeDefaultHandlers()` 中注册
-5. **添加UI接口**: 在 `demo.cpp` 的消息处理中添加 JavaScript 调用入口
-
----
-
-## 调试技巧
-
-1. **只能使用 WebView2 控制台输出**，不能使用 debug
-2. 注意输出信息编码问题（使用 UTF-8）
-3. 使用封包拦截查看实际发送的封包
-4. 对比客户端发送的封包与程序构造的封包
-
----
-
-## 常见问题
-
-### Q: 编译报错找不到头文件
-**A**: 检查 vcpkg 路径配置是否正确
-
-### Q: 如何计算封包 Opcode
-**A**: 使用小端序计算：`opcode = byte[0] | (byte[1] << 8) | (byte[2] << 16) | (byte[3] << 24)`
-
-### Q: 版本号一致但仍弹出更新对话框
-**A**: 确保 `demo.cpp` 中的 `CURRENT_VERSION` 与服务器版本号精度一致（如 `1.03f`）
-
----
+- **仅用 WebView2 控制台输出**，无 debug 模式
+- 使用封包拦截对比客户端发送的封包
+- 注意 UTF-8 编码问题
 
 ## 版本号更新清单
 
-每次发布新版本时，同步更新以下位置：
+发布时同步更新：
 
-| 文件 | 内容 |
+| 文件 | 位置 |
 |------|------|
 | `demo.cpp:84` | `CURRENT_VERSION = X.XXf` |
 | `demo.cpp` | 窗口标题 `L"卡布西游浮影微端 VX.XX"` |
-| `wpe_hook.cpp` | Hook标题 |
-| `resources/ui.html` | UI标题 |
+| `wpe_hook.cpp` | Hook 标题 |
+| `resources/ui.html` | UI 标题 |
 | `resources/app.rc` | 版本信息 |
+
+## 常见问题
+
+- **编译报错找不到头文件**: 检查 vcpkg 路径配置
+- **版本号一致仍弹更新**: 确保版本精度一致（如 `1.04f`）

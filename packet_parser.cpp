@@ -42,6 +42,9 @@ static PFN_INFLATEEND g_inflateEnd = nullptr;
 // minizip module and functions
 BattleData PacketParser::g_currentBattle;
 std::vector<uint8_t> PacketParser::g_recvBuffer;
+
+// 全局数据映射表的互斥锁
+static std::mutex g_dataMapsMutex;
 static std::unordered_map<int, std::wstring> g_petNames;
 std::unordered_map<int, std::wstring> g_skillNames;
 std::unordered_map<int, int> g_skillPowers;  // 技能ID -> 威力值
@@ -85,6 +88,57 @@ static const std::unordered_map<int, std::wstring> BUF_NAME_MAP = {
 static const int SPECIAL_BUF_IDS[] = {3, 4, 5, 6, 7, 8, 18, 19, 21, 20, 23, 22};
 
 // ============================================================================
+// XML解析辅助函数
+// ============================================================================
+
+/**
+ * @brief 通用的XML解析辅助函数，用于从XML中提取ID和名称
+ * @param xml XML字符串
+ * @param blockRe 用于匹配块的正则表达式
+ * @param idRe 用于提取ID的正则表达式
+ * @param nameRe 用于提取名称的正则表达式
+ * @param trimWhitespace 是否修剪空白字符
+ * @return 解析结果的vector，每个元素是pair<id, name>
+ */
+static std::vector<std::pair<int, std::wstring>> ParseXmlBlocks(
+    const std::string& xml,
+    const std::regex& blockRe,
+    const std::regex& idRe,
+    const std::regex& nameRe,
+    bool trimWhitespace = true) {
+    
+    std::vector<std::pair<int, std::wstring>> results;
+    
+    auto blockBegin = std::sregex_iterator(xml.begin(), xml.end(), blockRe);
+    auto blockEnd = std::sregex_iterator();
+    
+    for (auto it = blockBegin; it != blockEnd; ++it) {
+        std::string block = it->str();
+        std::smatch idMatch, nameMatch;
+        
+        if (std::regex_search(block, idMatch, idRe) && std::regex_search(block, nameMatch, nameRe)) {
+            int id = 0;
+            try { id = std::stoi(idMatch.str(1)); } catch (...) { continue; }
+            
+            std::wstring name = Utf8ToWide(nameMatch.str(1));
+            
+            if (trimWhitespace) {
+                while (!name.empty() && (name.back() == L' ' || name.back() == L'\t' || 
+                       name.back() == L'\n' || name.back() == L'\r')) {
+                    name.pop_back();
+                }
+            }
+            
+            if (!name.empty()) {
+                results.push_back({id, name});
+            }
+        }
+    }
+    
+    return results;
+}
+
+// ============================================================================
 // 妖怪背包数据全局变量（用于副本跳层等功能）
 // ============================================================================
 MonsterData g_monsterData;
@@ -97,9 +151,12 @@ MonsterData g_monsterData;
  */
 static std::wstring GetBufName(int bufId, int param1 = 0) {
     // 先从 bufInfo.xml 加载的数据中查找
-    auto it = g_bufNames.find(bufId);
-    if (it != g_bufNames.end()) {
-        return it->second;
+    {
+        std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+        auto it = g_bufNames.find(bufId);
+        if (it != g_bufNames.end()) {
+            return it->second;
+        }
     }
     
     // 使用内置的名称映射
@@ -132,9 +189,16 @@ static std::wstring GetBufName(int bufId, int param1 = 0) {
  */
 static std::wstring GetBufTipString(int bufId, int param1, int param2) {
     // 先从 bufInfo.xml 加载的数据中查找
-    auto it = g_bufDescs.find(bufId);
-    if (it != g_bufDescs.end()) {
-        std::wstring desc = it->second;
+    std::wstring desc;
+    {
+        std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+        auto it = g_bufDescs.find(bufId);
+        if (it != g_bufDescs.end()) {
+            desc = it->second;
+        }
+    }
+    
+    if (!desc.empty()) {
         // 替换占位符
         size_t pos;
         if ((pos = desc.find(L"#num1#")) != std::wstring::npos) {
@@ -229,6 +293,7 @@ static void ParseSpriteXml(const std::string& xml) {
             while (!name.empty() && (name.back() == L' ' || name.back() == L'\t' || name.back() == L'\n' || name.back() == L'\r')) {
                 name.pop_back();
             }
+            std::lock_guard<std::mutex> lock(g_dataMapsMutex);
             g_petNames[id] = name;
         }
         
@@ -237,6 +302,7 @@ static void ParseSpriteXml(const std::string& xml) {
         std::smatch elemMatch;
         if (std::regex_search(content, elemMatch, elemRe)) {
             elemId = std::stoi(elemMatch.str(1));
+            std::lock_guard<std::mutex> lock(g_dataMapsMutex);
             g_petElems[id] = elemId;
         }
         
@@ -265,10 +331,10 @@ static void ParseSkillXml(const std::string& xml) {
         while (!name.empty() && (name.back() == L' ' || name.back() == L'\t' || name.back() == L'\n' || name.back() == L'\r')) {
             name.pop_back();
         }
-        g_skillNames[id] = name;
-        
-        // 解析威力值
         int power = std::stoi(it->str(3));
+        
+        std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+        g_skillNames[id] = name;
         g_skillPowers[id] = power;
     }
 }
@@ -286,6 +352,7 @@ static void ParseMapXml(const std::string& xml) {
             int id = 0;
             try { id = std::stoi(m1.str(1)); } catch (...) { continue; }
             std::wstring name = Utf8ToWide(m2.str(1));
+            std::lock_guard<std::mutex> lock(g_dataMapsMutex);
             g_mapNames[id] = name;
         }
     }
@@ -298,16 +365,13 @@ static void ParseToolXml(const std::string& xml) {
     for (auto it = begin; it != end; ++it) {
         int id = std::stoi(it->str(1));
         std::wstring name = Utf8ToWide(it->str(2));
+        std::lock_guard<std::mutex> lock(g_dataMapsMutex);
         g_toolNames[id] = name;
     }
 }
 
 // 解析 Buff 信息 (bufInfo.xml)
 static void ParseBufInfoXml(const std::string& xml) {
-    // 清空旧数据
-    g_bufNames.clear();
-    g_bufDescs.clear();
-    
     // 预编译正则表达式
     static const std::regex bufRe(R"(<bufInfo[^>]*id\s*=\s*['"]?\s*(\d+)\s*['"]?[^>]*>([\s\S]*?)</bufInfo>)", std::regex_constants::icase);
     static const std::regex nameRe(R"(<name>([^<]+)</name>)", std::regex_constants::icase);
@@ -315,6 +379,11 @@ static void ParseBufInfoXml(const std::string& xml) {
     
     auto begin = std::sregex_iterator(xml.begin(), xml.end(), bufRe);
     auto end = std::sregex_iterator();
+    
+    std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+    // 清空旧数据
+    g_bufNames.clear();
+    g_bufDescs.clear();
     
     for (auto it = begin; it != end; ++it) {
         int id = std::stoi(it->str(1));
@@ -336,14 +405,15 @@ static void ParseBufInfoXml(const std::string& xml) {
 
 // 解析系别和性格数据 (monsternature.xml)
 static void ParseMonsterNatureXml(const std::string& xml) {
-    // 先清空旧数据
-    g_elemNames.clear();
-    g_geniusNames.clear();
-
     // 预编译正则表达式
     static const std::regex elemRe(R"(<items[^>]*type\s*=\s*['"]?\s*1\s*['"]?[^>]*>([\s\S]*?)</items>)", std::regex_constants::icase);
     static const std::regex geniusRe(R"(<items[^>]*type\s*=\s*['"]?\s*0\s*['"]?[^>]*>([\s\S]*?)</items>)", std::regex_constants::icase);
     static const std::regex itemRe(R"(<item\s+name\s*=\s*['"]([^'"]+)['"])", std::regex_constants::icase);
+
+    std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+    // 先清空旧数据
+    g_elemNames.clear();
+    g_geniusNames.clear();
 
     // 解析系别 (items type="1")
     {
@@ -388,7 +458,7 @@ static void ParseMonsterNatureXml(const std::string& xml) {
             }
         }
     }
-
+    
     // 如果解析失败，使用默认性格表
     if (g_geniusNames.empty()) {
         static const wchar_t* defaultGenius[] = {
@@ -703,13 +773,7 @@ void PacketParser::SendToUI(const std::wstring& type, const std::wstring& data) 
                           UIBridge::EscapeJsonString(type) + L"', '" + 
                           UIBridge::EscapeJsonString(data) + L"'); }";
 
-    wchar_t* pScript = new(std::nothrow) wchar_t[jsCode.length() + 1];
-    if (pScript) {
-        wcscpy_s(pScript, jsCode.length() + 1, jsCode.c_str());
-        if (!PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript)) {
-            delete[] pScript;
-        }
-    }
+    UIBridge::Instance().ExecuteJS(jsCode);
 }
 
 void PacketParser::SendBossListToUI() {
@@ -734,11 +798,7 @@ void PacketParser::SendBossListToUI() {
     json += L"]";
     
     std::wstring script = L"if(window.initBossList) { window.initBossList(" + json + L"); }";
-    wchar_t* pScript = new wchar_t[script.length() + 1];
-    wcscpy_s(pScript, script.length() + 1, script.c_str());
-    if (!PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript)) {
-        delete[] pScript;
-    }
+    UIBridge::Instance().ExecuteJS(script);
 }
 
 static bool g_httpDataLoaded = false;
@@ -789,10 +849,17 @@ static void LoadHttpData() {
     }
     
     // 解析bufInfo.xml (Buff 信息) - 如果之前本地加载失败，再尝试从 ZIP 加载
-    if (g_bufNames.empty()) {
-        entry.clear();
-        if (ExtractZipEntry(zipbuf, "bufInfo.xml", entry)) {
-            ParseBufInfoXml(NormalizeXmlUtf8(entry));
+    {
+        bool needLoad = false;
+        {
+            std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+            needLoad = g_bufNames.empty();
+        }
+        if (needLoad) {
+            entry.clear();
+            if (ExtractZipEntry(zipbuf, "bufInfo.xml", entry)) {
+                ParseBufInfoXml(NormalizeXmlUtf8(entry));
+            }
         }
     }
 
@@ -806,6 +873,7 @@ static void LoadHttpData() {
 }
 
 std::wstring GetMapName(int mapId) {
+    std::lock_guard<std::mutex> lock(g_dataMapsMutex);
     auto it = g_mapNames.find(mapId);
     if (it != g_mapNames.end()) {
         return it->second;
@@ -913,14 +981,7 @@ void PacketParser::UpdateUIBattleData() {
     jsData += L"}";
 
     std::wstring jsCode = L"if(window.updateBattleUI) { window.updateBattleUI(" + jsData + L"); }";
-    
-    wchar_t* pScript = new(std::nothrow) wchar_t[jsCode.length() + 1];
-    if (pScript) {
-        wcscpy_s(pScript, jsCode.length() + 1, jsCode.c_str());
-        if (!PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript)) {
-            delete[] pScript;
-        }
-    }
+    UIBridge::Instance().ExecuteJS(jsCode);
 }
 
 void PacketParser::ProcessLingyuPacket(const GamePacket& packet) {
@@ -946,6 +1007,7 @@ void PacketParser::ProcessLingyuPacket(const GamePacket& packet) {
             LingyuItem item;
             item.symmId = ReadInt32LE(data, off);
             {
+                std::lock_guard<std::mutex> lock(g_dataMapsMutex);
                 auto it = g_toolNames.find(item.symmId);
                 std::wstring name = (it != g_toolNames.end()) ? it->second : L"未知灵玉";
                 // Shorten name: e.g., "1级属性灵玉" -> "1级灵玉"
@@ -1014,13 +1076,7 @@ void PacketParser::ProcessLingyuPacket(const GamePacket& packet) {
     jsData += L"]}";
 
     std::wstring jsCode = L"if(window.updateLingyuUI) { window.updateLingyuUI(" + jsData + L"); }";
-    wchar_t* pScript = new(std::nothrow) wchar_t[jsCode.length() + 1];
-    if (pScript) {
-        wcscpy_s(pScript, jsCode.length() + 1, jsCode.c_str());
-        if (!PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript)) {
-            delete[] pScript;
-        }
-    }
+    UIBridge::Instance().ExecuteJS(jsCode);
 }
 
 void PacketParser::ProcessBattlePacket(const GamePacket& packet) {
@@ -1074,6 +1130,7 @@ void PacketParser::ProcessBattlePacket(const GamePacket& packet) {
             
             // 获取名称
             {
+                std::lock_guard<std::mutex> lock(g_dataMapsMutex);
                 auto it = g_petNames.find(pet.spiritId);
                 if (it != g_petNames.end()) pet.name = it->second;
             }
@@ -1090,6 +1147,7 @@ void PacketParser::ProcessBattlePacket(const GamePacket& packet) {
                 skill.pp = (int)ReadInt32LE(data, offset); // time in swf
                 skill.maxPp = (int)ReadInt32LE(data, offset); // maxtime in swf
                 {
+                    std::lock_guard<std::mutex> lock(g_dataMapsMutex);
                     auto it2 = g_skillNames.find((int)skill.id);
                     if (it2 != g_skillNames.end()) skill.name = it2->second;
                 }
@@ -1228,8 +1286,11 @@ start_done:
                     BattleSixSkillInfo skill;
                     skill.skillId = static_cast<int>(srcSkill.id);
                     skill.name = srcSkill.name;
-                    auto powerIt = g_skillPowers.find(skill.skillId);
-                    skill.power = (powerIt != g_skillPowers.end()) ? powerIt->second : 0;
+                    {
+                        std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+                        auto powerIt = g_skillPowers.find(skill.skillId);
+                        skill.power = (powerIt != g_skillPowers.end()) ? powerIt->second : 0;
+                    }
                     skill.currentPP = srcSkill.pp;
                     skill.maxPP = srcSkill.maxPp;
                     skill.available = (srcSkill.pp > 0);
@@ -1530,6 +1591,7 @@ start_done:
                         
                         std::wstring skillName = L"";
                         {
+                            std::lock_guard<std::mutex> lock(g_dataMapsMutex);
                             auto it = g_skillNames.find((int)lastSkillId);
                             if (it != g_skillNames.end()) skillName = it->second;
                             // 也尝试从当前妖怪技能列表获取
@@ -1581,6 +1643,7 @@ start_done:
                     
                     std::wstring skillName = L"";
                     {
+                        std::lock_guard<std::mutex> lock(g_dataMapsMutex);
                         auto it = g_skillNames.find((int)lastSkillId);
                         if (it != g_skillNames.end()) skillName = it->second;
                         if (skillName.empty()) skillName = std::wstring(L"技能") + std::to_wstring(lastSkillId);
@@ -1804,6 +1867,7 @@ start_done:
                     pet.userId = ReadInt32LE(data, offset);
                     pet.skillNum = (int)ReadInt32LE(data, offset);
                     {
+                        std::lock_guard<std::mutex> lock(g_dataMapsMutex);
                         auto it = g_petNames.find(pet.spiritId);
                         if (it != g_petNames.end()) pet.name = it->second;
                     }
@@ -1814,6 +1878,7 @@ start_done:
                         skill.pp = (int)ReadInt32LE(data, offset);
                         skill.maxPp = (int)ReadInt32LE(data, offset);
                         {
+                            std::lock_guard<std::mutex> lock(g_dataMapsMutex);
                             auto it2 = g_skillNames.find((int)skill.id);
                             if (it2 != g_skillNames.end()) skill.name = it2->second;
                         }
@@ -1926,6 +1991,7 @@ start_done:
             int p0 = (int)ReadInt32LE(data, offset);
             int p1 = (int)ReadInt32LE(data, offset);
             {
+                std::lock_guard<std::mutex> lock(g_dataMapsMutex);
                 auto itn = g_toolNames.find((int)itemId);
                 if (itn != g_toolNames.end()) g_lastItemName = itn->second;
                 else g_lastItemName.clear();
@@ -2059,12 +2125,14 @@ void PacketParser::ProcessMonsterPacket(const GamePacket& packet) {
         
         // 从名称表获取妖怪名称
         {
+            std::lock_guard<std::mutex> lock(g_dataMapsMutex);
             auto it = g_petNames.find(monster.iid);
             monster.name = (it != g_petNames.end()) ? it->second : L"未知妖怪";
         }
         
         // 从映射表获取系别（AS3中系别来自monsterIntro.elem，即sprite.xml）
         {
+            std::lock_guard<std::mutex> lock(g_dataMapsMutex);
             auto elemIt = g_petElems.find(monster.iid);
             if (elemIt != g_petElems.end()) {
                 monster.type = elemIt->second;
@@ -2143,6 +2211,7 @@ void PacketParser::ProcessMonsterPacket(const GamePacket& packet) {
         
         // 获取资质名称
         {
+            std::lock_guard<std::mutex> lock(g_dataMapsMutex);
             auto it = g_aptitudeNames.find(monster.geniusType);
             if (it != g_aptitudeNames.end()) {
                 monster.aptitudeName = it->second;
@@ -2153,6 +2222,7 @@ void PacketParser::ProcessMonsterPacket(const GamePacket& packet) {
         
         // 从mold获取性格名称（mold是性格索引，从g_geniusNames映射）
         {
+            std::lock_guard<std::mutex> lock(g_dataMapsMutex);
             auto it = g_geniusNames.find(monster.mold);
             if (it != g_geniusNames.end()) {
                 monster.geniusName = it->second;
@@ -2196,8 +2266,11 @@ void PacketParser::ProcessMonsterPacket(const GamePacket& packet) {
             int32_t skillPp = ReadInt32LE(data, offset);
             skill.maxPp = ReadInt32LE(data, offset);
             skill.pp = skillPp;
-            auto it = g_skillNames.find(skill.id);
-            skill.name = (it != g_skillNames.end()) ? it->second : L"";
+            {
+                std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+                auto it = g_skillNames.find(skill.id);
+                skill.name = (it != g_skillNames.end()) ? it->second : L"";
+            }
             monster.skills.push_back(skill);
         }
         
@@ -2320,13 +2393,7 @@ void PacketParser::ProcessMonsterPacket(const GamePacket& packet) {
     jsData += L"]}";
     
     std::wstring jsCode = L"if(window.updateMonsterUI) { window.updateMonsterUI(" + jsData + L"); }";
-    wchar_t* pScript = new(std::nothrow) wchar_t[jsCode.length() + 1];
-    if (pScript) {
-        wcscpy_s(pScript, jsCode.length() + 1, jsCode.c_str());
-        if (!PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript)) {
-            delete[] pScript;
-        }
-    }
+    UIBridge::Instance().ExecuteJS(jsCode);
 }
 
 // ============================================================================

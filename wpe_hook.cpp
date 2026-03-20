@@ -8579,9 +8579,7 @@ void UpdateShuangTaiUIFromMonsterData() {
         + petName + L"', '" + skillName + L"', " + std::to_wstring(petCount) + L", true); }";
     
     if (g_hWnd) {
-        wchar_t* pScript = new wchar_t[jsScript.length() + 1];
-        wcscpy_s(pScript, jsScript.length() + 1, jsScript.c_str());
-        PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+        UIBridge::Instance().ExecuteJS(jsScript);
     }
     
     UIBridge::Instance().UpdateHelperText(L"双台谷：已读取 " + std::to_wstring(petCount) + L" 只妖怪，主宠: " + petName);

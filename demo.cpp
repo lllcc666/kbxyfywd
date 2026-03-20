@@ -174,7 +174,7 @@ bool LoadSpeedhackFromMemory() {
 }
 
 // 游戏静音状态跟踪
-bool g_isGameMuted = false;
+std::atomic<bool> g_isGameMuted{false};
 
 // 音频会话状态结构体
 struct ProgramAudioSessionState {
@@ -286,6 +286,22 @@ bool GetProgramAudioSession(IAudioSessionControl** ppSessionControl) {
     return false;
 }
 
+// 安全地发送JS脚本到UI线程（自动管理内存）
+bool PostScriptToUI(const std::wstring& jsCode) {
+    if (jsCode.empty() || !g_hWnd) return false;
+    
+    wchar_t* pScript = new(std::nothrow) wchar_t[jsCode.length() + 1];
+    if (!pScript) return false;
+    
+    wcscpy_s(pScript, jsCode.length() + 1, jsCode.c_str());
+    
+    if (!PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript)) {
+        delete[] pScript;
+        return false;
+    }
+    return true;
+}
+
 // 使用Windows Session Audio API只静音本程序
 bool ToggleProgramVolume() {
     HRESULT hr = S_OK;
@@ -350,9 +366,7 @@ bool ToggleProgramVolume() {
     jsCode += g_isGameMuted ? L"true" : L"false";
     jsCode += L"); }";
     
-    wchar_t* pScript = new wchar_t[jsCode.length() + 1];
-    wcscpy_s(pScript, jsCode.length() + 1, jsCode.c_str());
-    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+    PostScriptToUI(jsCode);
     
     return true;
 }
@@ -554,9 +568,7 @@ void CheckForUpdatesAsync() {
                 jsScript << L"}); }";
 
                 std::wstring script = jsScript.str();
-                wchar_t* pScript = new wchar_t[script.length() + 1];
-                wcscpy_s(pScript, script.length() + 1, script.c_str());
-                PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                PostScriptToUI(script);
             }
             
         } catch (const std::exception&) {
@@ -1090,10 +1102,27 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 // WebView2 环境创建完成回调类
 class CreateEnvironmentCompletedHandler : public ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler
 {
+private:
+    ULONG m_refCount;
 public:
-    ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
-    ULONG STDMETHODCALLTYPE Release() override { return 0; }
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override { return E_NOINTERFACE; }
+    CreateEnvironmentCompletedHandler() : m_refCount(1) {}
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_refCount); }
+    ULONG STDMETHODCALLTYPE Release() override { 
+        ULONG count = InterlockedDecrement(&m_refCount);
+        if (count == 0) {
+            delete this;
+        }
+        return count;
+    }
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override {
+        if (!ppvObject) return E_POINTER;
+        if (riid == IID_IUnknown || riid == IID_ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler) {
+            *ppvObject = this;
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
     
     HRESULT STDMETHODCALLTYPE Invoke(HRESULT result, ICoreWebView2Environment* env) override
     {
@@ -1109,10 +1138,27 @@ public:
         // WebView2 控制器创建完成回调类
         class CreateControllerCompletedHandler : public ICoreWebView2CreateCoreWebView2ControllerCompletedHandler
         {
+        private:
+            ULONG m_refCount;
         public:
-            ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
-            ULONG STDMETHODCALLTYPE Release() override { return 0; }
-            HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override { return E_NOINTERFACE; }
+            CreateControllerCompletedHandler() : m_refCount(1) {}
+            ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_refCount); }
+            ULONG STDMETHODCALLTYPE Release() override { 
+                ULONG count = InterlockedDecrement(&m_refCount);
+                if (count == 0) {
+                    delete this;
+                }
+                return count;
+            }
+            HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override {
+                if (!ppvObject) return E_POINTER;
+                if (riid == IID_IUnknown || riid == IID_ICoreWebView2CreateCoreWebView2ControllerCompletedHandler) {
+                    *ppvObject = this;
+                    AddRef();
+                    return S_OK;
+                }
+                return E_NOINTERFACE;
+            }
             
             HRESULT STDMETHODCALLTYPE Invoke(HRESULT result, ICoreWebView2Controller* controller) override
             {
@@ -1416,9 +1462,7 @@ public:
                                         if (!result) {
                                             // 发送失败，通知UI
                                             std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('封包发送失败：未连接到游戏服务器'); }";
-                                            wchar_t* pScript = new wchar_t[script.length() + 1];
-                                            wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                            PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                            PostScriptToUI(script);
                                         }
                                         delete pD;
                                         return 0;
@@ -1426,9 +1470,7 @@ public:
                                 } else {
                                     // 数据为空，通知UI
                                     std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('封包数据格式错误'); }";
-                                    wchar_t* pScript = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                    PostScriptToUI(script);
                                 }
                             } else if (msg.find(L"set_speed") != std::wstring::npos) {
                                 std::wstring speedStr = get_json_value(L"speed");
@@ -1476,9 +1518,7 @@ public:
                                         wchar_t msg[128];
                                         swprintf_s(msg, L"购买道具成功: %s x%u", itemName.c_str(), count);
                                         std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('" + std::wstring(msg) + L"'); }";
-                                        wchar_t* pScript = new wchar_t[script.length() + 1];
-                                        wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                        PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                        PostScriptToUI(script);
                                     }
                                 }
                             } else if (msg.find(L"use_item") != std::wstring::npos) {
@@ -1492,9 +1532,7 @@ public:
                                     // 检查是否在战斗中
                                     if (!g_battleStarted) {
                                         std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('使用道具需要在战斗中进行'); }";
-                                        wchar_t* pScript = new wchar_t[script.length() + 1];
-                                        wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                        PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                        PostScriptToUI(script);
                                     } else {
                                         // 先刷新背包，确保背包数据是最新的
                                         SendReqPackageDataPacket(0xFFFFFFFF);
@@ -1506,14 +1544,10 @@ public:
                                             wchar_t msg[128];
                                             swprintf_s(msg, L"使用道具: %s", itemName.c_str());
                                             std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('" + std::wstring(msg) + L"'); }";
-                                            wchar_t* pScript = new wchar_t[script.length() + 1];
-                                            wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                            PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                            PostScriptToUI(script);
                                         } else {
                                             std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('使用道具失败，背包中无此道具'); }";
-                                            wchar_t* pScript = new wchar_t[script.length() + 1];
-                                            wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                            PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                            PostScriptToUI(script);
                                         }
                                     }
                                 }
@@ -1534,22 +1568,16 @@ public:
                                 }
                                 if (SendOneKeyCollectPacket(flags)) {
                                     std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('一键采集已开始，请查看辅助日志'); }";
-                                    wchar_t* pScript = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                    PostScriptToUI(script);
                                 } else {
                                     std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('一键采集启动失败，可能已经在运行或未进入游戏'); }";
-                                    wchar_t* pScript = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                    PostScriptToUI(script);
                                 }
                             } else if (msg.find(L"buy_dice_18") != std::wstring::npos) {
                                 // 购买18个骰子
                                 if (SendBuyDicePacket()) {
                                     std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('已购买18个骰子'); }";
-                                    wchar_t* pScript = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                    PostScriptToUI(script);
                                 }
                             } else if (msg.find(L"buy_dice") != std::wstring::npos) {
                                 // 购买骰子
@@ -1561,14 +1589,10 @@ public:
                                 // 执行一键玄塔
                                 if (SendOneKeyTowerPacket()) {
                                     std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('一键玄塔已开始，请查看辅助日志'); }";
-                                    wchar_t* pScript = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                    PostScriptToUI(script);
                                 } else {
                                     std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('一键玄塔启动失败，可能已经在运行或未进入游戏'); }";
-                                    wchar_t* pScript = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                    PostScriptToUI(script);
                                 }
                             } else if (msg.find(L"query_shuangtai") != std::wstring::npos) {
                                 // 双台谷刷级 - 查询妖怪数据
@@ -1582,22 +1606,16 @@ public:
                                 
                                 if (SendOneKeyShuangTaiPacket(blockBattle)) {
                                     std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('双台谷刷级已开始，请查看辅助日志'); }";
-                                    wchar_t* pScript = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                    PostScriptToUI(script);
                                 } else {
                                     std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('双台谷刷级启动失败，请先点击查询按钮获取妖怪数据'); }";
-                                    wchar_t* pScript = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                    PostScriptToUI(script);
                                 }
                             } else if (msg.find(L"stop_shuangtai") != std::wstring::npos) {
                                 // 双台谷刷级 - 停止
                                 StopShuangTai();
                                 std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('双台谷刷级已停止'); }";
-                                wchar_t* pScript = new wchar_t[script.length() + 1];
-                                wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                PostScriptToUI(script);
                             } else if (msg.find(L"one_key_strawberry") != std::wstring::npos) {
                                 // 一键采摘红莓果
                                 std::wstring sweepStr = get_json_value(L"sweep");
@@ -1608,14 +1626,10 @@ public:
                                     std::wstring script = useSweep 
                                         ? L"if(window.updateHelperText) { window.updateHelperText('采摘红莓果已开始（扫荡模式），请查看辅助日志'); }"
                                         : L"if(window.updateHelperText) { window.updateHelperText('采摘红莓果已开始，请查看辅助日志'); }";
-                                    wchar_t* pScript = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                    PostScriptToUI(script);
                                 } else {
                                     std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('采摘红莓果启动失败，可能已经在运行或未进入游戏'); }";
-                                    wchar_t* pScript = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                    PostScriptToUI(script);
                                 }
                             } else if (msg.find(L"battlesix_auto_match") != std::wstring::npos) {
                                 // 万妖盛会 - 自动匹配（异步执行，避免卡顿）
@@ -1635,9 +1649,7 @@ public:
                                 wchar_t startMsg[128];
                                 swprintf_s(startMsg, L"万妖盛会：开始匹配（共%d次）...", matchCount);
                                 std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('" + std::wstring(startMsg) + L"'); }";
-                                wchar_t* pScript = new wchar_t[script.length() + 1];
-                                wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                PostScriptToUI(script);
                                 
                                 // 异步执行匹配（通过堆分配传递参数）
                                 int* pMatchCount = new int(matchCount);
@@ -1654,14 +1666,10 @@ public:
                                 g_battleSixAuto.SetMatchCount(0);
                                 if (SendCancelBattleSixPacket()) {
                                     std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('万妖盛会：已取消匹配'); }";
-                                    wchar_t* pScript = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                    PostScriptToUI(script);
                                 } else {
                                     std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('万妖盛会：取消匹配失败'); }";
-                                    wchar_t* pScript = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                    PostScriptToUI(script);
                                 }
                             } else if (msg.find(L"battlesix_set_auto_battle") != std::wstring::npos) {
                                 // 万妖盛会 - 设置自动战斗
@@ -1674,16 +1682,12 @@ public:
                                 
                                 // 调试输出：显示实际接收到的消息
                                 std::wstring debugScript = L"if(window.updateHelperText) { window.updateHelperText('调试：enabled=[" + enabledStr + L"] parsed=" + (enabled ? L"true" : L"false") + L"'); }";
-                                wchar_t* pDebugScript = new wchar_t[debugScript.length() + 1];
-                                wcscpy_s(pDebugScript, debugScript.length() + 1, debugScript.c_str());
-                                PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pDebugScript);
+                                PostScriptToUI(debugScript);
                                 
                                 std::wstring script = enabled 
                                     ? L"if(window.updateHelperText) { window.updateHelperText('万妖盛会：自动战斗已启用'); }"
                                     : L"if(window.updateHelperText) { window.updateHelperText('万妖盛会：自动战斗已禁用'); }";
-                                wchar_t* pScript = new wchar_t[script.length() + 1];
-                                wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                PostScriptToUI(script);
                             } else if (msg.find(L"dungeon_jump_start") != std::wstring::npos) {
                                 // 副本跳层 - 开始
                                 std::wstring layerStr = get_json_value(L"targetLayer");
@@ -1700,9 +1704,7 @@ public:
                                 
                                 // 更新UI状态
                                 std::wstring startScript = L"if(window.updateDungeonJumpStatus) { window.updateDungeonJumpStatus('副本跳层：准备跳转到第" + std::to_wstring(targetLayer) + L"层...'); }";
-                                wchar_t* pStartScript = new wchar_t[startScript.length() + 1];
-                                wcscpy_s(pStartScript, startScript.length() + 1, startScript.c_str());
-                                PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pStartScript);
+                                PostScriptToUI(startScript);
                                 
                                 // 异步执行副本跳层
                                 int* pTargetLayer = new int(targetLayer);
@@ -1717,9 +1719,7 @@ public:
                                 // 副本跳层 - 停止
                                 StopDungeonJump();
                                 std::wstring script = L"if(window.updateDungeonJumpStatus) { window.updateDungeonJumpStatus('副本跳层：已停止'); }";
-                                wchar_t* pScript = new wchar_t[script.length() + 1];
-                                wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                PostScriptToUI(script);
                             } else if (msg.find(L"one_key_act778") != std::wstring::npos) {
                                 // 一键驱傩聚福寿
                                 std::wstring sweepStr = get_json_value(L"sweep");
@@ -1730,14 +1730,10 @@ public:
                                     std::wstring script = useSweep 
                                         ? L"if(window.updateHelperText) { window.updateHelperText('驱傩聚福寿已开始（扫荡模式），请查看辅助日志'); }"
                                         : L"if(window.updateHelperText) { window.updateHelperText('驱傩聚福寿已开始（最高分模式），请查看辅助日志'); }";
-                                    wchar_t* pScript778 = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript778, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript778);
+                                    PostScriptToUI(script);
                                 } else {
                                     std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('驱傩聚福寿启动失败'); }";
-                                    wchar_t* pScript778_err = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript778_err, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript778_err);
+                                    PostScriptToUI(script);
                                 }
                             } else if (msg.find(L"one_key_act793") != std::wstring::npos) {
                                 // 一键磐石御天火
@@ -1763,14 +1759,10 @@ public:
                                     std::wstring script = useSweep 
                                         ? L"if(window.updateHelperText) { window.updateHelperText('磐石御天火已开始（扫荡模式），请查看辅助日志'); }"
                                         : L"if(window.updateHelperText) { window.updateHelperText('磐石御天火已开始（游戏模式），请查看辅助日志'); }";
-                                    wchar_t* pScript793 = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript793, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript793);
+                                    PostScriptToUI(script);
                                 } else {
                                     std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('磐石御天火启动失败'); }";
-                                    wchar_t* pScript793_err = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript793_err, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript793_err);
+                                    PostScriptToUI(script);
                                 }
                             } else if (msg.find(L"one_key_act791") != std::wstring::npos) {
                                 // 一键五行镜破封印
@@ -1796,14 +1788,10 @@ public:
                                     std::wstring script = useSweep 
                                         ? L"if(window.updateHelperText) { window.updateHelperText('五行镜破封印已开始（扫荡模式），请查看辅助日志'); }"
                                         : L"if(window.updateHelperText) { window.updateHelperText('五行镜破封印已开始（游戏模式），请查看辅助日志'); }";
-                                    wchar_t* pScript791 = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript791, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript791);
+                                    PostScriptToUI(script);
                                 } else {
                                     std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('五行镜破封印启动失败'); }";
-                                    wchar_t* pScript791_err = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript791_err, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript791_err);
+                                    PostScriptToUI(script);
                                 }
                             } else if (msg.find(L"start_heaven_furui") != std::wstring::npos) {
                                 // 开始福瑞宝箱
@@ -1818,22 +1806,16 @@ public:
                                 }
                                 if (SendOneKeyHeavenFuruiPacket(maxBoxes)) {
                                     std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('福瑞宝箱：开始遍历地图查找宝箱...'); }";
-                                    wchar_t* pScript = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                    PostScriptToUI(script);
                                 } else {
                                     std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('福瑞宝箱启动失败'); }";
-                                    wchar_t* pScript = new wchar_t[script.length() + 1];
-                                    wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                    PostScriptToUI(script);
                                 }
                             } else if (msg.find(L"stop_heaven_furui") != std::wstring::npos) {
                                 // 停止福瑞宝箱
                                 StopHeavenFurui();
                                 std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('福瑞宝箱：已停止'); }";
-                                wchar_t* pScript = new wchar_t[script.length() + 1];
-                                wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                PostScriptToUI(script);
                             } else if (msg.find(L"decompose_lingyu") != std::wstring::npos) {
                                 // 检查是否为批量分解
                                 if (msg.find(L"decompose_lingyu_batch") != std::wstring::npos) {
@@ -1882,14 +1864,10 @@ public:
                                 if (!filePathW.empty()) {
                                     if (SavePacketListToFile(filePathW)) {
                                         std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('封包列表已保存到：" + filePathW + L"'); }";
-                                        wchar_t* pScript = new wchar_t[script.length() + 1];
-                                        wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                        PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                        PostScriptToUI(script);
                                     } else {
                                         std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('保存封包列表失败'); }";
-                                        wchar_t* pScript = new wchar_t[script.length() + 1];
-                                        wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                        PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                        PostScriptToUI(script);
                                     }
                                 }
                             } else if (msg.find(L"load_packet_list") != std::wstring::npos) {
@@ -1899,14 +1877,10 @@ public:
                                     if (LoadPacketListFromFile(filePathW)) {
                                         SyncPacketsToUI();
                                         std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('封包列表已从 " + filePathW + L" 载入'); }";
-                                        wchar_t* pScript = new wchar_t[script.length() + 1];
-                                        wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                        PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                        PostScriptToUI(script);
                                     } else {
                                         std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('载入封包列表失败'); }";
-                                        wchar_t* pScript = new wchar_t[script.length() + 1];
-                                        wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                        PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                        PostScriptToUI(script);
                                     }
                                 }
                             } else if (msg.find(L"send_all_packets") != std::wstring::npos) {
@@ -1943,20 +1917,12 @@ public:
                                             
                                             script += L"'); }";
                                             
-                                            wchar_t* pScript = new(std::nothrow) wchar_t[script.length() + 1];
-                                            if (pScript) {
-                                                wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                                PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
-                                            }
+                                    PostScriptToUI(script);
                                         });
                                     
                                     // 发送完成，更新辅助提示
                                     std::wstring completeScript = L"if(window.updateHelperText) { window.updateHelperText('封包发送完成'); }";
-                                    wchar_t* pCompleteScript = new(std::nothrow) wchar_t[completeScript.length() + 1];
-                                    if (pCompleteScript) {
-                                        wcscpy_s(pCompleteScript, completeScript.length() + 1, completeScript.c_str());
-                                        PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pCompleteScript);
-                                    }
+                                    PostScriptToUI(completeScript);
                                 }).detach();
                             } else if (msg.find(L"stop_send") != std::wstring::npos) {
                                 // 停止发送封包
@@ -1964,11 +1930,7 @@ public:
                                 
                                 // 更新辅助提示
                                 std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('已停止发送封包'); }";
-                                wchar_t* pScript = new(std::nothrow) wchar_t[script.length() + 1];
-                                if (pScript) {
-                                    wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                    PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
-                                }
+                                PostScriptToUI(script);
                             } else if (msg.find(L"enter_boss_battle") != std::wstring::npos) {
                                 // 进入BOSS战斗
                                 // UI发送的是bossId字段
@@ -1981,20 +1943,14 @@ public:
                                         uint8_t extraParam = 0;
                                         if (SendBattlePacket(spiritId, useId, extraParam)) {
                                             std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('已发送BOSS战斗封包，ID: " + std::to_wstring(spiritId) + L", useId: " + std::to_wstring(useId) + L"'); }";
-                                            wchar_t* pScript = new wchar_t[script.length() + 1];
-                                            wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                            PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                            PostScriptToUI(script);
                                         } else {
                                             std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('发送战斗封包失败，未连接游戏服务器'); }";
-                                            wchar_t* pScript = new wchar_t[script.length() + 1];
-                                            wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                            PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                            PostScriptToUI(script);
                                         }
                                     } else {
                                         std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('无效的对象ID，必须大于10000'); }";
-                                        wchar_t* pScript = new wchar_t[script.length() + 1];
-                                        wcscpy_s(pScript, script.length() + 1, script.c_str());
-                                        PostMessage(g_hWnd, WM_EXECUTE_JS, 0, (LPARAM)pScript);
+                                        PostScriptToUI(script);
                                     }
                                 }
                             }
