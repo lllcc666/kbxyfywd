@@ -259,7 +259,7 @@
             gap: 0;
             overflow-x: hidden;
             overflow-y: hidden;
-            justify-content: space-between;
+            justify-content: flex-start;
         }
         
         /* 内容区域 - 固定高度，留出辅助提示空间 */
@@ -281,6 +281,8 @@
             gap: 8px;
             margin-left: auto;
             align-items: center;
+            flex-wrap: nowrap;
+            flex: 0 0 auto;
             padding: 0 8px;
         }
         
@@ -297,8 +299,11 @@
             padding: 0 8px;
             transition: background-color 0.1s linear;
             position: relative;
+            flex: 0 0 auto;
             min-width: fit-content;
             white-space: nowrap;
+            justify-content: center;
+            color: var(--color-text-primary);
         }
         
         .tab-action-button:hover {
@@ -308,41 +313,62 @@
         .tab-action-button:active {
             background: var(--color-background-secondary);
         }
+
+        .tab-action-button:disabled {
+            cursor: default;
+            opacity: 0.7;
+        }
+
+        .tab-action-label {
+            display: inline-flex;
+            align-items: center;
+            font-size: 9px;
+            font-weight: 500;
+            line-height: 1;
+            color: inherit;
+        }
         
         /* 图标样式 */
+        .icon-copy,
+        .icon-key,
         .icon-refresh,
         .icon-refresh-nologin,
-        .icon-mute {
-            display: inline-block;
-            width: 14px;
-            height: 14px;
+        .icon-mute,
+        .icon-clear-cache {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 13px;
+            width: 13px;
+            height: 13px;
             position: relative;
+            color: inherit;
         }
-        
-        /* 刷新游戏图标 - 标准刷新图标 */
-        .icon-refresh {
-            position: relative;
-            display: inline-block;
-            width: 14px;
-            height: 14px;
+
+        .icon-copy svg,
+        .icon-key svg,
+        .icon-refresh svg,
+        .icon-refresh-nologin svg,
+        .icon-mute svg,
+        .icon-clear-cache svg {
+            display: block;
+            width: 13px;
+            height: 13px;
+            overflow: visible;
         }
-        
-        .icon-refresh svg {
-            width: 14px;
-            height: 14px;
+
+        .icon-copy svg *,
+        .icon-key svg *,
+        .icon-refresh svg *,
+        .icon-refresh-nologin svg *,
+        .icon-mute svg *,
+        .icon-clear-cache svg * {
             fill: none;
-            stroke: var(--color-text-secondary);
+            stroke: currentColor;
             stroke-width: 1.5;
             stroke-linecap: round;
             stroke-linejoin: round;
-        }
-        
-        .icon-refresh svg path {
-            stroke: var(--color-text-secondary);
-        }
-        
-        .icon-refresh svg path:nth-child(2) {
-            stroke: var(--color-primary);
+            vector-effect: non-scaling-stroke;
         }
         
         /* 鼠标悬停时旋转动画 */
@@ -350,49 +376,15 @@
             animation: rotate 1s linear infinite;
         }
         
-        /* 不换号刷新图标 - 刷新图标 + 锁定符号 */
-        .icon-refresh-nologin {
-            position: relative;
-            display: inline-block;
-            width: 14px;
-            height: 14px;
-        }
-        
-        .icon-refresh-nologin svg {
-            width: 14px;
-            height: 14px;
-            fill: none;
-            stroke: var(--color-text-secondary);
-            stroke-width: 1.5;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-        }
-        
-        /* 游戏静音图标 - 扬声器图标 */
-        .icon-mute {
-            position: relative;
-            display: inline-block;
-            width: 14px;
-            height: 14px;
-        }
-        
-        .icon-mute svg {
-            width: 14px;
-            height: 14px;
-            fill: none;
-            stroke: var(--color-text-secondary);
-            stroke-width: 1.5;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-        }
-        
         /* 静音状态样式 */
-        .tab-action-button.muted .icon-mute svg path {
-            fill: var(--color-primary);
-        }
-        
-        .tab-action-button.muted #mute-text {
+        .tab-action-button.muted,
+        .tab-action-button.cache-clearing,
+        .tab-action-button.cache-cleared {
             color: var(--color-primary);
+        }
+
+        .tab-action-button.cache-clear-failed {
+            color: #c62828;
         }
         
         /* 旋转动画 */
@@ -408,25 +400,30 @@
         
         /* 调整图标按钮大小 */
         .tab-action-button {
-            width: 22px;
+            width: auto;
+            min-width: 22px;
             height: 22px;
-            padding: 0;
+            gap: 2px;
+            padding: 0 4px;
         }
         
         /* 调整图标大小 */
+        .icon-copy svg,
+        .icon-key svg,
         .icon-refresh svg,
         .icon-refresh-nologin svg,
-        .icon-mute svg {
-            width: 12px;
-            height: 12px;
+        .icon-mute svg,
+        .icon-clear-cache svg {
+            width: 13px;
+            height: 13px;
         }
         
         /* 调整图标按钮容器 */
         .tab-actions {
-            padding: 0 4px;
-            gap: 2px;
+            padding: 0 1px;
+            gap: 0;
         }
-        .tab-button { flex: 0 0 auto; padding: var(--spacing-sm) var(--spacing-lg); border: none; border-radius: 0; background: transparent; color: var(--color-text-secondary); font-size: 11px; font-weight: 400; cursor: pointer; transition: all var(--duration-normal) var(--easing-standard); position: relative; outline: none; opacity: 0; transform: translateY(-4px); animation: slideUp var(--duration-normal) var(--easing-enter) forwards; margin-bottom: -1px; min-width: 90px; text-align: center; } /* 减小字体大小、内边距和最小宽度 */
+        .tab-button { flex: 0 0 auto; padding: var(--spacing-sm) 12px; border: none; border-radius: 0; background: transparent; color: var(--color-text-secondary); font-size: 10.5px; font-weight: 400; cursor: pointer; transition: all var(--duration-normal) var(--easing-standard); position: relative; outline: none; opacity: 0; transform: translateY(-4px); animation: slideUp var(--duration-normal) var(--easing-enter) forwards; margin-bottom: -1px; min-width: 78px; text-align: center; } /* 调整标签页宽度，保证右侧按钮组完整显示 */
         .tab-button:nth-child(1) { animation-delay: 0.1s; }
         .tab-button:nth-child(2) { animation-delay: 0.15s; }
         .tab-button:nth-child(3) { animation-delay: 0.2s; }
@@ -723,7 +720,7 @@
         }
 
         .spirit-giving-actions .btn {
-            font-size: 8px;
+            font-size: 8.5px;
             padding: 2px 6px;
             min-height: 22px;
             margin: 0;
@@ -734,7 +731,7 @@
             display: flex;
             flex-wrap: nowrap;
             gap: 4px 6px;
-            font-size: 9px;
+            font-size: 9.5px;
             color: var(--color-text-secondary);
             padding: 0;
             background: transparent;
@@ -829,7 +826,7 @@
             flex: 1 1 auto;
             min-width: 0;
             display: block;
-            font-size: 9px;
+            font-size: 9.5px;
             font-weight: 700;
             color: var(--color-text-primary);
             line-height: 1.25;
@@ -845,7 +842,7 @@
             background: rgba(0, 120, 212, 0.1);
             color: var(--color-primary);
             font-weight: 700;
-            font-size: 8px;
+            font-size: 8.5px;
             line-height: 1.2;
             white-space: nowrap;
         }
@@ -866,7 +863,7 @@
             border-radius: 999px;
             background: rgba(0, 0, 0, 0.04);
             color: var(--color-text-secondary);
-            font-size: 8px;
+            font-size: 8.5px;
             line-height: 1.2;
             white-space: nowrap;
             overflow: hidden;
@@ -877,7 +874,7 @@
             display: flex;
             flex-direction: column;
             gap: 1px;
-            font-size: 8px;
+            font-size: 8.5px;
             color: var(--color-text-secondary);
             line-height: 1.3;
         }
@@ -890,7 +887,7 @@
         }
 
         .spirit-selected-line {
-            font-size: 10px;
+            font-size: 10.5px;
             color: var(--color-text-secondary);
             padding: 5px 7px;
             background: #e8f4fd;
@@ -911,14 +908,14 @@
             min-width: 0;
             border-radius: 6px;
             border: 1px solid var(--color-border);
-            font-size: 9px;
+            font-size: 9.5px;
             padding: 4px 6px;
             height: 26px;
             box-sizing: border-box;
         }
 
         .spirit-status-line {
-            font-size: 9px;
+            font-size: 9.5px;
             color: var(--color-text-tertiary);
             min-height: 16px;
             padding: 2px 2px 0;
@@ -948,7 +945,7 @@
         }
 
         .spirit-record-subtitle {
-            font-size: 9px;
+            font-size: 9.5px;
             color: var(--color-text-tertiary);
         }
 
@@ -960,7 +957,7 @@
             border: 1px solid var(--color-border);
             border-radius: 6px;
             padding: 8px;
-            font-size: 10px;
+            font-size: 10.5px;
             line-height: 1.45;
             color: var(--color-text-secondary);
             white-space: pre-wrap;
@@ -968,7 +965,7 @@
         }
 
         .spirit-send-label {
-            font-size: 9px;
+            font-size: 9.5px;
             color: var(--color-text-secondary);
             min-width: 38px;
             line-height: 1.25;
@@ -979,7 +976,7 @@
             min-width: 84px;
             min-height: 26px;
             margin: 0;
-            font-size: 9px;
+            font-size: 9.5px;
             padding: 4px 8px;
             white-space: nowrap;
         }
@@ -1385,56 +1382,76 @@
                 <button class="tab-action-button" id="copy-key" title="复制登录Key">
                     <span class="icon-copy">
                         <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M4 2a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-2v2a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm2 8h4a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1zM4 4v8a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-1H7a2 2 0 0 1-2-2V4H4z" fill="var(--color-text-primary)"/>
+                            <rect x="5" y="3" width="8" height="9" rx="1.6"/>
+                            <path d="M10 12H4.5A1.5 1.5 0 0 1 3 10.5V4.8A1.8 1.8 0 0 1 4.8 3H5"/>
                         </svg>
                     </span>
-                    <span style="font-size: 9px; font-weight: 500; color: var(--color-text-primary);">复制Key</span>
+                    <span class="tab-action-label">复制Key</span>
                 </button>
 
                 <!-- Key登录按钮 -->
                 <button class="tab-action-button" id="key-login" title="使用Key登录">
                     <span class="icon-key">
                         <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M8 1a4 4 0 0 0-4 4 4 4 0 0 0 3.5 3.97V11h-1a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-2.03A4 4 0 0 0 12 5a4 4 0 0 0-4-4zm0 1a3 3 0 0 1 3 3 3 3 0 0 1-3 3 3 3 0 0 1-3-3 3 3 0 0 1 3-3z" fill="var(--color-text-primary)"/>
+                            <circle cx="5.2" cy="8" r="2.4"/>
+                            <path d="M7.6 8h5.4"/>
+                            <path d="M10.2 8v2"/>
+                            <path d="M12 8v1.3"/>
                         </svg>
                     </span>
-                    <span style="font-size: 9px; font-weight: 500; color: var(--color-text-primary);">Key登录</span>
+                    <span class="tab-action-label">Key登录</span>
                 </button>
 
                 <!-- 刷新游戏按钮 - 双箭头刷新图标 -->
                 <button class="tab-action-button" id="refresh-game" title="刷新游戏">
                     <span class="icon-refresh">
                         <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-                            <!-- 双箭头刷新图标 -->
-                            <path d="M2.5 8a5.5 5.5 0 0 1 9-4.15L10.5 5H8V2h5v5h-3V4.5A4.5 4.5 0 0 0 3.5 8h-1zm11 0a5.5 5.5 0 0 1-9 4.15L5.5 11H8v3H3v-5h3v2.5A4.5 4.5 0 0 0 12.5 8h1z" fill="var(--color-text-primary)"/>
+                            <path d="M12.5 5.7A4.8 4.8 0 0 0 4.3 4.2"/>
+                            <path d="M3.5 1.9v3.3h3.3"/>
+                            <path d="M3.5 10.3A4.8 4.8 0 0 0 11.7 11.8"/>
+                            <path d="M12.5 14.1v-3.3H9.2"/>
                         </svg>
                     </span>
-                    <span style="font-size: 9px; font-weight: 500; color: var(--color-text-primary);">刷新游戏</span>
+                    <span class="tab-action-label">刷新游戏</span>
                 </button>
 
                 <!-- 不换号刷新按钮 - 刷新+锁定组合图标 -->
                 <button class="tab-action-button" id="refresh-no-login" title="不换号刷新">
                     <span class="icon-refresh-nologin">
                         <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-                            <!-- 刷新图标 -->
-                            <path d="M2.5 8a5.5 5.5 0 0 1 9-4.15L10.5 5H8V2h5v5h-3V4.5A4.5 4.5 0 0 0 3.5 8h-1zm11 0a5.5 5.5 0 0 1-9 4.15L5.5 11H8v3H3v-5h3v2.5A4.5 4.5 0 0 0 12.5 8h1z" fill="var(--color-text-primary)" opacity="0.8"/>
-                            <!-- 锁图标 -->
-                            <rect x="6" y="7" width="4" height="5" rx="0.5" fill="var(--color-primary)"/>
-                            <path d="M7 7V5a1 1 0 0 1 2 0v2h-2z" fill="var(--color-primary)"/>
+                            <path d="M10.4 5A4.4 4.4 0 0 0 3.9 4"/>
+                            <path d="M3.2 2.6v3h3"/>
+                            <path d="M10.2 8.8h2.6a.8.8 0 0 1 .8.8v1.9a.8.8 0 0 1-.8.8h-2.6a.8.8 0 0 1-.8-.8V9.6a.8.8 0 0 1 .8-.8z"/>
+                            <path d="M10.3 8.8V7.9a1.2 1.2 0 0 1 2.4 0v.9"/>
                         </svg>
                     </span>
-                    <span style="font-size: 9px; font-weight: 500; color: var(--color-text-primary);">不换号刷新</span>
+                    <span class="tab-action-label">不换号刷新</span>
                 </button>
                 
                 <!-- 游戏静音按钮 - 喇叭+斜杠静音图标 -->
                 <button class="tab-action-button" id="mute-game" title="游戏静音/恢复">
                     <span class="icon-mute">
                         <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-                            <!-- 喇叭图标 -->
-                            <path d="M3 5v6h2l4 4V1L5 5H3zm5.5 3A3.5 3.5 0 0 1 7 8.5V7.5c0-.83.34-1.58.88-2.12l-.71-.71A4.5 4.5 0 0 0 6 7.5v1a4.5 4.5 0 0 0 2.17 3.83l.71-.71A3.5 3.5 0 0 1 8.5 8zm3.5 0a6 6 0 0 1-2.83 5.12l.71.71A7 7 0 0 0 13 8h-1zm-7-3l-1-1L1 6l9 9 3-3-1-1-2 2-5-5 2-2z" fill="var(--color-text-primary)" id="mute-icon-path"/>
+                            <path d="M2.8 9H5l3 2.4V4.6L5 7H2.8z"/>
+                            <path d="M10.3 6.6c.6.3 1 .8 1 1.4s-.4 1.1-1 1.4"/>
+                            <path d="M9.8 5.2l3.7 5.6"/>
                         </svg>
                     </span>
-                    <span id="mute-text" style="font-size: 9px; font-weight: 500; color: var(--color-text-primary);">游戏静音</span>
+                    <span class="tab-action-label" id="mute-text">游戏静音</span>
+                </button>
+
+                <!-- 清理 IE 缓存按钮 -->
+                <button class="tab-action-button" id="clear-ie-cache" title="清理 IE 浏览器缓存">
+                    <span class="icon-clear-cache">
+                        <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M4 4.6h8"/>
+                            <path d="M6.1 4.6l.5-1.6h2.8l.5 1.6"/>
+                            <path d="M5.2 6.2l.6 6h4.4l.6-6"/>
+                            <path d="M7 7.2v3.4"/>
+                            <path d="M9 7.2v3.4"/>
+                        </svg>
+                    </span>
+                    <span class="tab-action-label" id="clear-cache-text">清理缓存</span>
                 </button>
             </div>
         </div>
@@ -1741,42 +1758,42 @@
                         <!-- 每日模块 -->
                         <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; min-width: 140px;">
                             <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">每日</div>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2px;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2px 4px;">
                                 <!-- 第一列 -->
-                                <label style="display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9px;">
-                                    <input type="checkbox" id="daily-deep-dig" checked style="width: 10px; height: 10px;">
+                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
+                                    <input type="checkbox" id="daily-deep-dig" checked style="width: 11px; height: 11px;">
                                     <span>深度挖宝</span>
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9px;">
-                                    <input type="checkbox" id="family-checkin" checked style="width: 10px; height: 10px;">
+                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
+                                    <input type="checkbox" id="family-checkin" checked style="width: 11px; height: 11px;">
                                     <span>家族考勤</span>
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9px;">
-                                    <input type="checkbox" id="daily-card" checked style="width: 10px; height: 10px;">
+                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
+                                    <input type="checkbox" id="daily-card" checked style="width: 11px; height: 11px;">
                                     <span>每日卡牌</span>
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9px;">
-                                    <input type="checkbox" id="family-report" checked style="width: 10px; height: 10px;">
+                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
+                                    <input type="checkbox" id="family-report" checked style="width: 11px; height: 11px;">
                                     <span>家族报道</span>
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9px;">
-                                    <input type="checkbox" id="daily-gift" checked style="width: 10px; height: 10px;">
+                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
+                                    <input type="checkbox" id="daily-gift" checked style="width: 11px; height: 11px;">
                                     <span>每日礼包</span>
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9px;">
-                                    <input type="checkbox" id="family-defend" checked style="width: 10px; height: 10px;">
+                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
+                                    <input type="checkbox" id="family-defend" checked style="width: 11px; height: 11px;">
                                     <span>家族保卫</span>
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9px;">
-                                    <input type="checkbox" id="weekly-gift" checked style="width: 10px; height: 10px;">
+                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
+                                    <input type="checkbox" id="weekly-gift" checked style="width: 11px; height: 11px;">
                                     <span>每周礼包</span>
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9px;">
-                                    <input type="checkbox" id="shop-surprise" checked style="width: 10px; height: 10px;">
+                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
+                                    <input type="checkbox" id="shop-surprise" checked style="width: 11px; height: 11px;">
                                     <span>商城惊喜</span>
                                 </label>
                             </div>
-                            <button id="complete-daily-tasks" class="btn btn-primary" style="font-size: 9px; padding: 3px 8px; margin-top: auto;">一键完成</button>
+                            <button id="complete-daily-tasks" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px; margin-top: auto;">一键完成</button>
                         </div>
                         
                         <!-- 分隔线 -->
@@ -1786,20 +1803,20 @@
                         <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; min-width: 90px;">
                             <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">试炼</div>
                             <div style="display: flex; flex-direction: column; gap: 2px;">
-                                <label style="display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9px;">
-                                    <input type="checkbox" id="daily-fire-wind" style="width: 10px; height: 10px;">
+                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
+                                    <input type="checkbox" id="daily-fire-wind" style="width: 11px; height: 11px;">
                                     <span>火风试炼</span>
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9px;">
-                                    <input type="checkbox" id="daily-fire" style="width: 10px; height: 10px;">
+                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
+                                    <input type="checkbox" id="daily-fire" style="width: 11px; height: 11px;">
                                     <span>火焰试炼</span>
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9px;">
-                                    <input type="checkbox" id="daily-storm" style="width: 10px; height: 10px;">
+                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
+                                    <input type="checkbox" id="daily-storm" style="width: 11px; height: 11px;">
                                     <span>风暴试炼</span>
                                 </label>
                             </div>
-                            <button id="complete-trial-tasks" class="btn btn-primary" style="font-size: 9px; padding: 3px 8px; margin-top: auto;">一键试炼</button>
+                            <button id="complete-trial-tasks" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px; margin-top: auto;">一键试炼</button>
                         </div>
                         
                         <!-- 分隔线 -->
@@ -1808,12 +1825,12 @@
                         <!-- 跳舞大赛模块 -->
                         <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; min-width: 80px;">
                             <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">跳舞大赛</div>
-                            <label style="display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9px;">
-                                <input type="checkbox" id="daily-dance" style="width: 10px; height: 10px;">
+                            <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
+                                <input type="checkbox" id="daily-dance" style="width: 11px; height: 11px;">
                                 <span>自动跳舞</span>
                             </label>
                             <div style="font-size: 9px; color: var(--color-text-secondary);">已完成: <span id="dance-count" style="color: var(--color-primary); font-weight: 600;">0</span>/3 次</div>
-                            <button id="complete-dance-tasks" class="btn btn-primary" style="font-size: 9px; padding: 3px 6px; margin-top: auto;">一键跳舞</button>
+                            <button id="complete-dance-tasks" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 6px; margin-top: auto;">一键跳舞</button>
                         </div>
                         
                         <!-- 分隔线 -->
@@ -1823,15 +1840,15 @@
                         <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; min-width: 80px;">
                             <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">玄塔</div>
                             <div style="display: flex; flex-direction: column; gap: 3px;">
-                                <button id="one-key-xuantta" class="btn btn-primary" style="font-size: 9px; padding: 3px 6px;">一键玄塔</button>
-                                <button id="buy-dice-18" class="btn btn-secondary" style="font-size: 9px; padding: 3px 6px;">购买18骰子</button>
+                                <button id="one-key-xuantta" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 6px;">一键玄塔</button>
+                                <button id="buy-dice-18" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 6px;">购买18骰子</button>
                                 <div style="display: flex; align-items: center; gap: 4px; margin-top: 2px;">
                                     <input type="checkbox" id="auto-go-home" style="width: 12px; height: 12px; cursor: pointer;" onchange="toggleAutoGoHome(this.checked)">
-                                    <label for="auto-go-home" style="font-size: 9px; color: var(--color-text-secondary); cursor: pointer; user-select: none;">自动回家</label>
+                                    <label for="auto-go-home" style="font-size: 9.5px; color: var(--color-text-secondary); cursor: pointer; user-select: none;">自动回家</label>
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 4px;">
                                     <input type="checkbox" id="block-battle" style="width: 12px; height: 12px; cursor: pointer;" onchange="toggleBlockBattle(this.checked)">
-                                    <label for="block-battle" style="font-size: 9px; color: var(--color-text-secondary); cursor: pointer; user-select: none;">屏蔽战斗</label>
+                                    <label for="block-battle" style="font-size: 9.5px; color: var(--color-text-secondary); cursor: pointer; user-select: none;">屏蔽战斗</label>
                                 </div>
                             </div>
                         </div>
@@ -1842,16 +1859,16 @@
                         <!-- 福瑞宝箱模块 -->
                         <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; min-width: 120px;">
                             <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">福瑞宝箱</div>
-                            <div style="font-size: 8px; color: var(--color-text-tertiary);">自动福瑞 11:00-13:00 / 17:00-19:00</div>
+                            <div style="font-size: 8.5px; color: var(--color-text-secondary);">自动福瑞 11:00-13:00 / 17:00-19:00</div>
                             <div style="display: flex; align-items: center; gap: 4px;">
-                                <label style="font-size: 9px; color: var(--color-text-secondary);">目标:</label>
-                                <input type="number" id="heaven-furui-max" value="30" min="1" max="30" style="width: 40px; font-size: 9px; padding: 2px 4px; border: 1px solid var(--color-border); border-radius: 2px;">
-                                <span style="font-size: 9px; color: var(--color-text-secondary);">个</span>
+                                <label style="font-size: 9.5px; color: var(--color-text-secondary);">目标:</label>
+                                <input type="number" id="heaven-furui-max" value="30" min="1" max="30" style="width: 40px; font-size: 9.5px; padding: 2px 4px; border: 1px solid var(--color-border); border-radius: 2px;">
+                                <span style="font-size: 9.5px; color: var(--color-text-secondary);">个</span>
                             </div>
-                            <div style="font-size: 9px; color: var(--color-text-secondary);">已拾取: <span id="heaven-furui-count" style="color: var(--color-primary); font-weight: 600;">0</span>/<span id="heaven-furui-target">30</span></div>
+                            <div style="font-size: 9.5px; color: var(--color-text-secondary);">已拾取: <span id="heaven-furui-count" style="color: var(--color-primary); font-weight: 600;">0</span>/<span id="heaven-furui-target">30</span></div>
                             <div style="display: flex; gap: 4px;">
-                                <button id="start-heaven-furui" class="btn btn-primary" style="font-size: 9px; padding: 3px 6px; flex: 1;">开始</button>
-                                <button id="stop-heaven-furui" class="btn btn-secondary" style="font-size: 9px; padding: 3px 6px; flex: 1;" disabled>停止</button>
+                                <button id="start-heaven-furui" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;">开始</button>
+                                <button id="stop-heaven-furui" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;" disabled>停止</button>
                             </div>
                         </div>
                         
@@ -1861,19 +1878,19 @@
                         <!-- 坐骑大赛模块 (Act665) -->
                         <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; min-width: 140px;">
                             <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">坐骑大赛</div>
-                            <div style="font-size: 8px; color: var(--color-text-tertiary);">多人竞速小游戏 每日50点上限</div>
-                            <div style="font-size: 9px; color: var(--color-text-secondary);">模式: 自动刷满每日骑乘点（固定临时坐骑）</div>
-                            <div style="font-size: 9px; color: var(--color-text-secondary);">可获得积分: <span id="horse-competition-points" style="color: var(--color-primary); font-weight: 600;">--</span></div>
-                            <div style="font-size: 9px; color: var(--color-text-secondary);">状态: <span id="horse-competition-status" style="color: var(--color-text-tertiary);">就绪</span></div>
+                            <div style="font-size: 8.5px; color: var(--color-text-secondary);">多人竞速小游戏 每日50点上限</div>
+                            <div style="font-size: 9.5px; color: var(--color-text-secondary);">模式: 自动刷满每日骑乘点（固定临时坐骑）</div>
+                            <div style="font-size: 9.5px; color: var(--color-text-secondary);">可获得积分: <span id="horse-competition-points" style="color: var(--color-primary); font-weight: 600;">--</span></div>
+                            <div style="font-size: 9.5px; color: var(--color-text-secondary);">状态: <span id="horse-competition-status" style="color: var(--color-text-tertiary);">就绪</span></div>
                             <div style="display: flex; gap: 4px;">
-                                <button id="one-key-horse-competition" class="btn btn-primary" style="font-size: 9px; padding: 3px 6px; flex: 1;">开始</button>
-                                <button id="stop-horse-competition" class="btn" style="font-size: 9px; padding: 3px 6px; flex: 1; background: #fff4e5; color: #9a5b00; border: 1px solid #ffd08a;">停止</button>
+                                <button id="one-key-horse-competition" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;">开始</button>
+                                <button id="stop-horse-competition" class="btn" style="font-size: 9.5px; padding: 3px 6px; flex: 1; background: #fff4e5; color: #9a5b00; border: 1px solid #ffd08a;">停止</button>
                             </div>
                         </div>
                         
                     </div>
                     <!-- 状态提示 -->
-                    <div id="daily-task-status" style="font-size: 9px; color: var(--color-text-secondary); padding: 2px 4px; background: var(--color-background-secondary); border-radius: 2px; text-align: center; margin: 4px;">
+                    <div id="daily-task-status" style="font-size: 9.5px; color: var(--color-text-secondary); padding: 3px 6px; background: var(--color-background-secondary); border-radius: 2px; text-align: center; margin: 4px;">
                         勾选需要完成的日常活动，点击对应按钮执行
                     </div>
                 </div>
@@ -1887,55 +1904,55 @@
                             <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 150px; flex-shrink: 0;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <div style="font-size: 11px; font-weight: 600; color: #333;">采摘红莓果</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9px; color: #666;">
-                                        <input type="checkbox" id="strawberry-sweep" style="width: 10px; height: 10px; cursor: pointer;">
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="strawberry-sweep" style="width: 11px; height: 11px; cursor: pointer;">
                                         <span>扫荡</span>
                                     </label>
-                                    <button id="one-key-strawberry" class="btn btn-primary" style="font-size: 9px; padding: 3px 8px;">一键完成</button>
+                                    <button id="one-key-strawberry" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
                                 </div>
                             </div>
                             <!-- 摘取大力果实模块 (Act782) -->
                             <div style="background: #FFFFFF; border: 1px solid #E8E1D4; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <div style="font-size: 11px; font-weight: 600; color: #333;">摘取大力果实</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9px; color: #666;">
-                                        <input type="checkbox" id="act782-sweep" style="width: 10px; height: 10px; cursor: pointer;">
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="act782-sweep" style="width: 11px; height: 11px; cursor: pointer;">
                                         <span>扫荡</span>
                                     </label>
-                                    <button id="one-key-act782" class="btn btn-primary" style="font-size: 9px; padding: 3px 8px;">一键完成</button>
+                                    <button id="one-key-act782" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
                                 </div>
                             </div>
                             <!-- 海底激战模块 (Act653) -->
                             <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <div style="font-size: 11px; font-weight: 600; color: #333;">海底激战</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9px; color: #666;">
-                                        <input type="checkbox" id="sea-battle-sweep" style="width: 10px; height: 10px; cursor: pointer;">
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="sea-battle-sweep" style="width: 11px; height: 11px; cursor: pointer;">
                                         <span>扫荡</span>
                                     </label>
-                                    <button id="one-key-sea-battle" class="btn btn-primary" style="font-size: 9px; padding: 3px 8px;">一键完成</button>
+                                    <button id="one-key-sea-battle" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
                                 </div>
                             </div>
                             <!-- 磐石御天火模块 (Act793) -->
                             <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 150px; flex-shrink: 0;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <div style="font-size: 11px; font-weight: 600; color: #333;">磐石御天火</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9px; color: #666;">
-                                        <input type="checkbox" id="act793-sweep" style="width: 10px; height: 10px; cursor: pointer;">
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="act793-sweep" style="width: 11px; height: 11px; cursor: pointer;">
                                         <span>扫荡</span>
                                     </label>
-                                    <button id="one-key-act793" class="btn btn-primary" style="font-size: 9px; padding: 3px 8px;">一键完成</button>
+                                    <button id="one-key-act793" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
                                 </div>
                             </div>
                             <!-- 五行镜破封印模块 (Act791) -->
                             <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 150px; flex-shrink: 0;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <div style="font-size: 11px; font-weight: 600; color: #333;">五行镜破封印</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9px; color: #666;">
-                                        <input type="checkbox" id="act791-sweep" style="width: 10px; height: 10px; cursor: pointer;">
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="act791-sweep" style="width: 11px; height: 11px; cursor: pointer;">
                                         <span>扫荡</span>
                                     </label>
-                                    <button id="one-key-act791" class="btn btn-primary" style="font-size: 9px; padding: 3px 8px;">一键完成</button>
+                                    <button id="one-key-act791" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
                                 </div>
                             </div>
                         </div>
@@ -1950,71 +1967,71 @@
                         <!-- 复选框列表 -->
                         <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px 3px; margin-bottom: 5px;">
                             <!-- 第1行：6项 -->
-                            <label style="display: flex; align-items: center; gap: 2px; cursor: pointer; font-size: 10px; color: #333333;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-0" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>上清宝玉</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 2px; cursor: pointer; font-size: 10px; color: #333333;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-1" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>天地灵气</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 2px; cursor: pointer; font-size: 10px; color: #333333;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-2" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>火云岩</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 2px; cursor: pointer; font-size: 10px; color: #333333;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-3" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>千年红木</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 2px; cursor: pointer; font-size: 10px; color: #333333;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-4" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>远古青松</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 2px; cursor: pointer; font-size: 10px; color: #333333;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-5" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>精蓝石</span>
                             </label>
                             
                             <!-- 第2行：6项 -->
-                            <label style="display: flex; align-items: center; gap: 2px; cursor: pointer; font-size: 10px; color: #333333;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-6" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>松绿石</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 2px; cursor: pointer; font-size: 10px; color: #333333;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-7" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>冰霜岩</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 2px; cursor: pointer; font-size: 10px; color: #333333;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-8" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>幻影石</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 2px; cursor: pointer; font-size: 10px; color: #333333;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-9" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>冰晶砂</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 2px; cursor: pointer; font-size: 10px; color: #333333;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-10" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>天罡石</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 2px; cursor: pointer; font-size: 10px; color: #333333;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-11" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>茅山玉</span>
                             </label>
                             
                             <!-- 第3行：4项 -->
-                            <label style="display: flex; align-items: center; gap: 2px; cursor: pointer; font-size: 10px; color: #333333;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-12" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>神明果</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 2px; cursor: pointer; font-size: 10px; color: #333333;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-13" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>朱砂石</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 2px; cursor: pointer; font-size: 10px; color: #333333;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-14" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>青金石</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 2px; cursor: pointer; font-size: 10px; color: #333333;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-15" style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>坐骑蛋</span>
                             </label>
@@ -2022,9 +2039,9 @@
                         
                         <!-- 操作按钮 -->
                         <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: auto;">
-                            <button onclick="selectAllCollect(true)" style="background: #FFFFFF; color: #333333; border: 1px solid #CCCCCC; border-radius: 3px; padding: 4px 10px; font-size: 10px; font-weight: 500; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#F5F5F5'" onmouseout="this.style.background='#FFFFFF'">全选</button>
-                            <button onclick="selectAllCollect(false)" style="background: #FFFFFF; color: #333333; border: 1px solid #CCCCCC; border-radius: 3px; padding: 4px 10px; font-size: 10px; font-weight: 500; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#F5F5F5'" onmouseout="this.style.background='#FFFFFF'">全不选</button>
-                            <button onclick="startOneKeyCollect()" style="background: var(--color-primary); color: #FFFFFF; border: none; border-radius: 3px; padding: 4px 12px; font-size: 11px; font-weight: 600; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='var(--color-primary-hover)'" onmouseout="this.style.background='var(--color-primary)'" onmousedown="this.style.background='var(--color-primary-pressed)'" onmouseup="this.style.background='var(--color-primary-hover)'">一键采集</button>
+                            <button onclick="selectAllCollect(true)" style="background: #FFFFFF; color: #333333; border: 1px solid #CCCCCC; border-radius: 3px; padding: 4px 10px; font-size: 10.5px; font-weight: 500; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#F5F5F5'" onmouseout="this.style.background='#FFFFFF'">全选</button>
+                            <button onclick="selectAllCollect(false)" style="background: #FFFFFF; color: #333333; border: 1px solid #CCCCCC; border-radius: 3px; padding: 4px 10px; font-size: 10.5px; font-weight: 500; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#F5F5F5'" onmouseout="this.style.background='#FFFFFF'">全不选</button>
+                            <button onclick="startOneKeyCollect()" style="background: var(--color-primary); color: #FFFFFF; border: none; border-radius: 3px; padding: 4px 12px; font-size: 11.5px; font-weight: 600; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='var(--color-primary-hover)'" onmouseout="this.style.background='var(--color-primary)'" onmousedown="this.style.background='var(--color-primary-pressed)'" onmouseup="this.style.background='var(--color-primary-hover)'">一键采集</button>
                         </div>
                     </div>
                 </div>
@@ -2033,17 +2050,17 @@
                     <!-- BOSS对战卡片 -->
                     <div style="display: flex; flex-direction: column; gap: 8px; padding: 8px;">
                         <div class="panel-animate" style="background: var(--color-background); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; box-shadow: var(--shadow-sm); width: 100%; max-width: 340px; min-width: 280px;">
-                            <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 8px;">boss对战</div>
+                            <div style="font-size: 11.5px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 8px;">boss对战</div>
                             
                             <!-- 下拉选择框和按钮 -->
-                            <div style="display: flex; gap: 8px; align-items: center;">
+                            <div style="display: flex; gap: 6px; align-items: center; min-width: 0;">
                                 <!-- 搜索框 + select组合 -->
-                                <div style="display: flex; gap: 4px; flex: 1;">
+                                <div style="display: flex; gap: 4px; flex: 1; min-width: 0;">
                                     <input type="text" id="boss-search-input" placeholder="搜索..."
-                                        style="width: 80px; padding: 5px 8px; font-size: 10px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); outline: none; transition: all var(--duration-normal) var(--easing-standard); background: var(--color-background); color: var(--color-text-primary);"
+                                        style="width: 72px; padding: 5px 8px; font-size: 10.5px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); outline: none; transition: all var(--duration-normal) var(--easing-standard); background: var(--color-background); color: var(--color-text-primary);"
                                         oninput="filterBossSelect()">
                                     <select id="boss-select"
-                                        style="flex: 1; padding: 5px 10px; font-size: 10px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); outline: none; transition: all var(--duration-normal) var(--easing-standard); background: var(--color-background); color: var(--color-text-primary); cursor: pointer;"
+                                        style="flex: 1; min-width: 0; padding: 5px 10px; font-size: 10.5px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); outline: none; transition: all var(--duration-normal) var(--easing-standard); background: var(--color-background); color: var(--color-text-primary); cursor: pointer;"
                                         onchange="selectBoss(this.value)">
                                         <option value="0">-- 请选择BOSS --</option>
                                         <!-- Boss选项由JS动态填充 -->
@@ -2052,7 +2069,7 @@
                                 
                                 <!-- 进入战斗按钮 -->
                                 <button id="enter-boss-battle-btn" onclick="enterBossBattle()" 
-                                    style="padding: 4px 12px; font-size: 10px; background: var(--color-primary); color: white; border: none; border-radius: 2px; cursor: pointer; transition: all 0.2s linear; white-space: nowrap;"
+                                    style="flex: 0 0 auto; padding: 4px 10px; font-size: 10px; background: var(--color-primary); color: white; border: none; border-radius: 2px; cursor: pointer; transition: all 0.2s linear; white-space: nowrap;"
                                     onmouseover="this.style.background='var(--color-primary-hover)'" 
                                     onmouseout="this.style.background='var(--color-primary)'">
                                     进入战斗
@@ -2060,7 +2077,7 @@
                             </div>
                             
                             <!-- 当前选中的BOSS信息 -->
-                            <div id="selected-boss-info" style="margin-top: 8px; font-size: 9px; color: var(--color-text-secondary);">
+                            <div id="selected-boss-info" style="margin-top: 8px; font-size: 9.5px; color: var(--color-text-secondary);">
                                 请选择一个BOSS
                             </div>
                         </div>
@@ -2074,11 +2091,11 @@
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; padding: 0 2px;">
                                 <div style="display: flex; align-items: center; gap: 6px;">
                                     <h3 style="font-size: 12px; font-weight: 600; color: var(--color-text-primary); margin: 0;">灵玉列表</h3>
-                                    <div id="lingyu-count" class="badge badge-success" style="padding: 1px 6px; font-size: 10px;">0</div>
+                                    <div id="lingyu-count" class="badge badge-success" style="padding: 1px 6px; font-size: 10.5px;">0</div>
                                 </div>
                                 <!-- 排序与筛选控制区 -->
                                 <div style="display: flex; align-items: center; gap: 4px;">
-                                    <select id="lingyu-sort-attr" style="font-size: 10px; padding: 1px 4px; border: 1px solid var(--color-border); border-radius: 2px; outline: none; height: 20px; background: var(--color-background);">
+                                    <select id="lingyu-sort-attr" style="font-size: 10.5px; padding: 1px 4px; border: 1px solid var(--color-border); border-radius: 2px; outline: none; height: 20px; background: var(--color-background);">
                                         <option value="none">不排序</option>
                                         <option value="体力">体力</option>
                                         <option value="攻击">攻击</option>
@@ -2088,15 +2105,15 @@
                                         <option value="速度">速度</option>
                                         <option value="威力">威力</option>
                                     </select>
-                                    <button onclick="window.applyLingyuSort()" style="padding: 1px 8px; font-size: 10px; background: var(--color-primary); color: white; border: none; border-radius: 2px; cursor: pointer; height: 20px;">排序</button>
-                                    <button onclick="window.queryLingyu()" style="padding: 1px 8px; font-size: 10px; background: #2e7d32; color: white; border: none; border-radius: 2px; cursor: pointer; height: 20px;">查询灵玉</button>
+                                    <button onclick="window.applyLingyuSort()" style="padding: 1px 8px; font-size: 10.5px; background: var(--color-primary); color: white; border: none; border-radius: 2px; cursor: pointer; height: 20px;">排序</button>
+                                    <button onclick="window.queryLingyu()" style="padding: 1px 8px; font-size: 10.5px; background: #2e7d32; color: white; border: none; border-radius: 2px; cursor: pointer; height: 20px;">查询灵玉</button>
                                 </div>
                             </div>
                             
                             <!-- 灵玉列表容器 -->
                             <div style="flex: 1; border: 1px solid var(--color-border); border-radius: 3px; overflow: hidden; background: var(--color-background); display: flex; flex-direction: column;">
                                 <!-- 列表表头 -->
-                                <div style="display: grid; grid-template-columns: 55px 40px 65px 1fr; background: var(--color-background-hover); padding: 3px 6px; border-bottom: 1px solid var(--color-border); font-size: 10px; font-weight: 600; color: var(--color-text-primary);">
+                                <div style="display: grid; grid-template-columns: 55px 40px 65px 1fr; background: var(--color-background-hover); padding: 3px 6px; border-bottom: 1px solid var(--color-border); font-size: 10.5px; font-weight: 600; color: var(--color-text-primary);">
                                     <div style="text-align: center;">名称</div>
                                     <div style="text-align: center;">索引</div>
                                     <div style="text-align: center;">宠物</div>
@@ -2104,7 +2121,7 @@
                                 </div>
                                 
                                 <!-- 列表内容 -->
-                                <div id="lingyu-list" style="overflow-y: auto; flex: 1; font-size: 10px; min-height: 214px; max-height: 214px;">
+                                <div id="lingyu-list" style="overflow-y: auto; flex: 1; font-size: 10.5px; min-height: 214px; max-height: 214px;">
                                     <div style="text-align: center; padding: 10px; color: var(--color-text-tertiary);">暂无数据</div>
                                 </div>
                             </div>
@@ -2117,31 +2134,31 @@
                             <!-- 已添加到分解队列的灵玉列表 -->
                             <div id="decompose-queue-list" style="flex: 1; border: 1px solid var(--color-border); border-radius: 3px; overflow: hidden; background: var(--color-background); display: flex; flex-direction: column; margin-bottom: 4px;">
                                 <!-- 列表表头 -->
-                                <div style="display: grid; grid-template-columns: 45px 1fr; background: var(--color-background-hover); padding: 3px 6px; border-bottom: 1px solid var(--color-border); font-size: 10px; font-weight: 600; color: var(--color-text-primary);">
+                                <div style="display: grid; grid-template-columns: 45px 1fr; background: var(--color-background-hover); padding: 3px 6px; border-bottom: 1px solid var(--color-border); font-size: 10.5px; font-weight: 600; color: var(--color-text-primary);">
                                     <div style="text-align: center;">#</div>
                                     <div style="text-align: center;">灵玉名称</div>
                                 </div>
                                 <!-- 列表内容 -->
-                                <div id="decompose-list" style="overflow-y: auto; flex: 1; font-size: 10px; min-height: 145px; max-height: 145px;">
+                                <div id="decompose-list" style="overflow-y: auto; flex: 1; font-size: 10.5px; min-height: 145px; max-height: 145px;">
                                     <div style="text-align: center; padding: 10px; color: var(--color-text-tertiary);">未添加灵玉</div>
                                 </div>
                             </div>
 
                             <!-- 操作按钮组 -->
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-                                <button onclick="window.decomposeAllInQueue()" class="btn btn-primary" style="margin: 0; font-size: 11px; height: 24px; padding: 0; line-height: 24px;">一键分解</button>
-                                <button onclick="window.clearDecomposeQueue()" class="btn btn-secondary" style="margin: 0; font-size: 11px; height: 24px; padding: 0; line-height: 24px;">清空队列</button>
+                                <button onclick="window.decomposeAllInQueue()" class="btn btn-primary" style="margin: 0; font-size: 11.5px; height: 24px; padding: 0; line-height: 24px;">一键分解</button>
+                                <button onclick="window.clearDecomposeQueue()" class="btn btn-secondary" style="margin: 0; font-size: 11.5px; height: 24px; padding: 0; line-height: 24px;">清空队列</button>
                             </div>
 
                             <!-- 统计信息 -->
-                            <div style="font-size: 10px; color: var(--color-text-secondary); padding: 3px 6px; background: var(--color-background-secondary); border-radius: 2px;">
+                            <div style="font-size: 10.5px; color: var(--color-text-secondary); padding: 3px 6px; background: var(--color-background-secondary); border-radius: 2px;">
                                 <span id="decompose-queue-count">已添加: 0 个灵玉</span>
                             </div>
 
                             <div class="divider" style="margin: 3px 0;"></div>
                             
                             <!-- 提示区域 -->
-                            <div style="font-size: 10px; color: var(--color-text-tertiary); line-height: 1.4;">
+                            <div style="font-size: 10.5px; color: var(--color-text-tertiary); line-height: 1.4;">
                                 <div>• 从左侧列表选择灵玉添加到分解队列</div>
                                 <div>• 多个灵玉可一次性分解</div>
                                 <div>• 分解后无法找回，请谨慎</div>
@@ -2160,19 +2177,19 @@
                         
                         <!-- 层数输入 -->
                         <div style="display: flex; align-items: center; gap: 4px;">
-                            <label for="dungeon-layer-input" style="font-size: 9px; color: var(--color-text-secondary);">目标层数:</label>
+                            <label for="dungeon-layer-input" style="font-size: 9.5px; color: var(--color-text-secondary);">目标层数:</label>
                             <input type="number" id="dungeon-layer-input" value="1" min="1" max="9999" 
-                                style="width: 50px; font-size: 9px; padding: 2px 4px; border: 1px solid var(--color-border); border-radius: 2px;">
-                            <span style="font-size: 8px; color: var(--color-text-tertiary);">层</span>
+                                style="width: 50px; font-size: 9.5px; padding: 2px 4px; border: 1px solid var(--color-border); border-radius: 2px;">
+                            <span style="font-size: 8.5px; color: var(--color-text-tertiary);">层</span>
                         </div>
                         
                         <!-- 说明文本 -->
-                        <div style="font-size: 8px; color: var(--color-text-tertiary);">需50级以下妖怪</div>
+                        <div style="font-size: 8.5px; color: var(--color-text-tertiary);">需50级以下妖怪</div>
                         
                         <!-- 操作按钮 -->
                         <div style="display: flex; gap: 4px; margin-top: auto;">
-                            <button id="dungeon-jump-btn" onclick="startDungeonJump()" class="btn btn-primary" style="width: 55px; font-size: 9px; padding: 3px 6px;">跳层</button>
-                            <button id="dungeon-stop-btn" onclick="stopDungeonJump()" class="btn btn-secondary" style="width: 55px; font-size: 9px; padding: 3px 6px;">停止</button>
+                            <button id="dungeon-jump-btn" onclick="startDungeonJump()" class="btn btn-primary" style="width: 55px; font-size: 9.5px; padding: 3px 6px;">跳层</button>
+                            <button id="dungeon-stop-btn" onclick="stopDungeonJump()" class="btn btn-secondary" style="width: 55px; font-size: 9.5px; padding: 3px 6px;">停止</button>
                         </div>
                     </div>
                     
@@ -2185,34 +2202,34 @@
                         
                         <!-- 妖怪选择 -->
                         <div style="display: flex; align-items: center; gap: 4px;">
-                            <label style="font-size: 9px; color: var(--color-text-secondary); min-width: 35px;">主宠:</label>
-                            <select id="shuangtai-pet" style="width: 100px; font-size: 9px; padding: 2px; border: 1px solid var(--color-border); border-radius: 2px; height: 18px;" disabled>
+                            <label style="font-size: 9.5px; color: var(--color-text-secondary); min-width: 35px;">主宠:</label>
+                            <select id="shuangtai-pet" style="width: 100px; font-size: 9.5px; padding: 2px; border: 1px solid var(--color-border); border-radius: 2px; height: 18px;" disabled>
                                 <option value="">请先查询</option>
                             </select>
-                            <button id="query-shuangtai" class="btn btn-secondary" style="width: 45px; font-size: 9px; padding: 2px 4px;">查询</button>
+                            <button id="query-shuangtai" class="btn btn-secondary" style="width: 45px; font-size: 9.5px; padding: 2px 4px;">查询</button>
                         </div>
                         
                         <!-- 技能选择 -->
                         <div style="display: flex; align-items: center; gap: 4px;">
-                            <label style="font-size: 9px; color: var(--color-text-secondary); min-width: 35px;">技能:</label>
-                            <select id="shuangtai-skill" style="width: 145px; font-size: 9px; padding: 2px; border: 1px solid var(--color-border); border-radius: 2px; height: 18px;" disabled>
+                            <label style="font-size: 9.5px; color: var(--color-text-secondary); min-width: 35px;">技能:</label>
+                            <select id="shuangtai-skill" style="width: 145px; font-size: 9.5px; padding: 2px; border: 1px solid var(--color-border); border-radius: 2px; height: 18px;" disabled>
                                 <option value="">自动选择最高威力</option>
                             </select>
                         </div>
                         
                         <!-- 屏蔽战斗选项 -->
-                        <label style="display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9px;">
-                            <input type="checkbox" id="shuangtai-block-battle" style="width: 10px; height: 10px;">
+                        <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
+                            <input type="checkbox" id="shuangtai-block-battle" style="width: 11px; height: 11px;">
                             <span>屏蔽战斗</span>
                         </label>
                         
                         <!-- 说明文本 -->
-                        <div style="font-size: 8px; color: var(--color-text-tertiary);">主宠末位，至少2只妖怪</div>
+                        <div style="font-size: 8.5px; color: var(--color-text-tertiary);">主宠末位，至少2只妖怪</div>
                         
                         <!-- 操作按钮 -->
                         <div style="display: flex; gap: 4px; margin-top: auto;">
-                            <button id="start-shuangtai" class="btn btn-primary" style="width: 55px; font-size: 9px; padding: 3px 6px;" disabled>启动</button>
-                            <button id="stop-shuangtai" class="btn btn-secondary" style="width: 55px; font-size: 9px; padding: 3px 6px;" disabled>停止</button>
+                            <button id="start-shuangtai" class="btn btn-primary" style="width: 55px; font-size: 9.5px; padding: 3px 6px;" disabled>启动</button>
+                            <button id="stop-shuangtai" class="btn btn-secondary" style="width: 55px; font-size: 9.5px; padding: 3px 6px;" disabled>停止</button>
                         </div>
                     </div>
                     
@@ -2228,20 +2245,20 @@
                         
                         <!-- 匹配次数设置 -->
                         <div style="display: flex; align-items: center; gap: 6px;">
-                            <label for="battlesix-match-count" style="font-size: 10px; color: var(--color-text-primary); min-width: 70px;">匹配次数：</label>
-                            <input type="number" id="battlesix-match-count" value="1" min="1" max="999" class="input" style="width: 60px; font-size: 10px; padding: 3px 5px;">
+                            <label for="battlesix-match-count" style="font-size: 10.5px; color: var(--color-text-primary); min-width: 70px;">匹配次数：</label>
+                            <input type="number" id="battlesix-match-count" value="1" min="1" max="999" class="input" style="width: 60px; font-size: 10.5px; padding: 3px 5px;">
                         </div>
 
                         <!-- 匹配控制 -->
                         <div style="display: flex; gap: 6px;">
-                            <button id="battlesix-auto-match" class="btn btn-primary" style="font-size: 10px; padding: 4px 8px;">自动匹配</button>
-                            <button id="battlesix-cancel-match" class="btn btn-secondary" style="font-size: 10px; padding: 4px 8px;">取消匹配</button>
+                            <button id="battlesix-auto-match" class="btn btn-primary" style="font-size: 10.5px; padding: 4px 8px;">自动匹配</button>
+                            <button id="battlesix-cancel-match" class="btn btn-secondary" style="font-size: 10.5px; padding: 4px 8px;">取消匹配</button>
                         </div>
 
                         <!-- 自动战斗设置 -->
                         <div style="display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px;">
-                            <input type="checkbox" id="battlesix-auto-battle" style="width: 10px; height: 10px;">
-                            <label for="battlesix-auto-battle" style="font-size: 9px; cursor: pointer;">自动战斗</label>
+                            <input type="checkbox" id="battlesix-auto-battle" style="width: 11px; height: 11px;">
+                            <label for="battlesix-auto-battle" style="font-size: 9.5px; cursor: pointer;">自动战斗</label>
                         </div>
                     </div>
                     
@@ -2250,8 +2267,8 @@
                     
                     <!-- 右侧：提示区域 -->
                     <div style="flex: 1;">
-                        <div style="font-size: 10px; font-weight: 600; color: var(--color-text-secondary); margin-bottom: 4px;">功能说明</div>
-                        <div style="font-size: 9px; color: var(--color-text-tertiary); line-height: 1.5;">
+                        <div style="font-size: 10.5px; font-weight: 600; color: var(--color-text-secondary); margin-bottom: 4px;">功能说明</div>
+                        <div style="font-size: 9.5px; color: var(--color-text-tertiary); line-height: 1.5;">
                             <div>• 自动匹配后进入战斗</div>
                             <div>• 自动战斗会自动选择技能</div>
                             <div>• 精灵死亡时自动切换</div>
@@ -2506,8 +2523,10 @@
         var refreshGameBtn = document.getElementById('refresh-game');
         var refreshNoLoginBtn = document.getElementById('refresh-no-login');
         var muteGameBtn = document.getElementById('mute-game');
+        var clearIECacheBtn = document.getElementById('clear-ie-cache');
         var copyKeyBtn = document.getElementById('copy-key');
         var keyLoginBtn = document.getElementById('key-login');
+        var clearIECacheResetTimer = null;
 
         // 刷新游戏按钮
         if (refreshGameBtn) {
@@ -2551,6 +2570,28 @@
                 }
             });
         }
+
+        // 清理 IE 缓存按钮
+        if (clearIECacheBtn) {
+            clearIECacheBtn.addEventListener('click', function() {
+                var clearCacheText = document.getElementById('clear-cache-text');
+
+                if (!clearCacheText || !window.chrome || !window.chrome.webview) {
+                    return;
+                }
+
+                if (clearIECacheResetTimer) {
+                    clearTimeout(clearIECacheResetTimer);
+                    clearIECacheResetTimer = null;
+                }
+
+                clearIECacheBtn.disabled = true;
+                clearIECacheBtn.classList.remove('cache-cleared', 'cache-clear-failed');
+                clearIECacheBtn.classList.add('cache-clearing');
+                clearCacheText.textContent = '清理中';
+                window.chrome.webview.postMessage('clear-ie-cache');
+            });
+        }
         
         // 更新静音按钮状态的函数
         window.updateMuteButtonState = function(isMuted) {
@@ -2566,6 +2607,30 @@
                     muteText.textContent = '游戏静音';
                 }
             }
+        };
+
+        window.onClearIECacheFinished = function(success) {
+            var clearIECacheBtn = document.getElementById('clear-ie-cache');
+            var clearCacheText = document.getElementById('clear-cache-text');
+
+            if (!clearIECacheBtn || !clearCacheText) {
+                return;
+            }
+
+            clearIECacheBtn.disabled = false;
+            clearIECacheBtn.classList.remove('cache-clearing');
+            clearIECacheBtn.classList.toggle('cache-cleared', !!success);
+            clearIECacheBtn.classList.toggle('cache-clear-failed', !success);
+            clearCacheText.textContent = success ? '已清理' : '清理失败';
+
+            if (clearIECacheResetTimer) {
+                clearTimeout(clearIECacheResetTimer);
+            }
+
+            clearIECacheResetTimer = setTimeout(function() {
+                clearIECacheBtn.classList.remove('cache-cleared', 'cache-clear-failed');
+                clearCacheText.textContent = '清理缓存';
+            }, 1800);
         };
         
         // 定义全局函数，确保 C++ 端可以随时调用
@@ -2661,7 +2726,7 @@
             
             listContainer.innerHTML = '';
             if (!items || items.length === 0) {
-                listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--color-text-tertiary); font-size: 10px;">暂无灵玉数据</div>';
+                listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--color-text-tertiary); font-size: 10.5px;">暂无灵玉数据</div>';
                 if (countElement) countElement.textContent = '0 个灵玉';
                 return;
             }
@@ -2702,17 +2767,17 @@
                 let attrHtml = '';
                 if (item.nativeList && item.nativeList.length > 0) {
                     item.nativeList.forEach(attr => {
-                        attrHtml += `<span style="display: inline-block; background: #e8f5e8; color: #2e7d32; padding: 1px 3px; border-radius: 2px; margin-right: 2px; font-weight: 500; font-size: 9px;">${attr.nativeName}:${attr.nativeValue}</span>`;
+                        attrHtml += `<span style="display: inline-block; background: #e8f5e8; color: #2e7d32; padding: 1px 3px; border-radius: 2px; margin-right: 2px; font-weight: 500; font-size: 9.5px;">${attr.nativeName}:${attr.nativeValue}</span>`;
                     });
                 } else {
-                    attrHtml = '<span style="color: var(--color-text-tertiary); font-size: 10px;">无</span>';
+                    attrHtml = '<span style="color: var(--color-text-tertiary); font-size: 10.5px;">无</span>';
                 }
                 
                 row.innerHTML = `
-                    <div style="text-align: center; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 10px;">${symmName}</div>
-                    <div style="text-align: center; color: var(--color-text-secondary); font-size: 10px;">${item.symmIndex}</div>
-                    <div style="text-align: center; color: ${petColor}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 10px;">${petName}</div>
-                    <div style="display: flex; flex-wrap: wrap; gap: 2px; font-size: 9px;">${attrHtml}</div>
+                    <div style="text-align: center; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 10.5px;">${symmName}</div>
+                    <div style="text-align: center; color: var(--color-text-secondary); font-size: 10.5px;">${item.symmIndex}</div>
+                    <div style="text-align: center; color: ${petColor}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 10.5px;">${petName}</div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 2px; font-size: 9.5px;">${attrHtml}</div>
                 `;
                 
                 listContainer.appendChild(row);
@@ -2786,7 +2851,7 @@
                             <span style="font-weight: 500;">${item.symmName}</span>
                             <span style="color: var(--color-text-tertiary);">#${item.symmIndex}</span>
                         </div>
-                        <div style="font-size: 8px; color: var(--color-text-secondary);">${attrs || '无属性'}</div>
+                        <div style="font-size: 8.5px; color: var(--color-text-secondary);">${attrs || '无属性'}</div>
                     </div>
                 `;
             });
@@ -2841,7 +2906,7 @@
                 }
                 
                 if (window.decomposeQueue.length === 0) {
-                    listContainer.innerHTML = '<div style="text-align:center;padding:10px;color:var(--color-text-tertiary);font-size:10px;">未添加灵玉</div>';
+                    listContainer.innerHTML = '<div style="text-align:center;padding:10px;color:var(--color-text-tertiary);font-size:10.5px;">未添加灵玉</div>';
                     if (countElement) countElement.textContent = '已添加: 0 个灵玉';
                     return;
                 }
@@ -2853,19 +2918,19 @@
                 for (var i = 0; i < window.decomposeQueue.length; i++) {
                     var item = window.decomposeQueue[i];
                     // 每个项目包含选择框、序号、名称、属性和删除按钮
-                    html += '<div style="flex:1;min-width:130px;max-width:220px;display:flex;align-items:center;padding:3px 5px;border:1px solid var(--color-border);border-radius:3px;align-items:center;gap:4px;font-size:9px;">';
+                    html += '<div style="flex:1;min-width:130px;max-width:220px;display:flex;align-items:center;padding:3px 5px;border:1px solid var(--color-border);border-radius:3px;align-items:center;gap:4px;font-size:9.5px;">';
                     // 选择框
                     html += '<input type="checkbox" class="queue-item-checkbox" data-index="' + item.index + '" style="width:12px;height:12px;flex-shrink:0;" />';
                     // 序号
-                    html += '<span style="display:inline-block;background:var(--color-background-secondary);color:var(--color-text-primary);padding:1px 4px;border-radius:2px;font-size:9px;font-weight:500;white-space:nowrap;flex-shrink:0;">#' + item.index + '</span>';
+                    html += '<span style="display:inline-block;background:var(--color-background-secondary);color:var(--color-text-primary);padding:1px 4px;border-radius:2px;font-size:9.5px;font-weight:500;white-space:nowrap;flex-shrink:0;">#' + item.index + '</span>';
                     // 名称
-                    html += '<span style="color:var(--color-text-primary);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;">' + (item.name || '未知') + '</span>';
+                    html += '<span style="color:var(--color-text-primary);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;">' + (item.name || '未知') + '</span>';
                     // 属性（简约显示）
                     if (item.attrs && item.attrs.length > 0) {
-                        html += '<span style="display:inline-block;background:#e8f5e8;color:#2e7d32;padding:1px 3px;border-radius:2px;font-weight:500;font-size:8px;flex-shrink:0;">' + item.attrs + '</span>';
+                        html += '<span style="display:inline-block;background:#e8f5e8;color:#2e7d32;padding:1px 3px;border-radius:2px;font-weight:500;font-size:8.5px;flex-shrink:0;">' + item.attrs + '</span>';
                     }
                     // 美化的删除按钮
-                    html += '<button onclick="window.removeItemFromDecomposeQueue(\'' + item.index + '\')" style="width:16px;height:16px;border:none;border-radius:50%;background:var(--color-text-tertiary);color:white;font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:bold;">×</button>';
+                    html += '<button onclick="window.removeItemFromDecomposeQueue(\'' + item.index + '\')" style="width:16px;height:16px;border:none;border-radius:50%;background:var(--color-text-tertiary);color:white;font-size:9.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:bold;">×</button>';
                     html += '</div>';
                 }
                 html += '</div>';
