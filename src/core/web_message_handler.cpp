@@ -285,6 +285,8 @@ public:
             AppHost::RefreshBrowser();
         } else if (msg.find(L"mute-game") != std::wstring::npos) {
             AppHost::ToggleProgramVolume();
+        } else if (msg.find(L"clear-ie-cache") != std::wstring::npos) {
+            AppHost::ClearIECache();
         } else if (msg.find(L"copy-login-key") != std::wstring::npos) {
             CopyLoginKeyToClipboard();
         } else if (msg.find(L"key-login-dialog-show") != std::wstring::npos) {

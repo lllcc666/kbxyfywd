@@ -742,25 +742,21 @@ bool PacketParser::UncompressBody(const std::vector<uint8_t>& compressed, std::v
 }
 
 bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend, std::vector<GamePacket>& outPackets) {
-    // 发送包不需要黏包处理，直接返回
     if (bSend) {
-        // 发送包通常只有一个封包，直接解析
-        if (size < 12) return false;  // 最小封包大小：12字节头部
-        
+        if (size < PacketProtocol::HEADER_SIZE) {
+            return false;
+        }
+
         size_t hOffset = 0;
-        uint16_t magic = ReadInt16LE(data, hOffset);
-        uint16_t len = ReadInt16LE(data, hOffset);
-        
-        // 检查 magic 和数据完整性
+        const uint16_t magic = ReadInt16LE(data, hOffset);
+        const uint16_t len = ReadInt16LE(data, hOffset);
         if (magic != MAGIC_NUMBER_D && magic != MAGIC_NUMBER_C) {
             return false;
         }
-        
-        if (size < 12 + len) {
-            return false;  // 数据不完整
+        if (size < PacketProtocol::HEADER_SIZE + len) {
+            return false;
         }
-        
-        // 解析封包
+
         GamePacket packet;
         packet.magic = magic;
         packet.length = len;
@@ -768,112 +764,86 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend, st
         packet.opcode = ReadInt32LE(data, hOffset);
         packet.params = ReadInt32LE(data, hOffset);
         packet.body.assign(data + hOffset, data + hOffset + len);
-        
-        // 解压压缩包
+        packet.rawBody = packet.body;
+
         if (magic == MAGIC_NUMBER_C) {
             std::vector<uint8_t> decompressed;
             if (UncompressBody(packet.body, decompressed)) {
-                packet.body = decompressed;
+                packet.body = std::move(decompressed);
             }
         }
-        
-        outPackets.push_back(packet);
+
+        outPackets.push_back(std::move(packet));
         return true;
     }
-    
-    // ========================================
-    // 接收包的黏包处理（优化版）
-    // ========================================
-    
-    // 1. 追加新数据到缓冲区（预分配优化）
-    {
-        size_t newSize = g_recvBuffer.size() + size;
-        if (g_recvBuffer.capacity() < newSize) {
-            // 预分配至少 2 倍空间，减少重新分配次数
-            g_recvBuffer.reserve((std::max)(newSize, g_recvBuffer.capacity() * 2));
-        }
-        g_recvBuffer.insert(g_recvBuffer.end(), data, data + size);
+
+    if (size == 0) {
+        return false;
     }
-    
-    // 2. 使用读指针，避免频繁删除操作
-    size_t readOffset = 0;  // 读指针位置
-    size_t dataSize = g_recvBuffer.size();
+
+    const size_t newSize = g_recvBuffer.size() + size;
+    if (g_recvBuffer.capacity() < newSize) {
+        g_recvBuffer.reserve((std::max)(newSize, g_recvBuffer.capacity() * 2));
+    }
+    g_recvBuffer.insert(g_recvBuffer.end(), data, data + size);
+
+    if (g_recvBuffer.size() < PacketProtocol::HEADER_SIZE) {
+        return false;
+    }
+
+    size_t readOffset = 0;
+    const size_t dataSize = g_recvBuffer.size();
     bool foundAny = false;
-    int consecutiveBadMagic = 0;  // 连续错误 magic 计数
-    
-    // 3. 循环解析封包
-    while (readOffset + 4 <= dataSize) {
-        // 读取 magic 和 length
-        uint16_t magic = (uint16_t)g_recvBuffer[readOffset] | 
-                        ((uint16_t)g_recvBuffer[readOffset + 1] << 8);
-        uint16_t len = (uint16_t)g_recvBuffer[readOffset + 2] | 
-                       ((uint16_t)g_recvBuffer[readOffset + 3] << 8);
-        
-        // 检查 magic 是否有效
+
+    while (readOffset + PacketProtocol::HEADER_SIZE <= dataSize) {
+        const uint16_t magic = static_cast<uint16_t>(g_recvBuffer[readOffset]) |
+                               (static_cast<uint16_t>(g_recvBuffer[readOffset + 1]) << 8);
         if (magic != MAGIC_NUMBER_D && magic != MAGIC_NUMBER_C) {
-            consecutiveBadMagic++;
-            readOffset++;  // 跳过这个字节
-            
-            // 如果连续 50 个字节都是无效的，清空缓冲区（防止死循环）
-            if (consecutiveBadMagic > 50) {
-                g_recvBuffer.clear();
-                return false;
-            }
-            continue;
+            g_recvBuffer.clear();
+            return foundAny;
         }
-        
-        // magic 有效，重置错误计数
-        consecutiveBadMagic = 0;
-        
-        // 检查是否有足够的数据
-        if (readOffset + 12 + len > dataSize) {
-            // 数据不完整，等待下一次 recv
+
+        const uint16_t len = static_cast<uint16_t>(g_recvBuffer[readOffset + 2]) |
+                             (static_cast<uint16_t>(g_recvBuffer[readOffset + 3]) << 8);
+        const size_t packetSize = PacketProtocol::HEADER_SIZE + len;
+        if (readOffset + packetSize > dataSize) {
             break;
         }
-        
-        // 4. 解析完整封包
+
         GamePacket packet;
         packet.magic = magic;
         packet.length = len;
         packet.bSend = FALSE;
-        
-        // 读取 opcode 和 params
-        packet.opcode = (uint32_t)g_recvBuffer[readOffset + 4] |
-                       ((uint32_t)g_recvBuffer[readOffset + 5] << 8) |
-                       ((uint32_t)g_recvBuffer[readOffset + 6] << 16) |
-                       ((uint32_t)g_recvBuffer[readOffset + 7] << 24);
-        packet.params = (uint32_t)g_recvBuffer[readOffset + 8] |
-                       ((uint32_t)g_recvBuffer[readOffset + 9] << 8) |
-                       ((uint32_t)g_recvBuffer[readOffset + 10] << 16) |
-                       ((uint32_t)g_recvBuffer[readOffset + 11] << 24);
-        
-        // 读取 body
-        size_t bodyStart = readOffset + 12;
-        size_t bodyEnd = bodyStart + len;
-        packet.body.assign(g_recvBuffer.begin() + bodyStart, 
-                          g_recvBuffer.begin() + bodyEnd);
-        
-        // 解压压缩包
+        packet.opcode = static_cast<uint32_t>(g_recvBuffer[readOffset + 4]) |
+                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 5]) << 8) |
+                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 6]) << 16) |
+                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 7]) << 24);
+        packet.params = static_cast<uint32_t>(g_recvBuffer[readOffset + 8]) |
+                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 9]) << 8) |
+                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 10]) << 16) |
+                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 11]) << 24);
+
+        const size_t bodyStart = readOffset + PacketProtocol::HEADER_SIZE;
+        const size_t bodyEnd = bodyStart + len;
+        packet.rawBody.assign(g_recvBuffer.begin() + bodyStart, g_recvBuffer.begin() + bodyEnd);
+        packet.body = packet.rawBody;
+
         if (magic == MAGIC_NUMBER_C) {
             std::vector<uint8_t> decompressed;
             if (UncompressBody(packet.body, decompressed)) {
-                packet.body = decompressed;
+                packet.body = std::move(decompressed);
             }
         }
-        
-        outPackets.push_back(packet);
+
+        outPackets.push_back(std::move(packet));
         foundAny = true;
-        
-        // 移动读指针到下一个封包
-        readOffset += 12 + len;
+        readOffset += packetSize;
     }
-    
-    // 5. 删除已处理的数据（一次性删除，提高效率）
+
     if (readOffset > 0) {
-        g_recvBuffer.erase(g_recvBuffer.begin(), 
-                          g_recvBuffer.begin() + readOffset);
+        g_recvBuffer.erase(g_recvBuffer.begin(), g_recvBuffer.begin() + readOffset);
     }
-    
+
     return foundAny;
 }
 

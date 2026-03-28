@@ -17,6 +17,7 @@ extern SpeedhackInitializeFunc g_pfnInitializeSpeedhack;
 
 bool LoadSpeedhackFromMemory();
 bool ToggleProgramVolume();
+bool ClearIECache();
 HRESULT WINAPI ExecuteScriptInWebView2(const WCHAR* script);
 void UpdateIEEWindowRegion();
 std::wstring ShowSaveFileDialog(const std::wstring& initialDir = L"",
@@ -78,6 +79,10 @@ void RefreshBrowser() {
 
 bool ToggleProgramVolume() {
     return ::ToggleProgramVolume();
+}
+
+bool ClearIECache() {
+    return ::ClearIECache();
 }
 
 bool ApplySpeedhack(float speed) {

@@ -15,6 +15,7 @@ void NavigateBrowser(const std::wstring& url);
 void RefreshBrowser();
 
 bool ToggleProgramVolume();
+bool ClearIECache();
 bool ApplySpeedhack(float speed);
 
 void ExecuteScript(const std::wstring& script);

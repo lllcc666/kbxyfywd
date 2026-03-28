@@ -16,6 +16,7 @@
 #include <commctrl.h>
 #include <commdlg.h>
 #include <winhttp.h>
+#include <wininet.h>
 #include <thread>
 
 // 包含嵌入的WebView2Loader.dll数据
@@ -273,6 +274,117 @@ bool PostScriptToUI(const std::wstring& jsCode) {
     return true;
 }
 
+namespace {
+
+constexpr DWORD IE_CACHE_ENTRY_TYPES =
+    NORMAL_CACHE_ENTRY |
+    STICKY_CACHE_ENTRY |
+    TRACK_OFFLINE_CACHE_ENTRY |
+    TRACK_ONLINE_CACHE_ENTRY;
+
+bool CollectIECacheEntryUrls(std::vector<std::wstring>& cacheUrls) {
+    DWORD entryInfoSize = 0;
+    HANDLE findHandle = FindFirstUrlCacheEntryW(nullptr, nullptr, &entryInfoSize);
+    if (!findHandle) {
+        const DWORD lastError = GetLastError();
+        if (lastError == ERROR_NO_MORE_ITEMS) {
+            return true;
+        }
+
+        if (lastError != ERROR_INSUFFICIENT_BUFFER) {
+            return false;
+        }
+    }
+
+    std::vector<BYTE> entryBuffer(entryInfoSize);
+    auto* entryInfo = reinterpret_cast<INTERNET_CACHE_ENTRY_INFOW*>(entryBuffer.data());
+    findHandle = FindFirstUrlCacheEntryW(nullptr, entryInfo, &entryInfoSize);
+    if (!findHandle) {
+        return GetLastError() == ERROR_NO_MORE_ITEMS;
+    }
+
+    while (true) {
+        if (entryInfo->lpszSourceUrlName != nullptr &&
+            (entryInfo->CacheEntryType & IE_CACHE_ENTRY_TYPES) != 0) {
+            cacheUrls.emplace_back(entryInfo->lpszSourceUrlName);
+        }
+
+        entryInfoSize = 0;
+        if (FindNextUrlCacheEntryW(findHandle, nullptr, &entryInfoSize)) {
+            continue;
+        }
+
+        DWORD lastError = GetLastError();
+        if (lastError == ERROR_NO_MORE_ITEMS) {
+            break;
+        }
+
+        if (lastError != ERROR_INSUFFICIENT_BUFFER) {
+            FindCloseUrlCache(findHandle);
+            return false;
+        }
+
+        entryBuffer.resize(entryInfoSize);
+        entryInfo = reinterpret_cast<INTERNET_CACHE_ENTRY_INFOW*>(entryBuffer.data());
+        if (!FindNextUrlCacheEntryW(findHandle, entryInfo, &entryInfoSize)) {
+            lastError = GetLastError();
+            if (lastError == ERROR_NO_MORE_ITEMS) {
+                break;
+            }
+
+            FindCloseUrlCache(findHandle);
+            return false;
+        }
+    }
+
+    FindCloseUrlCache(findHandle);
+    return true;
+}
+
+bool ClearIECacheGroups() {
+    GROUPID groupId = 0;
+    HANDLE findHandle = FindFirstUrlCacheGroup(0, CACHEGROUP_SEARCH_ALL, nullptr, 0, &groupId, nullptr);
+    if (!findHandle) {
+        return GetLastError() == ERROR_NO_MORE_ITEMS;
+    }
+
+    while (true) {
+        DeleteUrlCacheGroup(groupId, CACHEGROUP_FLAG_FLUSHURL_ONDELETE, 0);
+
+        if (!FindNextUrlCacheGroup(findHandle, &groupId, nullptr)) {
+            const DWORD lastError = GetLastError();
+            FindCloseUrlCache(findHandle);
+            return lastError == ERROR_NO_MORE_ITEMS;
+        }
+    }
+}
+
+}  // namespace
+
+bool ClearIECache() {
+    std::vector<std::wstring> cacheUrls;
+    const bool groupsCleared = ClearIECacheGroups();
+    const bool entriesCollected = CollectIECacheEntryUrls(cacheUrls);
+
+    if (entriesCollected) {
+        for (const auto& cacheUrl : cacheUrls) {
+            if (!cacheUrl.empty()) {
+                DeleteUrlCacheEntryW(cacheUrl.c_str());
+            }
+        }
+    }
+
+    InternetSetOptionW(nullptr, INTERNET_OPTION_END_BROWSER_SESSION, nullptr, 0);
+
+    const bool success = groupsCleared && entriesCollected;
+    std::wstring jsCode = L"if(window.onClearIECacheFinished) { window.onClearIECacheFinished(";
+    jsCode += success ? L"true" : L"false";
+    jsCode += L"); }";
+    PostScriptToUI(jsCode);
+
+    return success;
+}
+
 // 使用Windows Session Audio API只静音本程序
 bool ToggleProgramVolume() {
     HRESULT hr = S_OK;
@@ -507,8 +619,8 @@ void CheckForUpdatesAsync() {
             WinHttpSetTimeouts(hSession, 10000, 10000, 10000, 10000);
             
             // 解析 URL
-            URL_COMPONENTS urlComp = {0};
-            urlComp.dwStructSize = sizeof(URL_COMPONENTS);
+            URL_COMPONENTSW urlComp = {0};
+            urlComp.dwStructSize = sizeof(URL_COMPONENTSW);
             urlComp.dwSchemeLength = (DWORD)-1;
             urlComp.dwHostNameLength = (DWORD)-1;
             urlComp.dwUrlPathLength = (DWORD)-1;

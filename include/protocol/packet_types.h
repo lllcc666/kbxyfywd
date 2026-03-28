@@ -117,6 +117,7 @@ struct GamePacket {
     uint32_t opcode;
     uint32_t params;
     std::vector<uint8_t> body;
+    std::vector<uint8_t> rawBody;
     BOOL bSend;
 };
 

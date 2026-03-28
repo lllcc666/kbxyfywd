@@ -2401,6 +2401,35 @@ void ProcessReceivedGamePackets(const BYTE* pData, DWORD dwSize,
     }
 }
 
+std::vector<BYTE> BuildReceivedPacketBytes(const GamePacket& packet) {
+    const std::vector<uint8_t>& bodyBytes = packet.rawBody.empty() ? packet.body : packet.rawBody;
+    std::vector<BYTE> packetData(PacketProtocol::HEADER_SIZE + bodyBytes.size());
+
+    size_t offset = 0;
+    packetData[offset++] = static_cast<BYTE>(packet.magic & 0xFF);
+    packetData[offset++] = static_cast<BYTE>((packet.magic >> 8) & 0xFF);
+
+    const uint16_t bodyLen = static_cast<uint16_t>(bodyBytes.size());
+    packetData[offset++] = static_cast<BYTE>(bodyLen & 0xFF);
+    packetData[offset++] = static_cast<BYTE>((bodyLen >> 8) & 0xFF);
+
+    packetData[offset++] = static_cast<BYTE>(packet.opcode & 0xFF);
+    packetData[offset++] = static_cast<BYTE>((packet.opcode >> 8) & 0xFF);
+    packetData[offset++] = static_cast<BYTE>((packet.opcode >> 16) & 0xFF);
+    packetData[offset++] = static_cast<BYTE>((packet.opcode >> 24) & 0xFF);
+
+    packetData[offset++] = static_cast<BYTE>(packet.params & 0xFF);
+    packetData[offset++] = static_cast<BYTE>((packet.params >> 8) & 0xFF);
+    packetData[offset++] = static_cast<BYTE>((packet.params >> 16) & 0xFF);
+    packetData[offset++] = static_cast<BYTE>((packet.params >> 24) & 0xFF);
+
+    if (!bodyBytes.empty()) {
+        memcpy(packetData.data() + offset, bodyBytes.data(), bodyBytes.size());
+    }
+
+    return packetData;
+}
+
 }  // anonymous namespace
 
 // ============================================================================
@@ -2438,11 +2467,12 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
     
     for (size_t i = 0; i < gamePackets.size(); i++) {
         const auto& gp = gamePackets[i];
+        const auto& packetBody = gp.rawBody.empty() ? gp.body : gp.rawBody;
         
         // 0. 默认屏蔽检查（无条件屏蔽，无需用户勾选）
-        if (IsDefaultBlockedPacket(gp.opcode, gp.params, 
-                                   gp.body.empty() ? nullptr : gp.body.data(), 
-                                   gp.body.size())) {
+        if (IsDefaultBlockedPacket(gp.opcode, gp.params,
+                                   packetBody.empty() ? nullptr : packetBody.data(),
+                                   packetBody.size())) {
             packetsToFilter.push_back(i);
             continue;  // 跳过后续处理
         }
@@ -2535,29 +2565,10 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
 
         // 4. 劫持检测和修改（接收包）
         if (g_bHijackEnabled) {
-            size_t totalSize = PacketProtocol::HEADER_SIZE + gp.body.size();
-            std::vector<BYTE> packetData(totalSize);
-            
-            size_t offset = 0;
-            packetData[offset++] = gp.magic & 0xFF;
-            packetData[offset++] = (gp.magic >> 8) & 0xFF;
-            uint16_t bodyLen = static_cast<uint16_t>(gp.body.size());
-            packetData[offset++] = bodyLen & 0xFF;
-            packetData[offset++] = (bodyLen >> 8) & 0xFF;
-            packetData[offset++] = gp.opcode & 0xFF;
-            packetData[offset++] = (gp.opcode >> 8) & 0xFF;
-            packetData[offset++] = (gp.opcode >> 16) & 0xFF;
-            packetData[offset++] = (gp.opcode >> 24) & 0xFF;
-            packetData[offset++] = gp.params & 0xFF;
-            packetData[offset++] = (gp.params >> 8) & 0xFF;
-            packetData[offset++] = (gp.params >> 16) & 0xFF;
-            packetData[offset++] = (gp.params >> 24) & 0xFF;
-            if (!gp.body.empty()) {
-                memcpy(packetData.data() + offset, gp.body.data(), gp.body.size());
-            }
+            std::vector<BYTE> packetData = BuildReceivedPacketBytes(gp);
             
             std::vector<BYTE> modifiedData;
-            DWORD modifiedSize = static_cast<DWORD>(totalSize);
+            DWORD modifiedSize = static_cast<DWORD>(packetData.size());
 
             if (ProcessHijack(false, packetData.data(), &modifiedSize, &modifiedData)) {
                 // TODO: 实现封包替换功能
@@ -2584,34 +2595,8 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
             }
             
             if (!shouldFilter) {
-                // 重新构造封包到新缓冲区
-                const auto& gp = gamePackets[i];
-                
-                // Magic (2 bytes)
-                newBuffer.push_back(gp.magic & 0xFF);
-                newBuffer.push_back((gp.magic >> 8) & 0xFF);
-                
-                // Length (2 bytes, little endian)
-                uint16_t bodyLen = static_cast<uint16_t>(gp.body.size());
-                newBuffer.push_back(bodyLen & 0xFF);
-                newBuffer.push_back((bodyLen >> 8) & 0xFF);
-                
-                // Opcode (4 bytes, little endian)
-                newBuffer.push_back(gp.opcode & 0xFF);
-                newBuffer.push_back((gp.opcode >> 8) & 0xFF);
-                newBuffer.push_back((gp.opcode >> 16) & 0xFF);
-                newBuffer.push_back((gp.opcode >> 24) & 0xFF);
-                
-                // Params (4 bytes, little endian)
-                newBuffer.push_back(gp.params & 0xFF);
-                newBuffer.push_back((gp.params >> 8) & 0xFF);
-                newBuffer.push_back((gp.params >> 16) & 0xFF);
-                newBuffer.push_back((gp.params >> 24) & 0xFF);
-                
-                // Body
-                if (!gp.body.empty()) {
-                    newBuffer.insert(newBuffer.end(), gp.body.begin(), gp.body.end());
-                }
+                const auto packetData = BuildReceivedPacketBytes(gamePackets[i]);
+                newBuffer.insert(newBuffer.end(), packetData.begin(), packetData.end());
             }
         }
         
@@ -2657,38 +2642,14 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
     // ========================================================================
     if (g_bInterceptEnabled && g_bInterceptRecv && !gamePackets.empty()) {
         for (const auto& gp : gamePackets) {
-            // 重新构造完整的封包数据（Magic + Length + Opcode + Params + Body）
-            size_t totalSize = PacketProtocol::HEADER_SIZE + gp.body.size();
-            BYTE* packetData = new BYTE[totalSize];
-            
-            size_t offset = 0;
-            // Magic (2 bytes)
-            packetData[offset++] = gp.magic & 0xFF;
-            packetData[offset++] = (gp.magic >> 8) & 0xFF;
-            // Length (2 bytes, little endian)
-            uint16_t bodyLen = static_cast<uint16_t>(gp.body.size());
-            packetData[offset++] = bodyLen & 0xFF;
-            packetData[offset++] = (bodyLen >> 8) & 0xFF;
-            // Opcode (4 bytes, little endian)
-            packetData[offset++] = gp.opcode & 0xFF;
-            packetData[offset++] = (gp.opcode >> 8) & 0xFF;
-            packetData[offset++] = (gp.opcode >> 16) & 0xFF;
-            packetData[offset++] = (gp.opcode >> 24) & 0xFF;
-            // Params (4 bytes, little endian)
-            packetData[offset++] = gp.params & 0xFF;
-            packetData[offset++] = (gp.params >> 8) & 0xFF;
-            packetData[offset++] = (gp.params >> 16) & 0xFF;
-            packetData[offset++] = (gp.params >> 24) & 0xFF;
-            // Body
-            if (!gp.body.empty()) {
-                memcpy(packetData + offset, gp.body.data(), gp.body.size());
-            }
+            std::vector<BYTE> packetData = BuildReceivedPacketBytes(gp);
             
             // 添加到封包列表
             PACKET packet;
-            packet.dwSize = static_cast<DWORD>(totalSize);
+            packet.dwSize = static_cast<DWORD>(packetData.size());
             packet.bSend = FALSE;
-            packet.pData = packetData;
+            packet.pData = new BYTE[packetData.size()];
+            memcpy(packet.pData, packetData.data(), packetData.size());
             packet.dwTime = GetTickCount();
 
             {
@@ -2700,7 +2661,7 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
 
             // 调用回调函数
             if (g_PacketCallback) {
-                g_PacketCallback(FALSE, packetData, static_cast<DWORD>(totalSize));
+                g_PacketCallback(FALSE, packetData.data(), static_cast<DWORD>(packetData.size()));
             }
         }
     }
