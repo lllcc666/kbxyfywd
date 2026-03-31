@@ -7634,6 +7634,27 @@ int BattleSixAutoBattle::SelectBestSkill() {
     
     auto& spirit = m_mySpirits[m_currentSpiritIndex];
 
+    // 选技前用通用战斗层的当前实时 PP 同步本地缓存。
+    // 通用解析会处理 PP 扣减以及 BufType 3/4/6 这类 PP 变化，本地 BattleSix 只维护最小状态，
+    // 因此最终决策应以当前出战妖怪的通用战斗数据为准。
+    BattleData& battleData = PacketParser::GetCurrentBattle();
+    if (battleData.myActiveIndex >= 0 &&
+        battleData.myActiveIndex < static_cast<int>(battleData.myPets.size())) {
+        const auto& activePet = battleData.myPets[battleData.myActiveIndex];
+        if (activePet.uniqueId == spirit.uniqueId) {
+            for (auto& localSkill : spirit.skills) {
+                for (const auto& battleSkill : activePet.skills) {
+                    if (battleSkill.id == static_cast<uint32_t>(localSkill.skillId)) {
+                        localSkill.currentPP = battleSkill.pp;
+                        localSkill.maxPP = battleSkill.maxPp;
+                        localSkill.available = (battleSkill.pp > 0);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     std::vector<int> availableSkillIndices;
     int bestPower = 0;
 
