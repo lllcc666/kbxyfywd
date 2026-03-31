@@ -850,7 +850,7 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend, st
 void PacketParser::SendToUI(const std::wstring& type, const std::wstring& data) {
     // 如果 g_hWnd 为空，尝试查找窗口
     if (!g_hWnd) {
-        g_hWnd = FindWindowW(L"WebView2DemoWindowClass", L"卡布西游浮影微端 V1.02");
+        g_hWnd = FindWindowW(L"WebView2DemoWindowClass", L"卡布西游浮影微端 V1.06");
         if (!g_hWnd) {
             g_hWnd = FindWindowW(L"WebView2DemoWindowClass", nullptr);
         }
@@ -872,7 +872,7 @@ void PacketParser::SendBossListToUI() {
     
     // 如果 g_hWnd 为空，尝试查找窗口
     if (!g_hWnd) {
-        g_hWnd = FindWindowW(L"WebView2DemoWindowClass", L"卡布西游浮影微端 V1.02");
+        g_hWnd = FindWindowW(L"WebView2DemoWindowClass", L"卡布西游浮影微端 V1.06");
         if (!g_hWnd) {
             g_hWnd = FindWindowW(L"WebView2DemoWindowClass", nullptr);
         }
@@ -978,7 +978,7 @@ void PacketParser::UpdateUIBattleData() {
         g_hWnd = FindWindowW(L"WebView2DemoWindowClass", nullptr);
         if (!g_hWnd) {
             // 备用方案：通过窗口标题查找
-            g_hWnd = FindWindowW(nullptr, L"卡布西游浮影微端 V1.02");
+            g_hWnd = FindWindowW(nullptr, L"卡布西游浮影微端 V1.06");
             if (!g_hWnd) {
                 return;
             }
@@ -1343,10 +1343,12 @@ start_done:
             SendToUI(L"战斗开始", info);
         }
 
-        // 万妖盛会自动战斗初始化 - 复制所有我方妖怪以便切换
+        // 万妖盛会共享主战斗的解析结果。
+        // 这里初始化 BattleSix 的基础战斗快照；结算与补发由 wpe_hook.cpp 专门处理。
         if (g_battleSixAuto.IsAutoBattleEnabled() && !g_currentBattle.myPets.empty()) {
             g_battleSixAuto.StartBattle();
             g_battleSixAuto.GetMySpirits().clear();
+            g_battleSixAuto.GetEnemySpirits().clear();
             
             // 复制所有我方妖怪信息
             int spiritIndex = 0;  // 实际妖怪计数（跳过占位符后）
@@ -1389,19 +1391,51 @@ start_done:
                 }
                 g_battleSixAuto.GetMySpirits().push_back(spirit);
             }
+
+            // 复制敌方妖怪信息。即使后续敌方会切宠，也需要保留当前出战敌方以便自动技能锁定目标。
+            int enemySpiritIndex = 0;
+            for (size_t i = 0; i < g_currentBattle.otherPets.size(); i++) {
+                const auto& src = g_currentBattle.otherPets[i];
+                if (src.spiritId == 0) continue;
+
+                BattleSixSpiritInfo spirit;
+                spirit.sid = src.sid;
+                spirit.spiritId = src.spiritId;
+                spirit.uniqueId = src.uniqueId;
+                spirit.userId = src.userId;
+                spirit.hp = src.hp;
+                spirit.maxHp = src.maxHp;
+                spirit.level = src.level;
+                spirit.element = src.elem;
+                spirit.position = enemySpiritIndex++;
+                spirit.isDead = (src.hp <= 0);
+                spirit.name = src.name;
+
+                for (const auto& srcSkill : src.skills) {
+                    BattleSixSkillInfo skill;
+                    skill.skillId = static_cast<int>(srcSkill.id);
+                    skill.name = srcSkill.name;
+                    {
+                        std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+                        auto powerIt = g_skillPowers.find(skill.skillId);
+                        skill.power = (powerIt != g_skillPowers.end()) ? powerIt->second : 0;
+                    }
+                    skill.currentPP = srcSkill.pp;
+                    skill.maxPP = srcSkill.maxPp;
+                    skill.available = (srcSkill.pp > 0);
+                    spirit.skills.push_back(skill);
+                }
+
+                g_battleSixAuto.GetEnemySpirits().push_back(spirit);
+            }
             
-            // 调试输出：显示索引信息
             // 设置当前出战妖怪索引
             g_battleSixAuto.SetCurrentSpiritIndex(activeSpiritIndex);
             if (activeSpiritIndex < static_cast<int>(g_battleSixAuto.GetMySpirits().size())) {
                 g_battleSixAuto.SetMyUniqueId(g_battleSixAuto.GetMySpirits()[activeSpiritIndex].uniqueId);
             }
             
-            // 敌方信息
-            if (g_currentBattle.otherActiveIndex < static_cast<int>(g_currentBattle.otherPets.size())) {
-                g_battleSixAuto.SetEnemySid(g_currentBattle.otherPets[g_currentBattle.otherActiveIndex].sid);
-                g_battleSixAuto.SetEnemyUniqueId(g_currentBattle.otherPets[g_currentBattle.otherActiveIndex].uniqueId);
-            }
+            g_battleSixAuto.RefreshEnemyTarget();
         }
     }
     else if (packet.opcode == OPCODE_BATTLE_ROUND_START) {
@@ -1471,15 +1505,18 @@ start_done:
             }
         }
 
-        // 万妖盛会自动战斗不应依赖回合倒计时是否归零。
-        // 原始 SWF 在 showCountTime(value) 中会直接把 canBattle 置为 true，
-        // 因此只要回合开始包到达，就可以立即尝试出招或切换精灵。
+        g_battleSixRoundToken.fetch_add(1);
+
+        // 万妖盛会自动战斗不依赖倒计时走完。
+        // 对照 AS3: BattleView.showCountTime(value) 会直接把 canBattle 置为 true，
+        // 因此回合开始包到达即可尝试出招或切换精灵。
         if (g_battleSixAuto.IsInBattle() && g_battleSixAuto.IsAutoBattleEnabled()) {
             g_battleSixAuto.OnBattleRoundStart();
         }
     }
     else if (packet.opcode == Opcode::BATTLE_CHANGE_SPIRIT_ROUND) {
         // AS3 中该包表示进入切换精灵回合，不是切换成功回包。
+        g_battleSixRoundToken.fetch_add(1);
         if (g_battleSixAuto.IsInBattle() && g_battleSixAuto.IsAutoBattleEnabled()) {
             int currentIndex = g_battleSixAuto.GetCurrentSpiritIndex();
             if (currentIndex >= 0 && currentIndex < static_cast<int>(g_battleSixAuto.GetMySpirits().size())) {
@@ -2144,8 +2181,8 @@ round_done:
         SendToUI(L"战斗结束", L"双方战斗结束");
         UpdateUIBattleData();
 
-        // 注意：万妖盛会的战斗结束逻辑在 wpe_hook.cpp 的 ProcessBattleSixBattleRoundResultResponse
-        // 或 ProcessBattleSixBattleEndResponse 中处理，不要在这里重复调用 EndBattle()
+        // 注意：BattleSix 的私有结算、补发与自动匹配续跑在 wpe_hook.cpp 中处理，
+        // 这里仅清理公共战斗数据，避免重复 EndBattle()。
     }
 }
 

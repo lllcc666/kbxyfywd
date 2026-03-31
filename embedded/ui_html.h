@@ -1293,7 +1293,7 @@ R"HTML(          cursor: pointer;
     <div class="title-bar">
         <div class="title-bar-left">
             <div class="title-bar-icon">卡</div>
-            <span class="title-bar-title">卡布西游浮影微端 V1.05</span>
+            <span class="title-bar-title">卡布西游浮影微端 V1.06</span>
         </div>
         <div class="title-bar-controls">
             <button class="title-bar-button" id="btn-minimize" title="最小化">

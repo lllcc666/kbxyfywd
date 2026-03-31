@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -76,12 +77,10 @@ public:
     int GetWinCount() const { return m_winCount; }
     int GetLoseCount() const { return m_loseCount; }
 
-    void ParseAllSpiritsFromBattleStart(const GamePacket& packet);
     void UpdateMySpiritHP(int spiritSid, int hp);
     void UpdateEnemySpiritHP(int spiritSid, int hp);
     bool IsMySpiritBySid(int sid) const;
     int FindNextAliveSpirit(int currentIndex);
-    void LoadCurrentSpiritSkills();
     void RefreshEnemyTarget();
 
     BOOL OnBattleRoundStart();
@@ -109,6 +108,8 @@ extern std::atomic<bool> g_battleSixMatching;
 extern std::atomic<bool> g_battleSixMatchSuccess;
 extern std::atomic<int> g_battleSixSwitchTargetId;
 extern std::atomic<int> g_battleSixSwitchRetryCount;
+extern std::atomic<unsigned long long> g_battleSixBattleSession;
+extern std::atomic<unsigned long long> g_battleSixRoundToken;
 
 BOOL SendBattleSixCombatInfoPacket();
 BOOL SendBattleSixMatchPacket();
@@ -121,8 +122,6 @@ void ProcessBattleSixMatchResponse(const GamePacket& packet);
 void ProcessBattleSixPrepareCombatResponse(const GamePacket& packet);
 void ProcessBattleSixReqStartResponse(const GamePacket& packet);
 void ProcessBattleSixCombatInfoResponse(const GamePacket& packet);
-void ProcessBattleSixBattleStartResponse(const GamePacket& packet);
-void ProcessBattleSixBattleRoundStartResponse(const GamePacket& packet);
 void ProcessBattleSixBattleRoundResultResponse(const GamePacket& packet);
 void ProcessBattleSixBattleEndResponse(const GamePacket& packet);
 
