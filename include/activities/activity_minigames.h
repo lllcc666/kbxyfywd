@@ -8,21 +8,6 @@
 
 #include "packet_types.h"
 
-namespace StrawberryPick {
-constexpr int ACTIVITY_ID = 788;
-constexpr int GAME_DURATION = 120;
-}  // namespace StrawberryPick
-
-BOOL SendStrawberryPacket(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-BOOL SendStrawberryGameInfoPacket();
-BOOL SendStrawberryStartGamePacket(int ruleFlag = 1);
-BOOL SendStrawberryGameHitPacket(int category, int id, int itemType);
-BOOL SendStrawberryEndGamePacket();
-BOOL SendStrawberrySweepInfoPacket();
-BOOL SendStrawberrySweepPacket();
-BOOL SendOneKeyStrawberryPacket(bool useSweep = false);
-void ProcessStrawberryResponse(const GamePacket& packet);
-
 namespace Act778 {
 constexpr int ACTIVITY_ID = 778;
 constexpr int MAX_SCORE = 1500;
@@ -86,6 +71,34 @@ BOOL SendAct782SweepInfoPacket();
 BOOL SendAct782SweepPacket();
 BOOL SendOneKeyAct782Packet(bool useSweep = false, int targetScore = Act782::TARGET_SCORE);
 void ProcessAct782Response(const GamePacket& packet);
+
+namespace Act803 {
+constexpr int ACTIVITY_ID = 803;
+constexpr int MAX_NUM = 25;
+}  // namespace Act803
+
+BOOL SendAct803Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
+BOOL SendAct803GameInfoPacket();
+BOOL SendAct803StartGamePacket(int startFlag = 1);
+BOOL SendAct803EndGamePacket(int score, bool isWin = true);
+BOOL SendAct803SweepInfoPacket();
+BOOL SendAct803SweepPacket();
+BOOL SendOneKeyAct803Packet(bool useSweep = false, int targetScore = Act803::MAX_NUM);
+void ProcessAct803Response(const GamePacket& packet);
+
+namespace Act624 {
+constexpr int ACTIVITY_ID = 624;
+}  // namespace Act624
+
+BOOL SendAct624Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
+BOOL SendAct624GameInfoPacket();
+BOOL SendAct624StartGamePacket(int promptFlag = 1);
+BOOL SendAct624EndRoundPacket(int round, int gameTime, int mushroomNum);
+BOOL SendAct624NextRoundPacket();
+BOOL SendAct624SweepInfoPacket();
+BOOL SendAct624SweepPacket();
+BOOL SendOneKeyAct624Packet(bool useSweep = false);
+void ProcessAct624Response(const GamePacket& packet);
 
 namespace SeaBattle {
 constexpr int ACTIVITY_ID = 653;

@@ -79,9 +79,9 @@ using PacketProgressCallback = void (*)(DWORD, DWORD, const std::string&);
  * @code
  * // 注册处理器
  * ResponseDispatcher::Instance().Register(
- *     Opcode::ACTIVITY_QUERY_BACK, 
- *     788, 
- *     ProcessStrawberryResponse
+ *     Opcode::ACTIVITY_QUERY_BACK,
+ *     activityId,
+ *     ProcessActivityResponse
  * );
  * 
  * // 在HookedRecv中分发

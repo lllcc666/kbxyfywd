@@ -312,18 +312,6 @@ CriticalSectionScope g_hijackRulesCS;   ///< 劫持规则临界区
 bool g_bAutoSendEnabled = false;  ///< 是否启用自动发送
 volatile bool g_bStopAutoSend = false;  ///< 停止自动发送标志
 
-// 采摘红莓果状态 (Act788)
-static int g_strawberryPlayCount = 0;        // 剩余游戏次数
-static int g_strawberryRestTime = 0;         // 冷却时间
-static int g_strawberryCheckCode = 0;        // 校验码
-static int g_strawberryRuleFlag = 0;         // 规则标志
-static int g_strawberryRedBerryCount = 0;    // 红莓果数量
-static bool g_strawberryWaitingResponse = false;  // 等待响应
-static bool g_strawberryUseSweep = false;    // 是否使用扫荡功能
-static std::vector<int> g_strawberryAwardArr;  // 奖励物品列表 (73个)
-static std::vector<int> g_strawberryToolArr;   // 道具列表 (30个)
-static int g_strawberryAwardType = 0;          // 奖励类型
-
 // 摘取大力果实状态 (Act782)
 static std::atomic<int> g_act782PlayCount{0};
 static std::atomic<int> g_act782RestTime{0};
@@ -340,6 +328,32 @@ static std::atomic<bool> g_act782WaitingResponse{false};
 static std::atomic<bool> g_act782UseSweep{false};
 static std::atomic<bool> g_act782SweepAvailable{false};
 
+// 清明赏河景状态 (Act803)
+static std::atomic<int> g_act803PlayCount{0};
+static std::atomic<int> g_act803RestTime{0};
+static std::atomic<int> g_act803RedBerryCount{0};
+static std::atomic<int> g_act803IsPop{0};
+static std::atomic<int> g_act803IsMoveControl{0};
+static std::atomic<int> g_act803CheckCode{0};
+static std::atomic<int> g_act803LastResult{-1};
+static std::atomic<bool> g_act803WaitingResponse{false};
+static std::atomic<bool> g_act803UseSweep{false};
+static std::atomic<bool> g_act803SweepAvailable{false};
+static std::vector<int> g_act803HasAwardArr;
+
+// 采蘑菇的好伙伴状态 (Act624)
+static std::atomic<int> g_act624PlayCount{0};
+static std::atomic<int> g_act624RestTime{0};
+static std::atomic<int> g_act624CanGetFlag{0};
+static std::atomic<int> g_act624GotFlag{0};
+static std::atomic<int> g_act624TotalBadgeNum{0};
+static std::atomic<int> g_act624FinishedNum{0};
+static std::atomic<int> g_act624CheckCode{0};
+static std::atomic<int> g_act624LastResult{-1};
+static std::atomic<bool> g_act624WaitingResponse{false};
+static std::atomic<bool> g_act624UseSweep{false};
+static std::atomic<bool> g_act624SweepAvailable{false};
+
 // -------------------------
 // 调试日志函数
 // -------------------------
@@ -355,6 +369,10 @@ static bool ReadLengthPrefixedString(const std::vector<BYTE>& body, size_t& offs
     value.assign(reinterpret_cast<const char*>(data + offset), len);
     offset += len;
     return true;
+}
+
+static std::vector<int32_t> BuildAct803AwardValues() {
+    return std::vector<int32_t>(15, 0);
 }
 
 static BOOL SendActivityPacket(uint32_t activityId, const std::string& operation, const std::vector<int32_t>& bodyValues = {}) {
@@ -1619,6 +1637,508 @@ uint32_t GetItemPosition(uint32_t itemId) {
         }
     }
 
+    // ============ 清明赏河景功能实现 (Act803) ============
+
+    BOOL SendAct803Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
+        return SendActivityPacket(Act803::ACTIVITY_ID, operation, bodyValues);
+    }
+
+    BOOL SendAct803GameInfoPacket() {
+        g_act803WaitingResponse = true;
+        return SendAct803Packet("open_ui", {});
+    }
+
+    BOOL SendAct803StartGamePacket(int startFlag) {
+        g_act803WaitingResponse = true;
+        return SendAct803Packet("start_game", {startFlag});
+    }
+
+    BOOL SendAct803EndGamePacket(int score, bool isWin) {
+        const int checkCode = g_act803CheckCode.load();
+        const uint32_t userId = g_userId.load();
+        if (checkCode <= 0) {
+            return FALSE;
+        }
+
+        const int clientCheckCode = checkCode & static_cast<int>(userId % static_cast<uint32_t>(checkCode));
+        std::vector<int32_t> bodyValues;
+        bodyValues.reserve(18);
+        bodyValues.push_back(static_cast<int32_t>(clientCheckCode));
+        bodyValues.push_back(score);
+        bodyValues.push_back(isWin ? 1 : 0);
+        const std::vector<int32_t> awards = BuildAct803AwardValues();
+        bodyValues.insert(bodyValues.end(), awards.begin(), awards.end());
+
+        g_act803WaitingResponse = true;
+        return SendAct803Packet("end_game", bodyValues);
+    }
+
+    BOOL SendAct803SweepInfoPacket() {
+        g_act803WaitingResponse = true;
+        return SendAct803Packet("sweep_info", {});
+    }
+
+    BOOL SendAct803SweepPacket() {
+        g_act803WaitingResponse = true;
+        return SendAct803Packet("sweep", {});
+    }
+
+    static void ParseAct803AwardList(const std::vector<BYTE>& body, size_t& offset) {
+        if (offset + 16 > body.size()) {
+            return;
+        }
+
+        ReadInt32LE(body.data(), offset);
+        ReadInt32LE(body.data(), offset);
+        ReadInt32LE(body.data(), offset);
+        const int len = ReadInt32LE(body.data(), offset);
+        for (int i = 0; i < len && offset + 8 <= body.size(); ++i) {
+            ReadInt32LE(body.data(), offset);
+            ReadInt32LE(body.data(), offset);
+        }
+    }
+
+    DWORD WINAPI Act803ThreadProc(LPVOID lpParam) {
+        const int targetScore = lpParam ? *static_cast<int*>(lpParam) : Act803::MAX_NUM;
+        if (lpParam) {
+            delete static_cast<int*>(lpParam);
+        }
+
+        g_act803CheckCode = 0;
+        g_act803LastResult = -1;
+        g_act803PlayCount = 0;
+        g_act803RestTime = 0;
+        g_act803RedBerryCount = 0;
+        g_act803IsPop = 0;
+        g_act803IsMoveControl = 0;
+        g_act803SweepAvailable = false;
+        g_act803HasAwardArr.clear();
+
+        Sleep(300);
+        UIBridge::Instance().UpdateHelperText(L"清明赏河景：正在获取活动信息...");
+
+        SendAct803GameInfoPacket();
+        for (int i = 0; i < 30 && g_act803WaitingResponse.load(); ++i) {
+            Sleep(100);
+        }
+
+        if (g_act803PlayCount.load() <= 0) {
+            UIBridge::Instance().UpdateHelperText(L"清明赏河景：今日次数已用完");
+            return 0;
+        }
+
+        if (g_act803RestTime.load() > 0) {
+            UIBridge::Instance().UpdateHelperText(L"清明赏河景：冷却中，请稍后再试");
+            return 0;
+        }
+
+        if (g_act803UseSweep.load()) {
+            UIBridge::Instance().UpdateHelperText(L"清明赏河景：正在获取扫荡信息...");
+
+            SendAct803SweepInfoPacket();
+            for (int i = 0; i < 30 && g_act803WaitingResponse.load(); ++i) {
+                Sleep(100);
+            }
+
+            if (g_act803SweepAvailable.load()) {
+                Sleep(300);
+                UIBridge::Instance().UpdateHelperText(L"清明赏河景：执行扫荡...");
+                SendAct803SweepPacket();
+                for (int i = 0; i < 30 && g_act803WaitingResponse.load(); ++i) {
+                    Sleep(100);
+                }
+                if (g_act803LastResult.load() == 3) {
+                    UIBridge::Instance().UpdateHelperText(L"清明赏河景：扫荡失败");
+                }
+                return 0;
+            }
+
+            UIBridge::Instance().UpdateHelperText(L"清明赏河景：当前不可扫荡，改为直接结算");
+        }
+
+        Sleep(300);
+        UIBridge::Instance().UpdateHelperText(L"清明赏河景：开始游戏...");
+        SendAct803StartGamePacket(1);
+        for (int i = 0; i < 30 && g_act803WaitingResponse.load(); ++i) {
+            Sleep(100);
+        }
+
+        if (g_act803CheckCode.load() == 0) {
+            UIBridge::Instance().UpdateHelperText(L"清明赏河景：获取校验码失败");
+            return 0;
+        }
+
+        Sleep(500);
+        UIBridge::Instance().UpdateHelperText(L"清明赏河景：跳过客户端渲染，直接提交结算...");
+        SendAct803EndGamePacket(targetScore);
+        for (int i = 0; i < 30 && g_act803WaitingResponse.load(); ++i) {
+            Sleep(100);
+        }
+
+        if (g_act803LastResult.load() == 3) {
+            UIBridge::Instance().UpdateHelperText(L"清明赏河景：结算失败");
+        }
+
+        return 0;
+    }
+
+    BOOL SendOneKeyAct803Packet(bool useSweep, int targetScore) {
+        g_act803UseSweep = useSweep;
+        int* pTargetScore = new int(targetScore);
+        HANDLE hThread = CreateThread(nullptr, 0, Act803ThreadProc, pTargetScore, 0, nullptr);
+        if (hThread) {
+            CloseHandle(hThread);
+            return TRUE;
+        }
+        delete pTargetScore;
+        return FALSE;
+    }
+
+    void ProcessAct803Response(const GamePacket& packet) {
+        size_t offset = 0;
+        std::string operation;
+        if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+            return;
+        }
+
+        const BYTE* body = packet.body.data();
+        g_act803WaitingResponse = false;
+
+        if (operation == "open_ui") {
+            if (offset + 44 <= packet.body.size()) {
+                g_act803PlayCount = ReadInt32LE(body, offset);
+                g_act803RestTime = ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                g_act803RedBerryCount = ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                g_act803IsPop = ReadInt32LE(body, offset);
+                g_act803IsMoveControl = ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+
+                wchar_t msg[256];
+                swprintf_s(
+                    msg,
+                    L"清明赏河景：次数=%d 冷却=%d秒 红莓果=%d",
+                    g_act803PlayCount.load(),
+                    g_act803RestTime.load(),
+                    g_act803RedBerryCount.load());
+                UIBridge::Instance().UpdateHelperText(msg);
+            }
+        } else if (operation == "start_game") {
+            if (offset + 4 <= packet.body.size()) {
+                const int result = ReadInt32LE(body, offset);
+                g_act803LastResult = result;
+                if (result == 0 && offset + 8 <= packet.body.size()) {
+                    ReadInt32LE(body, offset);
+                    g_act803CheckCode = ReadInt32LE(body, offset);
+                    g_act803HasAwardArr.clear();
+                    while (offset + 4 <= packet.body.size()) {
+                        g_act803HasAwardArr.push_back(ReadInt32LE(body, offset));
+                    }
+                } else if (result == 12) {
+                    UIBridge::Instance().UpdateHelperText(L"清明赏河景：今日次数已用完");
+                } else if (result == 11) {
+                    UIBridge::Instance().UpdateHelperText(L"清明赏河景：冷却中，请稍后再试");
+                } else if (result == 10) {
+                    UIBridge::Instance().UpdateHelperText(L"清明赏河景：当前已经在游戏中");
+                }
+            }
+        } else if (operation == "sweep_info") {
+            if (offset + 8 <= packet.body.size()) {
+                const int result = ReadInt32LE(body, offset);
+                g_act803SweepAvailable = (result == 0 || result == 4);
+                ReadInt32LE(body, offset);
+                if (g_act803SweepAvailable.load()) {
+                    ParseAct803AwardList(packet.body, offset);
+                    UIBridge::Instance().UpdateHelperText(L"清明赏河景：扫荡预览已获取");
+                } else {
+                    UIBridge::Instance().UpdateHelperText(L"清明赏河景：当前不可扫荡");
+                }
+            }
+        } else if (operation == "end_game" || operation == "sweep") {
+            if (offset + 12 <= packet.body.size()) {
+                const int result = ReadInt32LE(body, offset);
+                g_act803LastResult = result;
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                if (result != 3 && offset + 4 <= packet.body.size()) {
+                    ReadInt32LE(body, offset);
+                    ParseAct803AwardList(packet.body, offset);
+                    UIBridge::Instance().UpdateHelperText(operation == "sweep" ? L"清明赏河景：扫荡完成" : L"清明赏河景：结算完成");
+                } else if (result == 3) {
+                    UIBridge::Instance().UpdateHelperText(operation == "sweep" ? L"清明赏河景：扫荡失败" : L"清明赏河景：结算失败");
+                }
+            }
+        }
+    }
+
+    // ============ 采蘑菇的好伙伴功能实现 (Act624) ============
+
+    BOOL SendAct624Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
+        std::vector<BYTE> packet = BuildActivityPacket(Opcode::ACTIVITY_QINGYANG_NEW_SEND, Act624::ACTIVITY_ID, operation, bodyValues);
+        return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    }
+
+    BOOL SendAct624PacketNoWait(const std::string& operation, const std::vector<int32_t>& bodyValues = {}) {
+        std::vector<BYTE> packet = BuildActivityPacket(Opcode::ACTIVITY_QINGYANG_NEW_SEND, Act624::ACTIVITY_ID, operation, bodyValues);
+        return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    }
+
+    BOOL SendAct624GameInfoPacket() {
+        g_act624WaitingResponse = true;
+        return SendAct624Packet("game_info", {});
+    }
+
+    BOOL SendAct624StartGamePacket(int promptFlag) {
+        g_act624WaitingResponse = true;
+        return SendAct624Packet("start_game", {promptFlag});
+    }
+
+    BOOL SendAct624EndRoundPacket(int round, int gameTime, int mushroomNum) {
+        const int checkCode = g_act624CheckCode.load();
+        const uint32_t userId = g_userId.load();
+        if (checkCode <= 0) {
+            return FALSE;
+        }
+
+        const int clientCheckCode = checkCode & static_cast<int>(userId % static_cast<uint32_t>(checkCode));
+        g_act624WaitingResponse = true;
+        return SendAct624Packet("round", {clientCheckCode, round, gameTime, mushroomNum, 0});
+    }
+
+    BOOL SendAct624NextRoundPacket() {
+        return SendAct624PacketNoWait("revive", {2});
+    }
+
+    BOOL SendAct624SweepInfoPacket() {
+        g_act624WaitingResponse = true;
+        return SendAct624Packet("sweep_info", {});
+    }
+
+    BOOL SendAct624SweepPacket() {
+        g_act624WaitingResponse = true;
+        return SendAct624Packet("sweep", {});
+    }
+
+    DWORD WINAPI Act624ThreadProc(LPVOID lpParam) {
+        (void)lpParam;
+
+        g_act624CheckCode = 0;
+        g_act624LastResult = -1;
+        g_act624PlayCount = 0;
+        g_act624RestTime = 0;
+        g_act624CanGetFlag = 0;
+        g_act624GotFlag = 0;
+        g_act624TotalBadgeNum = 0;
+        g_act624FinishedNum = 0;
+        g_act624SweepAvailable = false;
+
+        Sleep(300);
+        UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：正在获取活动信息...");
+
+        SendAct624GameInfoPacket();
+        for (int i = 0; i < 30 && g_act624WaitingResponse.load(); ++i) {
+            Sleep(100);
+        }
+
+        if (g_act624PlayCount.load() <= 0) {
+            UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：今日次数已用完");
+            return 0;
+        }
+
+        if (g_act624RestTime.load() > 0) {
+            UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：冷却中，请稍后再试");
+            return 0;
+        }
+
+        if (g_act624UseSweep.load()) {
+            UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：正在获取扫荡信息...");
+            SendAct624SweepInfoPacket();
+            for (int i = 0; i < 30 && g_act624WaitingResponse.load(); ++i) {
+                Sleep(100);
+            }
+
+            if (g_act624SweepAvailable.load()) {
+                Sleep(300);
+                UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：执行扫荡...");
+                SendAct624SweepPacket();
+                for (int i = 0; i < 30 && g_act624WaitingResponse.load(); ++i) {
+                    Sleep(100);
+                }
+                if (g_act624LastResult.load() == 0) {
+                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：扫荡完成");
+                } else {
+                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：扫荡失败");
+                }
+                return 0;
+            }
+
+            UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：当前不可扫荡，改为三轮游戏");
+        }
+
+        Sleep(300);
+        UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：开始游戏...");
+        SendAct624StartGamePacket(1);
+        for (int i = 0; i < 30 && g_act624WaitingResponse.load(); ++i) {
+            Sleep(100);
+        }
+
+        if (g_act624CheckCode.load() == 0) {
+            UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：获取校验码失败");
+            return 0;
+        }
+
+        static const int kTargetNums[3] = {5, 10, 15};
+        static const int kTargetTimes[3] = {0, 0, 0};
+        for (int round = 1; round <= 3; ++round) {
+            Sleep(300);
+            wchar_t msg[128];
+            swprintf_s(msg, L"采蘑菇的好伙伴：第%d轮结算中...", round);
+            UIBridge::Instance().UpdateHelperText(msg);
+            SendAct624EndRoundPacket(round, kTargetTimes[round - 1], kTargetNums[round - 1]);
+            for (int i = 0; i < 30 && g_act624WaitingResponse.load(); ++i) {
+                Sleep(100);
+            }
+
+            if (round < 3) {
+                // AS3 里的“下一轮”只是本地 UI 切换，不会额外向服务端发送 revive。
+                Sleep(600);
+            }
+        }
+
+        Sleep(300);
+        g_act624WaitingResponse = true;
+        SendAct624Packet("revive", {2});
+        for (int i = 0; i < 30 && g_act624WaitingResponse.load(); ++i) {
+            Sleep(100);
+        }
+
+        Sleep(300);
+        SendAct624GameInfoPacket();
+        for (int i = 0; i < 30 && g_act624WaitingResponse.load(); ++i) {
+            Sleep(100);
+        }
+
+        UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：三轮结算完成");
+        return 0;
+    }
+
+    BOOL SendOneKeyAct624Packet(bool useSweep) {
+        g_act624UseSweep = useSweep;
+        HANDLE hThread = CreateThread(nullptr, 0, Act624ThreadProc, nullptr, 0, nullptr);
+        if (hThread) {
+            CloseHandle(hThread);
+            return TRUE;
+        }
+        return FALSE;
+    }
+
+    void ProcessAct624Response(const GamePacket& packet) {
+        size_t offset = 0;
+        std::string operation;
+        if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+            return;
+        }
+
+        const BYTE* body = packet.body.data();
+        g_act624WaitingResponse = false;
+
+        if (operation == "game_info") {
+            if (offset + 4 <= packet.body.size()) {
+                const int result = ReadInt32LE(body, offset);
+                g_act624LastResult = result;
+                if (result == 0 && offset + 52 <= packet.body.size()) {
+                    g_act624PlayCount = ReadInt32LE(body, offset);
+                    g_act624RestTime = ReadInt32LE(body, offset);
+                    g_act624CanGetFlag = ReadInt32LE(body, offset);
+                    g_act624GotFlag = ReadInt32LE(body, offset);
+                    ReadInt32LE(body, offset);
+                    ReadInt32LE(body, offset);
+                    ReadInt32LE(body, offset);
+                    ReadInt32LE(body, offset);
+                    g_act624TotalBadgeNum = ReadInt32LE(body, offset);
+                    g_act624FinishedNum = ReadInt32LE(body, offset);
+                    ReadInt32LE(body, offset);
+                    ReadInt32LE(body, offset);
+                    ReadInt32LE(body, offset);
+
+                    wchar_t msg[256];
+                    swprintf_s(
+                        msg,
+                        L"采蘑菇的好伙伴：次数=%d 冷却=%d秒 勋章=%d",
+                        g_act624PlayCount.load(),
+                        g_act624RestTime.load(),
+                        g_act624TotalBadgeNum.load());
+                    UIBridge::Instance().UpdateHelperText(msg);
+                } else if (result == 12) {
+                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：今日次数已用完");
+                } else if (result == 11) {
+                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：冷却中，请稍后再试");
+                } else if (result == 10) {
+                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：当前已经在游戏中");
+                } else {
+                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：获取活动信息失败");
+                }
+            }
+        } else if (operation == "start_game") {
+            if (offset + 4 <= packet.body.size()) {
+                const int result = ReadInt32LE(body, offset);
+                g_act624LastResult = result;
+                if (result == 0 && offset + 8 <= packet.body.size()) {
+                    ReadInt32LE(body, offset);
+                    g_act624CheckCode = ReadInt32LE(body, offset);
+                } else if (result == 12) {
+                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：今日次数已用完");
+                } else if (result == 11) {
+                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：冷却中，请稍后再试");
+                } else if (result == 10) {
+                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：当前已经在游戏中");
+                }
+            }
+        } else if (operation == "round") {
+            if (offset + 12 <= packet.body.size()) {
+                g_act624CheckCode = ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：结算完成");
+            }
+        } else if (operation == "revive") {
+            g_act624LastResult = 0;
+        } else if (operation == "sweep_info") {
+            if (offset + 4 <= packet.body.size()) {
+                const int result = ReadInt32LE(body, offset);
+                g_act624SweepAvailable = (result == 0);
+                if (g_act624SweepAvailable.load()) {
+                    std::string jsonStr;
+                    if (ReadLengthPrefixedString(packet.body, offset, jsonStr)) {
+                        UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：扫荡预览已获取");
+                    }
+                } else {
+                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：当前不可扫荡");
+                }
+            }
+        } else if (operation == "sweep") {
+            if (offset + 4 <= packet.body.size()) {
+                const int result = ReadInt32LE(body, offset);
+                g_act624LastResult = result;
+                if (offset + 4 <= packet.body.size()) {
+                    g_act624PlayCount = ReadInt32LE(body, offset);
+                }
+                if (result == 0) {
+                    std::string jsonStr;
+                    if (ReadLengthPrefixedString(packet.body, offset, jsonStr)) {
+                        UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：扫荡完成");
+                    }
+                } else {
+                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：扫荡失败");
+                }
+            }
+        }
+    }
+
     // ============ 海底激战功能实现 (SeaBattle / Act653) ============
 
     #define SEA_BATTLE_STATE ActivityStateManager::Instance().GetSeaBattleState()
@@ -2406,7 +2926,7 @@ void ProcessEnterWorldPacket(const GamePacket& gp) {
     std::wstring kabuName = Utf8ToWide(nameUtf8);
     
     // 更新窗口标题
-    std::wstring newTitle = L"卡布西游浮影微端 V1.06 - " + 
+    std::wstring newTitle = L"卡布西游浮影微端 V1.07 - " + 
                            std::to_wstring(kabuId) + L" " + kabuName;
     SetWindowTextW(g_hWnd, newTitle.c_str());
 }
@@ -3099,11 +3619,12 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerOpcode(Opcode::COLLECT_STATUS_BACK, ProcessCollectResponse);
     registerOpcode(Opcode::REQ_PACKAGE_DATA_BACK, ProcessPackageDataResponse);
 
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, StrawberryPick::ACTIVITY_ID, ProcessStrawberryResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act778::ACTIVITY_ID, ProcessAct778Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act793::ACTIVITY_ID, ProcessAct793Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act791::ACTIVITY_ID, ProcessAct791Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act782::ACTIVITY_ID, ProcessAct782Response);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act803::ACTIVITY_ID, ProcessAct803Response);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act624::ACTIVITY_ID, ProcessAct624Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, SeaBattle::ACTIVITY_ID, ProcessSeaBattleResponse);
     registerParams(Opcode::HORSE_COMPETITION_BACK, HORSE_COMPETITION_ACT_ID, ProcessHorseCompetitionResponse);
 
@@ -6487,340 +7008,6 @@ void ProcessCollectResponse(const GamePacket& packet) {
     return SendPacket(0, packet.data(), (DWORD)packet.size());
 }
 
-// ============ 采摘红莓果功能实现 (Act788) ============
-
-/**
- * @brief 构造采摘红莓果封包
- * @param operation 操作类型字符串
- * @param bodyValues Body值列表
- * @return 封包数据
- */
-/**
- * @brief 采摘红莓果 - 发送活动操作封包
- */
-BOOL SendStrawberryPacket(const std::string& operation, const std::vector<int32_t>& bodyValues) {
-    return SendActivityPacket(StrawberryPick::ACTIVITY_ID, operation, bodyValues);
-}
-
-/**
- * @brief 采摘红莓果 - 获取游戏信息
- */
-BOOL SendStrawberryGameInfoPacket() {
-    g_strawberryWaitingResponse = true;
-    return SendStrawberryPacket("open_ui");
-}
-
-/**
- * @brief 采摘红莓果 - 开始游戏
- */
-BOOL SendStrawberryStartGamePacket(int ruleFlag) {
-    g_strawberryWaitingResponse = true;
-    return SendStrawberryPacket("start_game", {ruleFlag});
-}
-
-/**
- * @brief 采摘红莓果 - 游戏中收集物品
- * @param category 物品类别: 1=Monkey(天上掉落), 2=Goods(地面道具)
- * @param id 物品ID (Monkey: 1-73, Goods: 74-103)
- * @param itemType 物品类型 (直接从awardArr/toolArr获取的原始值)
- * 
- * 封包格式: [game_hit, checkCode, category, id, itemType]
- * 
- * 校验码计算（来自AS3代码 KBMonkey.as/KBGoods.as）：
- * checkCode = (random 1000-1999) * (serverCheckCode + id) + 8621
- */
-BOOL SendStrawberryGameHitPacket(int category, int id, int itemType) {
-    int random_part = (rand() % 1000) + 1000;
-    int checkCode = random_part * (g_strawberryCheckCode + id) + 8621;
-    // 封包格式: [game_hit, checkCode, category, id, itemType]
-    // itemType 直接使用数组中的原始值（AS3中 type+1 是因为 type = 数组值-1）
-    return SendStrawberryPacket("game_hit", {checkCode, category, id, itemType});
-}
-
-/**
- * @brief 采摘红莓果 - 结束游戏
- * 
- * 校验码计算（来自AS3代码）：
- * checkCode = serverCheckCode & (userId % serverCheckCode)
- */
-BOOL SendStrawberryEndGamePacket() {
-    int checkCode = g_strawberryCheckCode & (g_userId % g_strawberryCheckCode);
-    return SendStrawberryPacket("end_game", {checkCode});
-}
-
-/**
- * @brief 采摘红莓果 - 扫荡信息
- */
-BOOL SendStrawberrySweepInfoPacket() {
-    g_strawberryWaitingResponse = true;
-    return SendStrawberryPacket("sweep_info");
-}
-
-/**
- * @brief 采摘红莓果 - 执行扫荡
- */
-BOOL SendStrawberrySweepPacket() {
-    g_strawberryWaitingResponse = true;
-    return SendStrawberryPacket("sweep");
-}
-
-/**
- * @brief 采摘红莓果一键完成线程
- */
-DWORD WINAPI StrawberryThreadProc(LPVOID lpParam) {
-    Sleep(300);
-    
-    UIBridge::Instance().UpdateHelperText(L"采摘红莓果：正在获取游戏信息...");
-    
-    // 1. 获取游戏信息
-    SendStrawberryGameInfoPacket();
-    
-    // Wait for response (max 3 seconds)
-    for (int i = 0; i < 30 && g_strawberryWaitingResponse; i++) {
-        Sleep(100);
-    }
-    
-    // Check if has game count
-    if (g_strawberryPlayCount <= 0) {
-        UIBridge::Instance().UpdateHelperText(L"采摘红莓果：今日次数已用完");
-        return 0;
-    }
-    
-    // Check cooldown time
-    if (g_strawberryRestTime > 0) {
-        UIBridge::Instance().UpdateHelperText(L"采摘红莓果：冷却中，请稍后再试");
-        return 0;
-    }
-    
-    // 2. Decide execution method
-    if (g_strawberryUseSweep) {
-        // Method A: Use sweep
-        Sleep(300);
-        SendStrawberrySweepInfoPacket();
-        
-        for (int i = 0; i < 30 && g_strawberryWaitingResponse; i++) {
-            Sleep(100);
-        }
-        
-        Sleep(300);
-        SendStrawberrySweepPacket();
-        
-        UIBridge::Instance().UpdateHelperText(L"采摘红莓果：扫荡完成");
-    } else {
-        // Method B: Play game
-        Sleep(300);
-        SendStrawberryStartGamePacket(g_strawberryRuleFlag);
-        
-        for (int i = 0; i < 30 && g_strawberryWaitingResponse; i++) {
-            Sleep(100);
-        }
-        
-        // 检查是否有奖励物品
-        if (g_strawberryAwardArr.empty()) {
-            UIBridge::Instance().UpdateHelperText(L"采摘红莓果：未获取到奖励数据");
-            return 0;
-        }
-        
-        // 模拟游戏过程：收集物品
-        // 关键：过滤掉有害道具（石头 type=16），只收集有益道具
-        // 
-        // 物品ID规则（来自AS3代码）：
-        // - Monkey (category=1): ID = awardIndex，范围 1-73
-        // - Goods (category=2): ID = toolIndex + 73，范围 74-103
-        //
-        // awardArr[73]: 天上掉落的物品（Monkey）
-        //   - 值14=红莓果(+1), 值15=红莓果5(+5), 值16=石头(有害!)
-        // toolArr[30]: 地面道具（Goods）
-        //   - 都是有益道具（历练丹、铜钱、天香丸等）
-        
-        DWORD lastSendTime = GetTickCount();
-        DWORD minInterval = 80;  // 最小发送间隔 80ms
-        int totalCollected = 0;
-        
-        // 1. 收集天上掉落的红莓果（过滤石头）
-        // Monkey的ID从1开始，对应awardArr的索引
-        UIBridge::Instance().UpdateHelperText(L"采摘红莓果：正在收集红莓果...");
-        int monkeyId = 1;  // Monkey ID 从1开始
-        for (size_t i = 0; i < g_strawberryAwardArr.size() && monkeyId <= 73; i++) {
-            int itemType = g_strawberryAwardArr[i];
-            
-            // 过滤掉石头(itemType==16)，只收集红莓果(14,15)
-            if (itemType == 16) {
-                monkeyId++;  // ID仍然递增，但不发送封包
-                continue;    // 跳过石头
-            }
-            
-            // category=1 表示 Monkey（天上掉落）
-            // 封包格式: [game_hit, checkCode, 1, id, itemType]
-            SendStrawberryGameHitPacket(1, monkeyId, itemType);
-            monkeyId++;
-            totalCollected++;
-            
-            // 更新进度
-            if (totalCollected % 10 == 0) {
-                wchar_t msg[128];
-                swprintf_s(msg, L"采摘红莓果：已收集 %d 个红莓果...", totalCollected);
-                UIBridge::Instance().UpdateHelperText(msg);
-            }
-            
-            // 智能延迟
-            DWORD now = GetTickCount();
-            DWORD elapsed = now - lastSendTime;
-            if (elapsed < minInterval) {
-                Sleep(minInterval - elapsed);
-            }
-            lastSendTime = GetTickCount();
-        }
-        
-        // 2. 收集地面道具（都是有益的）
-        // Goods的ID从74开始 = toolIndex + 73
-        UIBridge::Instance().UpdateHelperText(L"采摘红莓果：正在收集道具...");
-        int goodsId = 74;  // Goods ID 从74开始
-        for (size_t i = 0; i < g_strawberryToolArr.size() && goodsId <= 103; i++) {
-            int itemType = g_strawberryToolArr[i];
-            
-            // category=2 表示 Goods（地面道具）
-            // 封包格式: [game_hit, checkCode, 2, id, itemType]
-            SendStrawberryGameHitPacket(2, goodsId, itemType);
-            goodsId++;
-            totalCollected++;
-            
-            // 智能延迟
-            DWORD now = GetTickCount();
-            DWORD elapsed = now - lastSendTime;
-            if (elapsed < minInterval) {
-                Sleep(minInterval - elapsed);
-            }
-            lastSendTime = GetTickCount();
-        }
-        
-        Sleep(300);
-        SendStrawberryEndGamePacket();
-        
-        wchar_t msg[128];
-        swprintf_s(msg, L"采摘红莓果：游戏完成！共收集 %d 个物品", totalCollected);
-        UIBridge::Instance().UpdateHelperText(msg);
-    }
-    
-    return 0;
-}
-
-/**
- * @brief 采摘红莓果 - 一键完成
- */
-BOOL SendOneKeyStrawberryPacket(bool useSweep) {
-    g_strawberryUseSweep = useSweep;
-    HANDLE hThread = CreateThread(nullptr, 0, StrawberryThreadProc, nullptr, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
-        return TRUE;
-    }
-    return FALSE;
-}
-
-/**
- * @brief 处理采摘红莓果响应
- */
-void ProcessStrawberryResponse(const GamePacket& packet) {
-    if (packet.body.size() < 2) return;
-    
-    const BYTE* body = packet.body.data();
-    size_t offset = 0;
-    
-    // 读取操作类型字符串（小端序长度前缀）
-    uint16_t strLen = body[offset] | (body[offset + 1] << 8);
-    offset += 2;
-    
-    if (offset + strLen > packet.body.size()) return;
-    
-    std::string operation(reinterpret_cast<const char*>(body + offset), strLen);
-    offset += strLen;
-    
-    g_strawberryWaitingResponse = false;
-    
-    if (operation == "open_ui") {
-        // open_ui response: playTime, restTime, unknown, redBerryCount, unknown, isPop, unknown, catchId, catchList[2]
-        if (offset + 32 <= packet.body.size()) {
-            g_strawberryPlayCount = ReadInt32LE(body, offset);
-            g_strawberryRestTime = ReadInt32LE(body, offset);
-            offset += 4;  // unknown
-            g_strawberryRedBerryCount = ReadInt32LE(body, offset);
-            offset += 4;  // unknown
-            g_strawberryRuleFlag = ReadInt32LE(body, offset);
-            offset += 4;  // unknown
-            int catchId = ReadInt32LE(body, offset);
-            int catchList0 = ReadInt32LE(body, offset);
-            int catchList1 = ReadInt32LE(body, offset);
-            
-            wchar_t msg[256];
-            swprintf_s(msg, L"采摘红莓果：次数=%d, 冷却=%d秒, 红莓果=%d", 
-                      g_strawberryPlayCount, g_strawberryRestTime, g_strawberryRedBerryCount);
-            UIBridge::Instance().UpdateHelperText(msg);
-        }
-    }
-    else if (operation == "start_game") {
-        if (offset + 4 <= packet.body.size()) {
-            int result = ReadInt32LE(body, offset);
-            if (result == 0) {
-                // AS3格式: result(4) + unknown(4) + checkCode(4) + awardtype(4) + awardArr[73](292) + toolArr[30](120)
-                // 至少需要 4 + 4 + 4 + 4 = 16 字节
-                if (offset + 16 <= packet.body.size()) {
-                    offset += 4;  // unknown
-                    g_strawberryCheckCode = ReadInt32LE(body, offset);
-                    g_strawberryAwardType = ReadInt32LE(body, offset);
-                    
-                    // 解析 awardArr[73]
-                    g_strawberryAwardArr.clear();
-                    for (int i = 0; i < 73 && offset + 4 <= packet.body.size(); i++) {
-                        g_strawberryAwardArr.push_back(ReadInt32LE(body, offset));
-                    }
-                    
-                    // 解析 toolArr[30]
-                    g_strawberryToolArr.clear();
-                    for (int i = 0; i < 30 && offset + 4 <= packet.body.size(); i++) {
-                        g_strawberryToolArr.push_back(ReadInt32LE(body, offset));
-                    }
-                    
-                    UIBridge::Instance().UpdateHelperText(L"采摘红莓果：游戏开始，正在收集物品...");
-                }
-            } else {
-                UIBridge::Instance().UpdateHelperText(L"采摘红莓果：开始游戏失败");
-            }
-        }
-    }
-    else if (operation == "end_game" || operation == "sweep") {
-        // result, unknown, unknown, medal, exp, coin, items...
-        if (offset + 4 <= packet.body.size()) {
-            int result = ReadInt32LE(body, offset);
-            if (result == 0 && offset + 20 <= packet.body.size()) {
-                offset += 8;  // skip 2 unknown
-                int medal = ReadInt32LE(body, offset);
-                int exp = ReadInt32LE(body, offset);
-                int coin = ReadInt32LE(body, offset);
-                
-                wchar_t msg[256];
-                swprintf_s(msg, L"采摘红莓果：获得勋章 %d, 经验 %d, 铜钱 %d", medal, exp, coin);
-                UIBridge::Instance().UpdateHelperText(msg);
-            }
-        }
-    }
-    else if (operation == "sweep_info") {
-        if (offset + 4 <= packet.body.size()) {
-            int result = ReadInt32LE(body, offset);
-            if (result == 0 && offset + 20 <= packet.body.size()) {
-                offset += 8;  // skip 2 unknown
-                int medal = ReadInt32LE(body, offset);
-                int exp = ReadInt32LE(body, offset);
-                int coin = ReadInt32LE(body, offset);
-                
-                wchar_t msg[256];
-                swprintf_s(msg, L"采摘红莓果：扫荡预览，可获得勋章 %d", medal);
-                UIBridge::Instance().UpdateHelperText(msg);
-            }
-        }
-    }
-}
-    
     // ============================================================================
     // 福瑞宝箱功能 (HeavenFurui)
     // ============================================================================
