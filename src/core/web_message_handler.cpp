@@ -19,7 +19,6 @@
 #include "app_host.h"
 #include "utils.h"
 #include "ui_bridge.h"
-bool PostScriptToUI(const std::wstring& jsCode);
 BOOL SavePacketListToFile(const std::wstring& filePath);
 BOOL LoadPacketListFromFile(const std::wstring& filePath);
 
@@ -160,12 +159,711 @@ DWORD GetJsonDWORDValue(const std::wstring& msg, const std::wstring& key, DWORD 
     return static_cast<DWORD>(_wtol(value.c_str()));
 }
 
-void SetHelperText(const wchar_t* text) {
-    PostScriptToUI(L"if(window.updateHelperText) { window.updateHelperText('" + UIBridge::EscapeJsonString(text ? std::wstring(text) : std::wstring()) + L"'); }");
+void SetHelperText(const std::wstring& text) {
+    UIBridge::Instance().UpdateHelperText(text);
 }
 
-void SetHelperText(const std::wstring& text) {
-    PostScriptToUI(L"if(window.updateHelperText) { window.updateHelperText('" + UIBridge::EscapeJsonString(text) + L"'); }");
+void SetHelperText(const wchar_t* text) {
+    SetHelperText(text ? std::wstring(text) : std::wstring());
+}
+
+void UpdateDungeonJumpStatus(const std::wstring& text) {
+    UIBridge::Instance().ExecuteJS(
+        L"if(window.updateDungeonJumpStatus) { window.updateDungeonJumpStatus('" +
+        UIBridge::EscapeJsonString(text) + L"'); }");
+}
+
+void ClearPacketListView() {
+    static const wchar_t* clearScript = LR"(
+        (function(){
+            var pListItems = document.getElementById('packet-list-items');
+            if (pListItems) {
+                pListItems.innerHTML = '';
+            }
+            if (window.updatePacketCount) {
+                var count = pListItems ? pListItems.children.length : 0;
+                window.updatePacketCount(count);
+            }
+        })();
+    )";
+    AppHost::ExecuteScript(clearScript);
+}
+
+void ParseIndicesArray(const std::wstring& msg, std::vector<DWORD>& indices);
+
+struct SendPacketThreadData {
+    std::vector<BYTE> data;
+};
+
+template <typename ThreadData>
+HANDLE LaunchDetachedWorkerThread(ThreadData* data, LPTHREAD_START_ROUTINE worker) {
+    HANDLE hThread = CreateThread(nullptr, 0, worker, data, 0, nullptr);
+    if (hThread) {
+        CloseHandle(hThread);
+    } else {
+        delete data;
+    }
+    return hThread;
+}
+
+template <typename Func, typename... Args>
+void LaunchDetachedStdThread(Func func, Args... args) {
+    std::thread(func, args...).detach();
+}
+
+DWORD WINAPI HandleSendPacketWorker(LPVOID lpParam) {
+    SendPacketThreadData* pD = static_cast<SendPacketThreadData*>(lpParam);
+    BOOL result = SendPacket(0, pD->data.data(), static_cast<DWORD>(pD->data.size()));
+    if (!result) {
+        SetHelperText(L"封包发送失败：未连接到游戏服务器");
+    }
+    delete pD;
+    return 0;
+}
+
+void HandleSendPacketCommand(const std::wstring& msg) {
+    const std::wstring hexW = GetJsonValue(msg, L"hex");
+    if (hexW.empty()) {
+        SetHelperText(L"封包数据格式错误");
+        return;
+    }
+
+    SendPacketThreadData* pData = new SendPacketThreadData{StringToHex(WideToUtf8(hexW))};
+    LaunchDetachedWorkerThread(pData, HandleSendPacketWorker);
+}
+
+void HandlePacketWindowVisibilityChanged(const std::wstring& msg) {
+    const bool visible = GetJsonBoolValue(msg, L"visible");
+    RECT packetWindowRect{};
+    if (visible) {
+        packetWindowRect.left = static_cast<LONG>(GetJsonDWORDValue(msg, L"left"));
+        packetWindowRect.top = static_cast<LONG>(GetJsonDWORDValue(msg, L"top"));
+        packetWindowRect.right = static_cast<LONG>(GetJsonDWORDValue(msg, L"width"));
+        packetWindowRect.bottom = static_cast<LONG>(GetJsonDWORDValue(msg, L"height"));
+        AppHost::SetPacketWindowState(true, packetWindowRect);
+        SyncPacketsToUI();
+    } else {
+        AppHost::SetPacketWindowVisible(false);
+        UIBridge::Instance().UpdatePacketCount(GetPacketCount());
+    }
+    AppHost::UpdateBrowserRegion();
+}
+
+void HandleDeleteSelectedPacketsCommand(const std::wstring& msg) {
+    std::vector<DWORD> indices;
+    ParseIndicesArray(msg, indices);
+    if (!indices.empty()) {
+        DeleteSelectedPackets(indices);
+    }
+    ClearPacketListView();
+    SyncPacketsToUI();
+}
+
+template <typename ActionFunc>
+void HandleActionCommand(ActionFunc action);
+
+void HandleSetSpeedCommand(const std::wstring& msg) {
+    const float speed = static_cast<float>(_wtof(GetTrimmedJsonValue(msg, L"speed").c_str()));
+    HandleActionCommand([speed]() {
+        AppHost::ApplySpeedhack(speed);
+    });
+}
+
+template <typename BoolTarget>
+void HandleSetBoolFlagCommand(const std::wstring& msg, const wchar_t* key, BoolTarget& target) {
+    target = GetJsonBoolValue(msg, key);
+}
+
+template <typename ActionFunc>
+void HandleBoolResultCommand(ActionFunc action, const wchar_t* successText, const wchar_t* failureText = nullptr) {
+    if (action()) {
+        if (successText) {
+            SetHelperText(successText);
+        }
+    } else if (failureText) {
+        SetHelperText(failureText);
+    }
+}
+
+template <typename ActionFunc, typename SuccessFunc>
+void HandleBoolResultCommand(ActionFunc action, SuccessFunc onSuccess, const wchar_t* failureText) {
+    if (action()) {
+        onSuccess();
+    } else if (failureText) {
+        SetHelperText(failureText);
+    }
+}
+
+template <typename ActionFunc>
+void HandleActionWithTextCommand(ActionFunc action, const wchar_t* text) {
+    action();
+    if (text) {
+        SetHelperText(text);
+    }
+}
+
+template <typename ActionFunc>
+void HandleActionCommand(ActionFunc action) {
+    action();
+}
+
+template <typename ActionFunc>
+bool RefreshPackageDataAndRun(ActionFunc action) {
+    SendReqPackageDataPacket(0xFFFFFFFF);
+    Sleep(200);
+    return action();
+}
+
+void HandleSetAutoHealEnabledCommand(const std::wstring& msg) {
+    HandleSetBoolFlagCommand(msg, L"enabled", g_autoHeal);
+}
+
+void HandleSetBlockBattleEnabledCommand(const std::wstring& msg) {
+    HandleSetBoolFlagCommand(msg, L"enabled", g_blockBattle);
+}
+
+void HandleSetAutoGoHomeEnabledCommand(const std::wstring& msg) {
+    HandleSetBoolFlagCommand(msg, L"enabled", g_autoGoHome);
+}
+
+void HandleQueryLingyuCommand() {
+    HandleActionCommand(SendQueryLingyuPacket);
+}
+
+void HandleQueryMonstersCommand() {
+    HandleActionCommand(SendQueryMonsterPacket);
+}
+
+void HandleRefreshPackItemsCommand() {
+    HandleActionCommand([]() {
+        SendReqPackageDataPacket(0xFFFFFFFF);
+    });
+}
+
+void HandleBuyDiceCommand() {
+    HandleActionCommand(SendBuyDicePacket);
+}
+
+void HandleBuyDice18Command() {
+    HandleBoolResultCommand(SendBuyDicePacket, L"已购买18个骰子");
+}
+
+void HandleClearPacketsCommand() {
+    HandleActionCommand(ClearPacketList);
+}
+
+void HandleStartInterceptCommand() {
+    HandleActionCommand(StartIntercept);
+}
+
+void HandleStopInterceptCommand() {
+    HandleActionCommand(StopIntercept);
+}
+
+void HandleSetInterceptTypeCommand(const std::wstring& msg) {
+    const bool send = GetJsonBoolValue(msg, L"send");
+    const bool recv = GetJsonBoolValue(msg, L"recv");
+    HandleActionCommand([send, recv]() {
+        SetInterceptType(send, recv);
+    });
+}
+
+void HandleSendDailyTasksCommand(const std::wstring& msg) {
+    const DWORD flags = GetJsonDWORDValue(msg, L"flags");
+    HandleActionCommand([flags]() {
+        SendDailyTasksAsync(flags);
+    });
+}
+
+void HandleStopTaskZoneCommand() {
+    HandleActionWithTextCommand(StopEightTrigramsTask, L"任务区已停止");
+}
+
+void HandleStartTaskZoneCommand() {
+    HandleActionCommand(SendEightTrigramsTaskAsync);
+}
+
+void HandleQueryShuangTaiCommand() {
+    HandleActionCommand(QueryShuangTaiMonsters);
+}
+
+void HandleStartShuangTaiCommand(const std::wstring& msg) {
+    const bool blockBattle = GetJsonBoolValue(msg, L"blockBattle");
+    HandleBoolResultCommand(
+        [blockBattle]() {
+            return SendOneKeyShuangTaiPacket(blockBattle);
+        },
+        L"双台谷刷级已开始，请查看辅助日志",
+        L"双台谷刷级启动失败，请先点击查询按钮获取妖怪数据");
+}
+
+void HandleStopShuangTaiCommand() {
+    HandleActionWithTextCommand(StopShuangTai, L"双台谷刷级已停止");
+}
+
+void HandleBattlesixCancelMatchCommand() {
+    HandleBoolResultCommand(
+        []() {
+            g_battleSixAuto.SetAutoMatching(false);
+            g_battleSixAuto.SetMatchCount(0);
+            return SendCancelBattleSixPacket();
+        },
+        L"万妖盛会：已取消匹配",
+        L"万妖盛会：取消匹配失败");
+}
+
+void HandleStopHorseCompetitionCommand() {
+    HandleActionCommand(RequestStopHorseCompetition);
+}
+
+void HandleStartHeavenFuruiCommand(const std::wstring& msg) {
+    int maxBoxes = 30;
+    const std::wstring maxBoxesStr = GetTrimmedJsonValue(msg, L"maxBoxes");
+    if (!maxBoxesStr.empty()) {
+        TryParseIntInRangeLocal(maxBoxesStr, 1, 9999, 30, maxBoxes);
+    }
+    HandleBoolResultCommand(
+        [maxBoxes]() {
+            return SendOneKeyHeavenFuruiPacket(maxBoxes);
+        },
+        L"福瑞宝箱：开始遍历地图查找宝箱...",
+        L"福瑞宝箱启动失败");
+}
+
+void HandleStopHeavenFuruiCommand() {
+    HandleActionWithTextCommand(StopHeavenFurui, L"福瑞宝箱：已停止");
+}
+
+void HandleSetHijackEnabledCommand(const std::wstring& msg) {
+    const bool enabled = GetJsonBoolValue(msg, L"enabled");
+    HandleActionCommand([enabled]() {
+        SetHijackEnabled(enabled);
+    });
+}
+
+void HandleClearHijackRulesCommand() {
+    HandleActionCommand(ClearHijackRules);
+}
+
+void HandleSavePacketListCommand() {
+    const std::wstring filePath = AppHost::ShowSaveFileDialog(L"", L"packets.txt");
+    if (!filePath.empty()) {
+        HandleBoolResultCommand(
+            [filePath]() {
+                return SavePacketListToFile(filePath);
+            },
+            L"封包列表已保存",
+            L"保存封包列表失败");
+    }
+}
+
+void HandleLoadPacketListCommand() {
+    const std::wstring filePath = AppHost::ShowOpenFileDialog(L"");
+    if (!filePath.empty()) {
+        HandleBoolResultCommand(
+            [filePath]() {
+                if (LoadPacketListFromFile(filePath)) {
+                    SyncPacketsToUI();
+                    return true;
+                }
+                return false;
+            },
+            L"封包列表已载入",
+            L"载入封包列表失败");
+    }
+}
+
+void HandleStopSendCommand() {
+    HandleActionWithTextCommand(StopAutoSend, L"已停止发送封包");
+}
+
+void HandleEnterBossBattleCommand(const std::wstring& msg) {
+    const uint32_t spiritId = GetJsonUInt32Value(msg, L"bossId");
+    if (spiritId > 10000) {
+        HandleBoolResultCommand(
+            [spiritId]() {
+                return SendBattlePacket(spiritId, 32, 0);
+            },
+            [spiritId]() {
+                SetHelperText(L"已发送BOSS战斗封包，ID: " + std::to_wstring(spiritId) + L", useId: 32");
+            },
+            L"发送战斗封包失败，未连接到游戏服务器");
+    } else {
+        SetHelperText(L"无效的对象ID，必须大于10000");
+    }
+}
+
+void HandleOneKeyCollectCommand(const std::wstring& msg) {
+    const DWORD flags = GetJsonDWORDValue(msg, L"flags");
+    HandleBoolResultCommand(
+        [flags]() {
+            return SendOneKeyCollectPacket(flags);
+        },
+        L"一键采集已开始，请查看辅助日志",
+        L"一键采集启动失败，可能已经在运行或未进入游戏");
+}
+
+void HandleOneKeyXuanttaCommand() {
+    HandleBoolResultCommand(
+        SendOneKeyTowerPacket,
+        L"一键玄塔已开始，请查看辅助日志",
+        L"一键玄塔启动失败，可能已经在运行或未进入游戏");
+}
+
+DWORD WINAPI HandleBattlesixAutoMatchWorker(LPVOID param);
+
+void HandleBattlesixAutoMatchCommand(const std::wstring& msg) {
+    const std::wstring matchCountStr = GetTrimmedJsonValue(msg, L"matchCount");
+    int matchCount = 1;
+    TryParseIntInRangeLocal(matchCountStr, 1, 999, 1, matchCount);
+    wchar_t startMsg[128];
+    swprintf_s(startMsg, L"万妖盛会：开始匹配（共%d次）...", matchCount);
+    SetHelperText(startMsg);
+    int* pMatchCount = new int(matchCount);
+    LaunchDetachedWorkerThread(pMatchCount, HandleBattlesixAutoMatchWorker);
+}
+
+void HandleBattlesixSetAutoBattleCommand(const std::wstring& msg) {
+    const std::wstring enabledStr = GetTrimmedJsonValue(msg, L"enabled");
+    const bool enabled = (enabledStr == L"true");
+    g_battleSixAuto.SetAutoBattle(enabled);
+    SetHelperText(L"调试：enabled=[" + enabledStr + L"] parsed=" + std::wstring(enabled ? L"true" : L"false"));
+    SetHelperText(enabled ? L"万妖盛会：自动战斗已启用" : L"万妖盛会：自动战斗已禁用");
+}
+
+DWORD WINAPI HandleBattlesixAutoMatchWorker(LPVOID param) {
+    int* matchCount = static_cast<int*>(param);
+    int count = *matchCount;
+    delete matchCount;
+    SendOneKeyBattleSixPacket(count);
+    return 0;
+}
+
+DWORD WINAPI HandleDungeonJumpWorker(LPVOID param);
+
+void HandleDungeonJumpStartCommand(const std::wstring& msg) {
+    const std::wstring layerStr = GetTrimmedJsonValue(msg, L"targetLayer");
+    int targetLayer = 1;
+    TryParseIntInRangeLocal(layerStr, 1, 9999, 1, targetLayer);
+    UpdateDungeonJumpStatus(std::wstring(L"副本跳层：准备跳转到第") + std::to_wstring(targetLayer) + L"层...");
+    int* pTargetLayer = new int(targetLayer);
+    LaunchDetachedWorkerThread(pTargetLayer, HandleDungeonJumpWorker);
+}
+
+void HandleDungeonJumpStopCommand() {
+    StopDungeonJump();
+    UpdateDungeonJumpStatus(L"副本跳层：已停止");
+}
+
+DWORD WINAPI HandleDungeonJumpWorker(LPVOID param) {
+    int* targetLayer = static_cast<int*>(param);
+    int layer = *targetLayer;
+    delete targetLayer;
+    SendOneKeyDungeonJumpPacket(layer);
+    return 0;
+}
+
+void HandleHorseCompetitionProgressCommand(const std::wstring& progress) {
+    SetHelperText(std::wstring(L"坐骑大赛：") + progress);
+}
+
+void HandleOneKeyHorseCompetitionWorker() {
+    SendOneKeyHorseCompetitionPacket(true);
+}
+
+void HandleOneKeyHorseCompetitionCommand() {
+    SetHelperText(L"坐骑大赛已开始（临时坐骑），请等待...");
+    SetHorseProgressCallback(HandleHorseCompetitionProgressCommand);
+    LaunchDetachedStdThread(HandleOneKeyHorseCompetitionWorker);
+}
+
+void HandleBuyItemCommand(const std::wstring& msg) {
+    const uint32_t itemId = GetJsonUInt32Value(msg, L"itemId");
+    const uint32_t count = GetJsonUInt32Value(msg, L"count", 1U);
+    if (itemId > 0) {
+        HandleBoolResultCommand(
+            [itemId, count]() {
+                return RefreshPackageDataAndRun([itemId, count]() {
+                    return SendBuyGoodsPacket(itemId, count);
+                });
+            },
+            [itemId, count]() {
+                wchar_t buffer[128];
+                swprintf_s(buffer, L"购买道具成功: %s x%u", GetItemName(itemId).c_str(), count);
+                SetHelperText(buffer);
+            },
+            nullptr);
+    }
+}
+
+void HandleUseItemCommand(const std::wstring& msg) {
+    const uint32_t itemId = GetJsonUInt32Value(msg, L"itemId");
+    if (itemId > 0) {
+        if (!g_battleStarted) {
+            SetHelperText(L"使用道具需要在战斗中进行");
+        } else {
+            HandleBoolResultCommand(
+                [itemId]() {
+                    return RefreshPackageDataAndRun([itemId]() {
+                        return SendUseItemInBattlePacket(itemId);
+                    });
+                },
+                [itemId]() {
+                    wchar_t buffer[128];
+                    swprintf_s(buffer, L"使用道具: %s", GetItemName(itemId).c_str());
+                    SetHelperText(buffer);
+                },
+                L"使用道具失败，背包中无此道具");
+        }
+    }
+}
+
+void HandleSendAllPacketsProgressCommand(DWORD currentLoop, DWORD packetIndex, const std::string& label) {
+    std::wstring message = L"正在发送第" + std::to_wstring(currentLoop) + L"次，第" + std::to_wstring(packetIndex) + L"个封包";
+    if (!label.empty()) {
+        message += L"，标签：" + Utf8ToWide(label);
+    }
+    SetHelperText(message);
+}
+
+void HandleSendAllPacketsWorker(DWORD sendCount, DWORD sendDelay) {
+    SendAllPackets(sendDelay, sendCount, HandleSendAllPacketsProgressCommand);
+    SetHelperText(L"封包发送完成");
+}
+
+template <typename SendFunc>
+BOOL InvokeOneKeyActSend(SendFunc sendFunc, bool useSweep, int targetValue) {
+    return sendFunc(useSweep, targetValue);
+}
+
+inline BOOL InvokeOneKeyActSend(BOOL (*sendFunc)(bool), bool useSweep, int) {
+    return sendFunc(useSweep);
+}
+
+void HandleSendAllPacketsCommand(const std::wstring& msg) {
+    DWORD sendCount = 1;
+    DWORD sendDelay = 300;
+    const std::wstring sendCountStr = GetJsonValue(msg, L"sendCount");
+    if (!sendCountStr.empty()) {
+        sendCount = static_cast<DWORD>(_wtoi(sendCountStr.c_str()));
+        if (sendCount < 1) sendCount = 1;
+    }
+    const std::wstring sendDelayStr = GetJsonValue(msg, L"sendDelay");
+    if (!sendDelayStr.empty()) {
+        sendDelay = static_cast<DWORD>(_wtoi(sendDelayStr.c_str()));
+    }
+    LaunchDetachedStdThread(HandleSendAllPacketsWorker, sendCount, sendDelay);
+}
+
+template <typename SendFunc>
+void HandleOneKeyActCommand(const std::wstring& msg,
+                            const wchar_t* paramKey,
+                            int defaultValue,
+                            int minValue,
+                            int maxValue,
+                            const wchar_t* sweepText,
+                            const wchar_t* gameText,
+                            const wchar_t* failureText,
+                            SendFunc sendFunc) {
+    const bool useSweep = GetJsonBoolValue(msg, L"sweep");
+    int targetValue = defaultValue;
+    if (paramKey && *paramKey) {
+        const std::wstring valueStr = GetTrimmedJsonValue(msg, paramKey);
+        if (!valueStr.empty()) {
+            TryParseIntInRangeLocal(valueStr, minValue, maxValue, defaultValue, targetValue);
+        }
+    }
+    if (InvokeOneKeyActSend(sendFunc, useSweep, targetValue)) {
+        SetHelperText(useSweep ? sweepText : gameText);
+    } else {
+        SetHelperText(failureText);
+    }
+}
+
+void HandleOneKeyAct793Command(const std::wstring& msg) {
+    HandleOneKeyActCommand(
+        msg,
+        L"medals",
+        Act793::TARGET_MEDALS,
+        1,
+        100,
+        L"磐石御天火已开始（扫荡模式），请查看辅助日志",
+        L"磐石御天火已开始（游戏模式），请查看辅助日志",
+        L"磐石御天火启动失败",
+        SendOneKeyAct793Packet);
+}
+
+void HandleOneKeyAct791Command(const std::wstring& msg) {
+    HandleOneKeyActCommand(
+        msg,
+        L"score",
+        Act791::TARGET_SCORE,
+        1,
+        250,
+        L"五行镜破封印已开始（扫荡模式），请查看辅助日志",
+        L"五行镜破封印已开始（游戏模式），请查看辅助日志",
+        L"五行镜破封印启动失败",
+        SendOneKeyAct791Packet);
+}
+
+void HandleOneKeyAct782Command(const std::wstring& msg) {
+    HandleOneKeyActCommand(
+        msg,
+        nullptr,
+        Act782::TARGET_SCORE,
+        0,
+        0,
+        L"摘取大力果实已开始（扫荡模式），请查看辅助日志",
+        L"摘取大力果实已开始（400分模式），请查看辅助日志",
+        L"摘取大力果实启动失败",
+        SendOneKeyAct782Packet);
+}
+
+void HandleOneKeyAct803Command(const std::wstring& msg) {
+    HandleOneKeyActCommand(
+        msg,
+        nullptr,
+        Act803::MAX_NUM,
+        0,
+        0,
+        L"清明赏河景已开始（扫荡模式）",
+        L"清明赏河景已开始（游戏模式）",
+        L"清明赏河景启动失败",
+        SendOneKeyAct803Packet);
+}
+
+void HandleOneKeyAct624Command(const std::wstring& msg) {
+    HandleOneKeyActCommand(
+        msg,
+        nullptr,
+        0,
+        0,
+        0,
+        L"采蘑菇的好伙伴已开始（扫荡模式）",
+        L"采蘑菇的好伙伴已开始（三轮模式）",
+        L"采蘑菇的好伙伴启动失败",
+        SendOneKeyAct624Packet);
+}
+
+void HandleOneKeySeaBattleCommand(const std::wstring& msg) {
+    HandleOneKeyActCommand(
+        msg,
+        nullptr,
+        0,
+        0,
+        0,
+        L"海底激战已开始（扫荡模式），请查看辅助日志",
+        L"海底激战已开始（默认分数模式），请查看辅助日志",
+        L"海底激战启动失败",
+        SendOneKeySeaBattlePacket);
+}
+
+void HandleDecomposeLingyuIndicesCommand(const std::wstring& msg, const wchar_t* indicesKey) {
+    const std::wstring jsonArray = GetJsonValue(msg, indicesKey);
+    if (!jsonArray.empty()) {
+        SendDecomposeLingyuPacket(jsonArray);
+    }
+}
+
+void HandleDecomposeLingyuBatchCommand(const std::wstring& msg);
+void HandleDecomposeLingyuArrayCommand(const std::wstring& msg);
+template <typename SendFunc>
+void HandleSpiritCollectSendResultCommand(SendFunc sendFunc, const wchar_t* successText, const wchar_t* failureText);
+
+void HandleDecomposeLingyuCommand(const std::wstring& msg) {
+    if (msg.find(L"decompose_lingyu_batch") != std::wstring::npos) {
+        HandleDecomposeLingyuBatchCommand(msg);
+    } else {
+        HandleDecomposeLingyuArrayCommand(msg);
+    }
+}
+
+void HandleSpiritCollectOpenUiCommand() {
+    HandleSpiritCollectSendResultCommand(
+        SendSpiritOpenUIPacket,
+        L"精魄系统：正在获取数据...",
+        L"精魄系统：发送请求失败");
+}
+
+void HandleSpiritCollectGetSpiritsCommand() {
+    HandleSpiritCollectSendResultCommand(
+        SendSpiritPresuresPacket,
+        L"精魄系统：正在获取精魄列表...",
+        L"精魄系统：获取精魄列表失败");
+}
+
+void HandleSpiritCollectVerifyPlayerCommand(const std::wstring& msg) {
+    const std::wstring friendIdStr = GetTrimmedJsonValue(msg, L"friendId");
+    if (!friendIdStr.empty()) {
+        uint32_t friendId = static_cast<uint32_t>(_wtol(friendIdStr.c_str()));
+        g_spiritCollectState.selectedFriendId = friendId;
+        HandleSpiritCollectSendResultCommand(
+            [friendId]() {
+                return SendSpiritPlayerInfoPacket(friendId);
+            },
+            L"精魄系统：正在验证玩家信息...",
+            L"精魄系统：验证玩家信息失败");
+    }
+}
+
+void HandleSpiritCollectSendSpiritCommand(const std::wstring& msg) {
+    const std::wstring friendIdStr = GetTrimmedJsonValue(msg, L"friendId");
+    const std::wstring eggIdStr = GetTrimmedJsonValue(msg, L"eggId");
+    if (!friendIdStr.empty() && !eggIdStr.empty()) {
+        uint32_t friendId = static_cast<uint32_t>(_wtol(friendIdStr.c_str()));
+        uint32_t eggId = static_cast<uint32_t>(_wtol(eggIdStr.c_str()));
+        HandleSpiritCollectSendResultCommand(
+            [friendId, eggId]() {
+                return SendSpiritGiftPacket(friendId, eggId);
+            },
+            L"精魄系统：正在发送精魄...",
+            L"精魄系统：发送精魄失败");
+    }
+}
+
+void HandleSpiritCollectHistoryCommand(const std::wstring& msg) {
+    const std::wstring typeStr = GetTrimmedJsonValue(msg, L"recordType");
+    if (!typeStr.empty()) {
+        int type = _wtoi(typeStr.c_str());
+        HandleSpiritCollectSendResultCommand(
+            [type]() {
+                return SendSpiritHistoryPacket(type);
+            },
+            L"精魄系统：正在获取历史记录...",
+            L"精魄系统：获取历史记录失败");
+    }
+}
+
+void HandleDecomposeLingyuBatchCommand(const std::wstring& msg) {
+    HandleDecomposeLingyuIndicesCommand(msg, L"indices");
+}
+
+void HandleDecomposeLingyuArrayCommand(const std::wstring& msg) {
+    HandleDecomposeLingyuIndicesCommand(msg, L"indices_array");
+}
+
+template <typename SendFunc>
+void HandleSpiritCollectSendResultCommand(SendFunc sendFunc, const wchar_t* successText, const wchar_t* failureText) {
+    if (sendFunc()) {
+        SetHelperText(successText);
+    } else {
+        SetHelperText(failureText);
+    }
+}
+
+void HandleSpiritCollectCommand(const std::wstring& msg) {
+    const std::wstring action = GetJsonValue(msg, L"action");
+    if (action == L"open_ui") {
+        HandleSpiritCollectOpenUiCommand();
+    } else if (action == L"getSpirits") {
+        HandleSpiritCollectGetSpiritsCommand();
+    } else if (action == L"verifyPlayer") {
+        HandleSpiritCollectVerifyPlayerCommand(msg);
+    } else if (action == L"sendSpirit") {
+        HandleSpiritCollectSendSpiritCommand(msg);
+    } else if (action == L"history") {
+        HandleSpiritCollectHistoryCommand(msg);
+    }
 }
 
 void CopyLoginKeyToClipboard() {
@@ -187,6 +885,82 @@ void CopyLoginKeyToClipboard() {
         }
     }
     CloseClipboard();
+}
+
+void HandleWindowDragCommand() {
+    HandleActionCommand(AppHost::BeginWindowDrag);
+}
+
+void HandleWindowMinimizeCommand() {
+    HandleActionCommand(AppHost::MinimizeMainWindow);
+}
+
+void HandleWindowCloseCommand() {
+    HandleActionCommand(AppHost::CloseMainWindow);
+}
+
+void HandleSetBrowserWindowVisibleCommand(bool visible) {
+    HandleActionCommand([visible]() {
+        AppHost::ShowBrowserWindow(visible);
+    });
+}
+
+void HandleHideBrowserWindowCommand() {
+    HandleSetBrowserWindowVisibleCommand(false);
+}
+
+void HandleShowBrowserWindowCommand() {
+    HandleSetBrowserWindowVisibleCommand(true);
+}
+
+void HandleOpenUrlCommand(const std::wstring& msg) {
+    std::wstring url = GetJsonValue(msg, L"url");
+    if (!url.empty()) {
+        HandleActionCommand([url]() {
+            ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        });
+    }
+}
+
+void HandleRefreshGameCommand() {
+    HandleActionCommand([]() {
+        AppHost::NavigateBrowser(L"http://news.4399.com/login/kbxy.html");
+    });
+}
+
+void HandleRefreshNoLoginCommand() {
+    HandleActionCommand(AppHost::RefreshBrowser);
+}
+
+void HandleMuteGameCommand() {
+    HandleActionCommand(AppHost::ToggleProgramVolume);
+}
+
+void HandleClearIeCacheCommand() {
+    HandleActionCommand(AppHost::ClearIECache);
+}
+
+void HandleCopyLoginKeyCommand() {
+    HandleActionCommand(CopyLoginKeyToClipboard);
+}
+
+void HandleKeyLoginCommand(const std::wstring& msg) {
+    const std::wstring key = GetJsonValue(msg, L"key");
+    if (!key.empty()) {
+        HandleActionCommand([key]() {
+            AppHost::NavigateBrowser(BuildLoginUrl(key));
+        });
+    }
+}
+
+void HandleAddHijackRuleCommand(const std::wstring& msg) {
+    const bool isSend = GetJsonBoolValue(msg, L"isSend");
+    const bool isBlock = GetJsonBoolValue(msg, L"isBlock");
+    AddHijackRule(isBlock ? HIJACK_BLOCK : HIJACK_REPLACE,
+                  isSend,
+                  !isSend,
+                  WideToUtf8(GetJsonValue(msg, L"pattern")),
+                  WideToUtf8(GetJsonValue(msg, L"replace")));
 }
 
 void ParseIndicesArray(const std::wstring& msg, std::vector<DWORD>& indices) {
@@ -267,426 +1041,139 @@ public:
         CoTaskMemFree(message);
 
         if (msg.find(L"window-drag") != std::wstring::npos) {
-            AppHost::BeginWindowDrag();
+            HandleWindowDragCommand();
         } else if (msg.find(L"window-minimize") != std::wstring::npos) {
-            AppHost::MinimizeMainWindow();
+            HandleWindowMinimizeCommand();
         } else if (msg.find(L"window-close") != std::wstring::npos) {
-            AppHost::CloseMainWindow();
+            HandleWindowCloseCommand();
         } else if (msg.find(L"update-dialog-show") != std::wstring::npos) {
-            AppHost::ShowBrowserWindow(false);
+            HandleHideBrowserWindowCommand();
         } else if (msg.find(L"update-dialog-hide") != std::wstring::npos) {
-            AppHost::ShowBrowserWindow(true);
+            HandleShowBrowserWindowCommand();
         } else if (msg.find(L"open-url") != std::wstring::npos) {
-            std::wstring url = GetJsonValue(msg, L"url");
-            if (!url.empty()) ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            HandleOpenUrlCommand(msg);
         } else if (msg.find(L"refresh-game") != std::wstring::npos) {
-            AppHost::NavigateBrowser(L"http://news.4399.com/login/kbxy.html");
+            HandleRefreshGameCommand();
         } else if (msg.find(L"refresh-no-login") != std::wstring::npos) {
-            AppHost::RefreshBrowser();
+            HandleRefreshNoLoginCommand();
         } else if (msg.find(L"mute-game") != std::wstring::npos) {
-            AppHost::ToggleProgramVolume();
+            HandleMuteGameCommand();
         } else if (msg.find(L"clear-ie-cache") != std::wstring::npos) {
-            AppHost::ClearIECache();
+            HandleClearIeCacheCommand();
         } else if (msg.find(L"copy-login-key") != std::wstring::npos) {
-            CopyLoginKeyToClipboard();
+            HandleCopyLoginKeyCommand();
         } else if (msg.find(L"key-login-dialog-show") != std::wstring::npos) {
-            AppHost::ShowBrowserWindow(false);
+            HandleHideBrowserWindowCommand();
         } else if (msg.find(L"key-login-dialog-hide") != std::wstring::npos) {
-            AppHost::ShowBrowserWindow(true);
+            HandleShowBrowserWindowCommand();
         } else if (msg.find(L"spirit-confirm-dialog-show") != std::wstring::npos) {
-            AppHost::ShowBrowserWindow(false);
+            HandleHideBrowserWindowCommand();
         } else if (msg.find(L"spirit-confirm-dialog-hide") != std::wstring::npos) {
-            AppHost::ShowBrowserWindow(true);
+            HandleShowBrowserWindowCommand();
         } else if (msg.find(L"key-login") != std::wstring::npos) {
-            const std::wstring key = GetJsonValue(msg, L"key");
-            if (!key.empty()) AppHost::NavigateBrowser(BuildLoginUrl(key));
+            HandleKeyLoginCommand(msg);
         } else if (msg.find(L"packet_window_visible") != std::wstring::npos) {
-            const bool visible = GetJsonBoolValue(msg, L"visible");
-            RECT packetWindowRect{};
-            if (visible) {
-                packetWindowRect.left = static_cast<LONG>(GetJsonDWORDValue(msg, L"left"));
-                packetWindowRect.top = static_cast<LONG>(GetJsonDWORDValue(msg, L"top"));
-                packetWindowRect.right = static_cast<LONG>(GetJsonDWORDValue(msg, L"width"));
-                packetWindowRect.bottom = static_cast<LONG>(GetJsonDWORDValue(msg, L"height"));
-                AppHost::SetPacketWindowState(true, packetWindowRect);
-                SyncPacketsToUI();
-            } else {
-                const std::wstring js = L"if(window.updatePacketCount) { window.updatePacketCount(" + std::to_wstring(GetPacketCount()) + L"); }";
-                AppHost::SetPacketWindowVisible(false);
-                AppHost::ExecuteScript(js);
-            }
-            AppHost::UpdateBrowserRegion();
+            HandlePacketWindowVisibilityChanged(msg);
         } else if (msg.find(L"delete_selected_packets") != std::wstring::npos) {
-            std::vector<DWORD> indices;
-            ParseIndicesArray(msg, indices);
-            if (!indices.empty()) {
-                DeleteSelectedPackets(indices);
-            }
-            static const wchar_t* clearScript = LR"(
-                (function(){
-                    var pListItems = document.getElementById('packet-list-items');
-                    if (pListItems) {
-                        pListItems.innerHTML = '';
-                    }
-                    if (window.updatePacketCount) {
-                        var count = pListItems ? pListItems.children.length : 0;
-                        window.updatePacketCount(count);
-                    }
-                })();
-            )";
-            AppHost::ExecuteScript(clearScript);
-            SyncPacketsToUI();
+            HandleDeleteSelectedPacketsCommand(msg);
         } else if (msg.find(L"clear_packets") != std::wstring::npos) {
-            ClearPacketList();
+            HandleClearPacketsCommand();
         } else if (msg.find(L"start_intercept") != std::wstring::npos) {
-            StartIntercept();
+            HandleStartInterceptCommand();
         } else if (msg.find(L"stop_intercept") != std::wstring::npos) {
-            StopIntercept();
+            HandleStopInterceptCommand();
         } else if (msg.find(L"set_intercept_type") != std::wstring::npos) {
-            SetInterceptType(GetJsonBoolValue(msg, L"send"), GetJsonBoolValue(msg, L"recv"));
+            HandleSetInterceptTypeCommand(msg);
         } else if (msg.find(L"send_packet") != std::wstring::npos) {
-            const std::wstring hexW = GetJsonValue(msg, L"hex");
-            if (!hexW.empty()) {
-                struct SendThreadData { std::vector<BYTE> data; };
-                SendThreadData* pData = new SendThreadData{StringToHex(WideToUtf8(hexW))};
-                CreateThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
-                    SendThreadData* pD = static_cast<SendThreadData*>(lpParam);
-                    BOOL result = SendPacket(0, pD->data.data(), static_cast<DWORD>(pD->data.size()));
-                    if (!result) {
-                        PostScriptToUI(L"if(window.updateHelperText) { window.updateHelperText('封包发送失败：未连接到游戏服务器'); }");
-                    }
-                    delete pD;
-                    return 0;
-                }, pData, 0, nullptr);
-            } else {
-                PostScriptToUI(L"if(window.updateHelperText) { window.updateHelperText('封包数据格式错误'); }");
-            }
+            HandleSendPacketCommand(msg);
         } else if (msg.find(L"set_speed") != std::wstring::npos) {
-            AppHost::ApplySpeedhack(static_cast<float>(_wtof(GetTrimmedJsonValue(msg, L"speed").c_str())));
+            HandleSetSpeedCommand(msg);
         } else if (msg.find(L"toggle_auto_heal") != std::wstring::npos) {
-            g_autoHeal = GetJsonBoolValue(msg, L"enabled");
+            HandleSetAutoHealEnabledCommand(msg);
         } else if (msg.find(L"set_block_battle") != std::wstring::npos) {
-            g_blockBattle = GetJsonBoolValue(msg, L"enabled");
+            HandleSetBlockBattleEnabledCommand(msg);
         } else if (msg.find(L"set_auto_go_home") != std::wstring::npos) {
-            g_autoGoHome = GetJsonBoolValue(msg, L"enabled");
+            HandleSetAutoGoHomeEnabledCommand(msg);
         } else if (msg.find(L"query_lingyu") != std::wstring::npos) {
-            SendQueryLingyuPacket();
+            HandleQueryLingyuCommand();
         } else if (msg.find(L"query_monsters") != std::wstring::npos) {
-            SendQueryMonsterPacket();
+            HandleQueryMonstersCommand();
         } else if (msg.find(L"refresh_pack_items") != std::wstring::npos) {
-            SendReqPackageDataPacket(0xFFFFFFFF);
+            HandleRefreshPackItemsCommand();
         } else if (msg.find(L"buy_item") != std::wstring::npos) {
-            const uint32_t itemId = GetJsonUInt32Value(msg, L"itemId");
-            const uint32_t count = GetJsonUInt32Value(msg, L"count", 1U);
-            if (itemId > 0) {
-                SendReqPackageDataPacket(0xFFFFFFFF);
-                Sleep(200);
-                if (SendBuyGoodsPacket(itemId, count)) {
-                    wchar_t buffer[128];
-                    swprintf_s(buffer, L"购买道具成功: %s x%u", GetItemName(itemId).c_str(), count);
-                    SetHelperText(buffer);
-                }
-            }
+            HandleBuyItemCommand(msg);
         } else if (msg.find(L"use_item") != std::wstring::npos) {
-            const uint32_t itemId = GetJsonUInt32Value(msg, L"itemId");
-            if (itemId > 0) {
-                if (!g_battleStarted) {
-                    PostScriptToUI(L"if(window.updateHelperText) { window.updateHelperText('使用道具需要在战斗中进行'); }");
-                } else {
-                    SendReqPackageDataPacket(0xFFFFFFFF);
-                    Sleep(200);
-                    if (SendUseItemInBattlePacket(itemId)) {
-                        wchar_t buffer[128];
-                        swprintf_s(buffer, L"使用道具: %s", GetItemName(itemId).c_str());
-                        PostScriptToUI(L"if(window.updateHelperText) { window.updateHelperText('" + std::wstring(buffer) + L"'); }");
-                    } else {
-                        PostScriptToUI(L"if(window.updateHelperText) { window.updateHelperText('使用道具失败，背包中无此道具'); }");
-                    }
-                }
-            }
+            HandleUseItemCommand(msg);
         } else if (msg.find(L"daily_tasks") != std::wstring::npos) {
-            SendDailyTasksAsync(GetJsonDWORDValue(msg, L"flags"));
+            HandleSendDailyTasksCommand(msg);
         } else if (msg.find(L"stop_task_zone") != std::wstring::npos) {
-            StopEightTrigramsTask();
-            SetHelperText(L"任务区已停止");
+            HandleStopTaskZoneCommand();
         } else if (msg.find(L"task_zone") != std::wstring::npos) {
-            SendEightTrigramsTaskAsync();
+            HandleStartTaskZoneCommand();
         } else if (msg.find(L"one_key_collect") != std::wstring::npos) {
-            const DWORD flags = GetJsonDWORDValue(msg, L"flags");
-            if (SendOneKeyCollectPacket(flags)) {
-                SetHelperText(L"一键采集已开始，请查看辅助日志");
-            } else {
-                SetHelperText(L"一键采集启动失败，可能已经在运行或未进入游戏");
-            }
+            HandleOneKeyCollectCommand(msg);
         } else if (msg.find(L"buy_dice_18") != std::wstring::npos) {
-            if (SendBuyDicePacket()) SetHelperText(L"已购买18个骰子");
+            HandleBuyDice18Command();
         } else if (msg.find(L"buy_dice") != std::wstring::npos) {
-            SendBuyDicePacket();
+            HandleBuyDiceCommand();
         } else if (msg.find(L"one_key_xuantta") != std::wstring::npos) {
-            if (SendOneKeyTowerPacket()) {
-                SetHelperText(L"一键玄塔已开始，请查看辅助日志");
-            } else {
-                SetHelperText(L"一键玄塔启动失败，可能已经在运行或未进入游戏");
-            }
+            HandleOneKeyXuanttaCommand();
         } else if (msg.find(L"query_shuangtai") != std::wstring::npos) {
-            QueryShuangTaiMonsters();
+            HandleQueryShuangTaiCommand();
         } else if (msg.find(L"start_shuangtai") != std::wstring::npos) {
-            if (SendOneKeyShuangTaiPacket(GetJsonBoolValue(msg, L"blockBattle"))) {
-                SetHelperText(L"双台谷刷级已开始，请查看辅助日志");
-            } else {
-                SetHelperText(L"双台谷刷级启动失败，请先点击查询按钮获取妖怪数据");
-            }
+            HandleStartShuangTaiCommand(msg);
         } else if (msg.find(L"stop_shuangtai") != std::wstring::npos) {
-            StopShuangTai();
-            SetHelperText(L"双台谷刷级已停止");
+            HandleStopShuangTaiCommand();
         } else if (msg.find(L"battlesix_auto_match") != std::wstring::npos) {
-            const std::wstring matchCountStr = GetTrimmedJsonValue(msg, L"matchCount");
-            int matchCount = 1;
-            TryParseIntInRangeLocal(matchCountStr, 1, 999, 1, matchCount);
-            wchar_t startMsg[128];
-            swprintf_s(startMsg, L"万妖盛会：开始匹配（共%d次）...", matchCount);
-            SetHelperText(startMsg);
-            int* pMatchCount = new int(matchCount);
-            HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID param) -> DWORD {
-                int count = *static_cast<int*>(param);
-                delete static_cast<int*>(param);
-                SendOneKeyBattleSixPacket(count);
-                return 0;
-            }, pMatchCount, 0, nullptr);
-            if (hThread) CloseHandle(hThread);
+            HandleBattlesixAutoMatchCommand(msg);
         } else if (msg.find(L"battlesix_cancel_match") != std::wstring::npos) {
-            g_battleSixAuto.SetAutoMatching(false);
-            g_battleSixAuto.SetMatchCount(0);
-            SetHelperText(SendCancelBattleSixPacket() ? L"万妖盛会：已取消匹配" : L"万妖盛会：取消匹配失败");
+            HandleBattlesixCancelMatchCommand();
         } else if (msg.find(L"battlesix_set_auto_battle") != std::wstring::npos) {
-            const std::wstring enabledStr = GetTrimmedJsonValue(msg, L"enabled");
-            const bool enabled = (enabledStr == L"true");
-            g_battleSixAuto.SetAutoBattle(enabled);
-            SetHelperText(L"调试：enabled=[" + enabledStr + L"] parsed=" + std::wstring(enabled ? L"true" : L"false"));
-            SetHelperText(enabled ? L"万妖盛会：自动战斗已启用" : L"万妖盛会：自动战斗已禁用");
+            HandleBattlesixSetAutoBattleCommand(msg);
         } else if (msg.find(L"dungeon_jump_start") != std::wstring::npos) {
-            const std::wstring layerStr = GetTrimmedJsonValue(msg, L"targetLayer");
-            int targetLayer = 1;
-            TryParseIntInRangeLocal(layerStr, 1, 9999, 1, targetLayer);
-            PostScriptToUI(L"if(window.updateDungeonJumpStatus) { window.updateDungeonJumpStatus('副本跳层：准备跳转到第" + std::to_wstring(targetLayer) + L"层...'); }");
-            int* pTargetLayer = new int(targetLayer);
-            HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID param) -> DWORD {
-                int layer = *static_cast<int*>(param);
-                delete static_cast<int*>(param);
-                SendOneKeyDungeonJumpPacket(layer);
-                return 0;
-            }, pTargetLayer, 0, nullptr);
-            if (hThread) CloseHandle(hThread);
+            HandleDungeonJumpStartCommand(msg);
         } else if (msg.find(L"dungeon_jump_stop") != std::wstring::npos) {
-            StopDungeonJump();
-            PostScriptToUI(L"if(window.updateDungeonJumpStatus) { window.updateDungeonJumpStatus('副本跳层：已停止'); }");
+            HandleDungeonJumpStopCommand();
         } else if (msg.find(L"one_key_act793") != std::wstring::npos) {
-            const bool useSweep = GetJsonBoolValue(msg, L"sweep");
-            int targetMedals = Act793::TARGET_MEDALS;
-            const std::wstring medalsStr = GetTrimmedJsonValue(msg, L"medals");
-            if (!medalsStr.empty()) {
-                TryParseIntInRangeLocal(medalsStr, 1, 100, Act793::TARGET_MEDALS, targetMedals);
-            }
-            if (SendOneKeyAct793Packet(useSweep, targetMedals)) {
-                SetHelperText(useSweep ? L"磐石御天火已开始（扫荡模式），请查看辅助日志" : L"磐石御天火已开始（游戏模式），请查看辅助日志");
-            } else {
-                SetHelperText(L"磐石御天火启动失败");
-            }
+            HandleOneKeyAct793Command(msg);
         } else if (msg.find(L"one_key_act791") != std::wstring::npos) {
-            const bool useSweep = GetJsonBoolValue(msg, L"sweep");
-            int targetScore = Act791::TARGET_SCORE;
-            const std::wstring scoreStr = GetTrimmedJsonValue(msg, L"score");
-            if (!scoreStr.empty()) {
-                TryParseIntInRangeLocal(scoreStr, 1, 250, Act791::TARGET_SCORE, targetScore);
-            }
-            if (SendOneKeyAct791Packet(useSweep, targetScore)) {
-                SetHelperText(useSweep ? L"五行镜破封印已开始（扫荡模式），请查看辅助日志" : L"五行镜破封印已开始（游戏模式），请查看辅助日志");
-            } else {
-                SetHelperText(L"五行镜破封印启动失败");
-            }
+            HandleOneKeyAct791Command(msg);
         } else if (msg.find(L"one_key_act782") != std::wstring::npos) {
-            const bool useSweep = GetJsonBoolValue(msg, L"sweep");
-            if (SendOneKeyAct782Packet(useSweep, Act782::TARGET_SCORE)) {
-                SetHelperText(useSweep ? L"摘取大力果实已开始（扫荡模式），请查看辅助日志" : L"摘取大力果实已开始（400分模式），请查看辅助日志");
-            } else {
-                SetHelperText(L"摘取大力果实启动失败");
-            }
+            HandleOneKeyAct782Command(msg);
         } else if (msg.find(L"one_key_act803") != std::wstring::npos) {
-            const bool useSweep = GetJsonBoolValue(msg, L"sweep");
-            if (SendOneKeyAct803Packet(useSweep, Act803::MAX_NUM)) {
-                SetHelperText(useSweep ? L"清明赏河景已开始（扫荡模式）" : L"清明赏河景已开始（游戏模式）");
-            } else {
-                SetHelperText(L"清明赏河景启动失败");
-            }
+            HandleOneKeyAct803Command(msg);
         } else if (msg.find(L"one_key_act624") != std::wstring::npos) {
-            const bool useSweep = GetJsonBoolValue(msg, L"sweep");
-            if (SendOneKeyAct624Packet(useSweep)) {
-                SetHelperText(useSweep ? L"采蘑菇的好伙伴已开始（扫荡模式）" : L"采蘑菇的好伙伴已开始（三轮模式）");
-            } else {
-                SetHelperText(L"采蘑菇的好伙伴启动失败");
-            }
+            HandleOneKeyAct624Command(msg);
         } else if (msg.find(L"one_key_sea_battle") != std::wstring::npos) {
-            const bool useSweep = GetJsonBoolValue(msg, L"sweep");
-            if (SendOneKeySeaBattlePacket(useSweep)) {
-                SetHelperText(useSweep ? L"海底激战已开始（扫荡模式），请查看辅助日志" : L"海底激战已开始（默认分数模式），请查看辅助日志");
-            } else {
-                SetHelperText(L"海底激战启动失败");
-            }
+            HandleOneKeySeaBattleCommand(msg);
         } else if (msg.find(L"one_key_horse_competition") != std::wstring::npos) {
-            SetHelperText(L"坐骑大赛已开始（临时坐骑），请等待...");
-            SetHorseProgressCallback([](const std::wstring& progress) {
-                PostScriptToUI(L"if(window.updateHelperText) { window.updateHelperText('坐骑大赛：" + progress + L"'); }");
-            });
-            std::thread([]() {
-                SendOneKeyHorseCompetitionPacket(true);
-            }).detach();
+            HandleOneKeyHorseCompetitionCommand();
         } else if (msg.find(L"stop_horse_competition") != std::wstring::npos) {
-            RequestStopHorseCompetition();
+            HandleStopHorseCompetitionCommand();
         } else if (msg.find(L"start_heaven_furui") != std::wstring::npos) {
-            int maxBoxes = 30;
-            const std::wstring maxBoxesStr = GetTrimmedJsonValue(msg, L"maxBoxes");
-            if (!maxBoxesStr.empty()) {
-                TryParseIntInRangeLocal(maxBoxesStr, 1, 9999, 30, maxBoxes);
-            }
-            if (SendOneKeyHeavenFuruiPacket(maxBoxes)) {
-                SetHelperText(L"福瑞宝箱：开始遍历地图查找宝箱...");
-            } else {
-                SetHelperText(L"福瑞宝箱启动失败");
-            }
+            HandleStartHeavenFuruiCommand(msg);
         } else if (msg.find(L"stop_heaven_furui") != std::wstring::npos) {
-            StopHeavenFurui();
-            SetHelperText(L"福瑞宝箱：已停止");
+            HandleStopHeavenFuruiCommand();
         } else if (msg.find(L"decompose_lingyu") != std::wstring::npos) {
-            if (msg.find(L"decompose_lingyu_batch") != std::wstring::npos) {
-                const std::wstring jsonArray = GetJsonValue(msg, L"indices");
-                if (!jsonArray.empty()) {
-                    SendDecomposeLingyuPacket(jsonArray);
-                }
-            } else {
-                const std::wstring jsonArray = GetJsonValue(msg, L"indices_array");
-                if (!jsonArray.empty()) {
-                    SendDecomposeLingyuPacket(jsonArray);
-                }
-            }
+            HandleDecomposeLingyuCommand(msg);
         } else if (msg.find(L"set_hijack_enabled") != std::wstring::npos) {
-            SetHijackEnabled(GetJsonBoolValue(msg, L"enabled"));
+            HandleSetHijackEnabledCommand(msg);
         } else if (msg.find(L"add_hijack_rule") != std::wstring::npos) {
-            const bool isSend = GetJsonBoolValue(msg, L"isSend");
-            const bool isBlock = GetJsonBoolValue(msg, L"isBlock");
-            AddHijackRule(isBlock ? HIJACK_BLOCK : HIJACK_REPLACE,
-                          isSend,
-                          !isSend,
-                          WideToUtf8(GetJsonValue(msg, L"pattern")),
-                          WideToUtf8(GetJsonValue(msg, L"replace")));
+            HandleAddHijackRuleCommand(msg);
         } else if (msg.find(L"clear_hijack_rules") != std::wstring::npos) {
-            ClearHijackRules();
+            HandleClearHijackRulesCommand();
         } else if (msg.find(L"save_packet_list") != std::wstring::npos) {
-            const std::wstring filePath = AppHost::ShowSaveFileDialog(L"", L"packets.txt");
-            if (!filePath.empty()) {
-                SetHelperText(SavePacketListToFile(filePath) ? L"封包列表已保存" : L"保存封包列表失败");
-            }
+            HandleSavePacketListCommand();
         } else if (msg.find(L"load_packet_list") != std::wstring::npos) {
-            const std::wstring filePath = AppHost::ShowOpenFileDialog(L"");
-            if (!filePath.empty()) {
-                if (LoadPacketListFromFile(filePath)) {
-                    SyncPacketsToUI();
-                    SetHelperText(L"封包列表已载入");
-                } else {
-                    SetHelperText(L"载入封包列表失败");
-                }
-            }
+            HandleLoadPacketListCommand();
         } else if (msg.find(L"send_all_packets") != std::wstring::npos) {
-            DWORD sendCount = 1;
-            DWORD sendDelay = 300;
-            const std::wstring sendCountStr = GetJsonValue(msg, L"sendCount");
-            if (!sendCountStr.empty()) {
-                sendCount = static_cast<DWORD>(_wtoi(sendCountStr.c_str()));
-                if (sendCount < 1) sendCount = 1;
-            }
-            const std::wstring sendDelayStr = GetJsonValue(msg, L"sendDelay");
-            if (!sendDelayStr.empty()) {
-                sendDelay = static_cast<DWORD>(_wtoi(sendDelayStr.c_str()));
-            }
-            std::thread([sendCount, sendDelay]() {
-                SendAllPackets(sendDelay, sendCount, [](DWORD currentLoop, DWORD packetIndex, const std::string& label) {
-                    std::wstring script = L"if(window.updateHelperText) { window.updateHelperText('正在发送第" +
-                        std::to_wstring(currentLoop) + L"次，第" + std::to_wstring(packetIndex) + L"个封包";
-                    if (!label.empty()) {
-                        script += L"，标签：" + Utf8ToWide(label);
-                    }
-                    script += L"'); }";
-                    PostScriptToUI(script);
-                });
-                PostScriptToUI(L"if(window.updateHelperText) { window.updateHelperText('封包发送完成'); }");
-            }).detach();
+            HandleSendAllPacketsCommand(msg);
         } else if (msg.find(L"stop_send") != std::wstring::npos) {
-            StopAutoSend();
-            SetHelperText(L"已停止发送封包");
+            HandleStopSendCommand();
         } else if (msg.find(L"enter_boss_battle") != std::wstring::npos) {
-            const uint32_t spiritId = GetJsonUInt32Value(msg, L"bossId");
-            if (spiritId > 10000) {
-                if (SendBattlePacket(spiritId, 32, 0)) {
-                    PostScriptToUI(L"if(window.updateHelperText) { window.updateHelperText('已发送BOSS战斗封包，ID: " + std::to_wstring(spiritId) + L", useId: 32'); }");
-                } else {
-                    SetHelperText(L"发送战斗封包失败，未连接到游戏服务器");
-                }
-            } else {
-                SetHelperText(L"无效的对象ID，必须大于10000");
-            }
+            HandleEnterBossBattleCommand(msg);
         } else if (msg.find(L"spiritCollect") != std::wstring::npos) {
-            // 精魄系统消息处理
-            const std::wstring action = GetJsonValue(msg, L"action");
-            if (action == L"open_ui") {
-                // 打开精魄系统 UI
-                if (SendSpiritOpenUIPacket()) {
-                    SetHelperText(L"精魄系统：正在获取数据...");
-                } else {
-                    SetHelperText(L"精魄系统：发送请求失败");
-                }
-            } else if (action == L"getSpirits") {
-                // 获取精魄列表
-                if (SendSpiritPresuresPacket()) {
-                    SetHelperText(L"精魄系统：正在获取精魄列表...");
-                } else {
-                    SetHelperText(L"精魄系统：获取精魄列表失败");
-                }
-            } else if (action == L"verifyPlayer") {
-                // 验证玩家信息（通过卡布号）
-                const std::wstring friendIdStr = GetTrimmedJsonValue(msg, L"friendId");
-                if (!friendIdStr.empty()) {
-                    uint32_t friendId = static_cast<uint32_t>(_wtol(friendIdStr.c_str()));
-                    g_spiritCollectState.selectedFriendId = friendId;
-                    if (SendSpiritPlayerInfoPacket(friendId)) {
-                        SetHelperText(L"精魄系统：正在验证玩家信息...");
-                    } else {
-                        SetHelperText(L"精魄系统：验证玩家信息失败");
-                    }
-                }
-            } else if (action == L"sendSpirit") {
-                // 发送精魄
-                const std::wstring friendIdStr = GetTrimmedJsonValue(msg, L"friendId");
-                const std::wstring eggIdStr = GetTrimmedJsonValue(msg, L"eggId");
-                if (!friendIdStr.empty() && !eggIdStr.empty()) {
-                    uint32_t friendId = static_cast<uint32_t>(_wtol(friendIdStr.c_str()));
-                    uint32_t eggId = static_cast<uint32_t>(_wtol(eggIdStr.c_str()));
-                    if (SendSpiritGiftPacket(friendId, eggId)) {
-                        SetHelperText(L"精魄系统：正在发送精魄...");
-                    } else {
-                        SetHelperText(L"精魄系统：发送精魄失败");
-                    }
-                }
-            } else if (action == L"history") {
-                // 获取历史记录
-                const std::wstring typeStr = GetTrimmedJsonValue(msg, L"recordType");
-                if (!typeStr.empty()) {
-                    int type = _wtoi(typeStr.c_str());
-                    if (SendSpiritHistoryPacket(type)) {
-                        SetHelperText(L"精魄系统：正在获取历史记录...");
-                    } else {
-                        SetHelperText(L"精魄系统：获取历史记录失败");
-                    }
-                }
-            }
+            HandleSpiritCollectCommand(msg);
         }
 
         return S_OK;
