@@ -1741,6 +1741,7 @@
                 <!-- 子选择夹导航 -->
                 <div class="sub-tabs">
                     <button class="sub-tab-button active" onclick="openSubTab(event, 'sub-daily')">日常活动</button>
+                    <button class="sub-tab-button" onclick="openSubTab(event, 'sub-taskzone')">任务区</button>
                     <button class="sub-tab-button" onclick="openSubTab(event, 'sub-latest')">最新活动</button>
                     <button class="sub-tab-button" onclick="openSubTab(event, 'sub-materials')">材料采集</button>
                     <button class="sub-tab-button" onclick="openSubTab(event, 'sub-boss')">BOSS专区</button>
@@ -1892,6 +1893,20 @@
                     <!-- 状态提示 -->
                     <div id="daily-task-status" style="font-size: 9.5px; color: var(--color-text-secondary); padding: 3px 6px; background: var(--color-background-secondary); border-radius: 2px; text-align: center; margin: 4px;">
                         勾选需要完成的日常活动，点击对应按钮执行
+                    </div>
+                </div>
+
+                <div id="sub-taskzone" class="sub-tab-content">
+                    <div style="padding: 4px; display: flex; align-items: flex-start; gap: 12px;">
+                        <div style="flex: 0 0 auto; width: 220px; background: #FFFFFF; border: 1px solid var(--color-border); border-radius: 4px; padding: 8px; display: flex; flex-direction: column; gap: 4px;">
+                            <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">八卦灵盘</div>
+                            <div style="font-size: 9px; color: var(--color-text-secondary); line-height: 1.4;">按任务链顺序推进，当前先覆盖对话、采集和场景切换，最终战斗会尝试自动处理。</div>
+                            <div style="display: flex; gap: 4px;">
+                                <button id="start-task-zone" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;">开始</button>
+                                <button id="stop-task-zone" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;" disabled>停止</button>
+                            </div>
+                            <div id="task-zone-status" style="font-size: 9px; color: var(--color-text-secondary); background: var(--color-background-secondary); border-radius: 2px; padding: 3px 6px;">等待开始</div>
+                        </div>
                     </div>
                 </div>
 
@@ -2456,6 +2471,14 @@
             }
             document.getElementById(tabName).className += ' active';
             evt.currentTarget.className += ' active';
+            if (tabName === 'sub-taskzone') {
+                if (typeof window.updateTaskZoneStatus === 'function') {
+                    window.updateTaskZoneStatus(
+                        window.isTaskZoneRunning ? '正在执行任务区...' : '等待开始',
+                        window.isTaskZoneRunning
+                    );
+                }
+            }
             if (tabName === 'sub-spiritcollect') {
                 refreshSpiritPanel();
             }
@@ -3078,6 +3101,7 @@
 
         // ============== 日常活动功能 ==============
         window.isDailyTaskRunning = false;
+        window.isTaskZoneRunning = false;
 
         // 更新深度挖宝次数显示
         window.updateDeepDigCount = function(count) {
@@ -3276,6 +3300,50 @@
                     action: 'one_key_sea_battle',
                     sweep: useSweep
                 }));
+            }
+        };
+
+        window.updateTaskZoneStatus = function(text, isRunning) {
+            var statusEl = document.getElementById('task-zone-status');
+            if (statusEl) {
+                statusEl.textContent = text;
+                statusEl.style.color = isRunning ? 'var(--color-primary)' : 'var(--color-text-secondary)';
+            }
+            window.isTaskZoneRunning = isRunning;
+
+            var startBtn = document.getElementById('start-task-zone');
+            var stopBtn = document.getElementById('stop-task-zone');
+            if (startBtn) {
+                startBtn.disabled = isRunning;
+                startBtn.textContent = isRunning ? '执行中...' : '开始';
+            }
+            if (stopBtn) {
+                stopBtn.disabled = !isRunning;
+                stopBtn.textContent = '停止';
+            }
+        };
+
+        window.startTaskZone = function() {
+            if (window.isTaskZoneRunning) return;
+
+            window.updateTaskZoneStatus('正在执行任务区，请勿操作...', true);
+            window.updateHelperText('正在执行任务区，请勿操作...');
+
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage({
+                    type: 'task_zone'
+                });
+            }
+        };
+
+        window.stopTaskZone = function() {
+            if (!window.isTaskZoneRunning) return;
+
+            window.updateHelperText('正在停止任务区...');
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage({
+                    type: 'stop_task_zone'
+                });
             }
         };
 
@@ -3677,6 +3745,14 @@
             var danceBtn = document.getElementById('complete-dance-tasks');
             if (danceBtn) {
                 danceBtn.addEventListener('click', window.completeDanceTasks);
+            }
+            var startTaskZoneBtn = document.getElementById('start-task-zone');
+            if (startTaskZoneBtn) {
+                startTaskZoneBtn.addEventListener('click', window.startTaskZone);
+            }
+            var stopTaskZoneBtn = document.getElementById('stop-task-zone');
+            if (stopTaskZoneBtn) {
+                stopTaskZoneBtn.addEventListener('click', window.stopTaskZone);
             }
             var xuanttaBtn = document.getElementById('one-key-xuantta');
             if (xuanttaBtn) {

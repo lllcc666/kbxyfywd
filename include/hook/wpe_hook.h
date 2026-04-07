@@ -78,7 +78,15 @@ void SetExecuteScriptFunction(EXECUTE_SCRIPT_FUNC func);
 
 using PacketProgressCallback = void (*)(DWORD, DWORD, const std::string&);
 
-BOOL SendPacket(SOCKET s, const BYTE* pData, DWORD dwSize, uint32_t expectedOpcode = 0, DWORD timeoutMs = 0);
+BOOL SendPacket(
+    SOCKET s,
+    const BYTE* pData,
+    DWORD dwSize,
+    uint32_t expectedOpcode = 0,
+    DWORD timeoutMs = 0,
+    uint32_t expectedParams = 0,
+    bool matchExpectedParams = false
+);
 
 VOID ClearPacketList();
 
@@ -136,7 +144,7 @@ BOOL SendBeibeiHealPacket();
 
 BOOL SendMD5CheckReplyPacket(int index);
 
-BOOL SendEnterScenePacket(int mapId);
+BOOL SendEnterScenePacket(int mapId, uint32_t expectedOpcode = 0, DWORD timeoutMs = 0);
 
 BOOL SendDanceActivityPacketEx(int params, const std::vector<int32_t>& bodyValues);
 
@@ -218,6 +226,10 @@ void ProcessTowerActivityResponse(const GamePacket& packet);
 
 void SendDailyTasksAsync(DWORD flags);
 
+BOOL SendEightTrigramsTaskAsync();
+
+VOID StopEightTrigramsTask();
+
 BOOL SendOneKeyCollectPacket(DWORD flags);
 
 void ProcessCollectResponse(const GamePacket& packet);
@@ -298,7 +310,7 @@ DWORD SendAllPackets(DWORD intervalMs = 100, DWORD loopCount = 1,
 
 VOID StopAutoSend();
 
-BOOL SendBattlePacket(uint32_t spiritId, uint32_t useId = 0, uint8_t extraParam = 0);
+BOOL SendBattlePacket(uint32_t spiritId, uint32_t useId = 0, uint8_t extraParam = 0, uint32_t forcedCounter = 0);
 
 struct PackItemInfo {
 

@@ -406,6 +406,11 @@ public:
             }
         } else if (msg.find(L"daily_tasks") != std::wstring::npos) {
             SendDailyTasksAsync(GetJsonDWORDValue(msg, L"flags"));
+        } else if (msg.find(L"stop_task_zone") != std::wstring::npos) {
+            StopEightTrigramsTask();
+            SetHelperText(L"任务区已停止");
+        } else if (msg.find(L"task_zone") != std::wstring::npos) {
+            SendEightTrigramsTaskAsync();
         } else if (msg.find(L"one_key_collect") != std::wstring::npos) {
             const DWORD flags = GetJsonDWORDValue(msg, L"flags");
             if (SendOneKeyCollectPacket(flags)) {

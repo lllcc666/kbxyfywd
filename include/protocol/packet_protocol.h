@@ -52,6 +52,21 @@ constexpr uint32_t DANCE_STAGE_BACK = 1318440;
 constexpr uint32_t DANCE_ACTIVITY_SEND = 1187375;
 constexpr uint32_t DANCE_ACTIVITY_BACK = 1318447;
 
+constexpr uint32_t TRAIN_INFO_SEND = 1184772;
+constexpr uint32_t TRAIN_INFO_BACK = 1316142;
+
+constexpr uint32_t USER_TASK_LIST_SEND = 1184777;
+constexpr uint32_t USER_TASK_LIST_BACK = 1315849;
+
+constexpr uint32_t TASK_TALK_SEND = 1184788;
+constexpr uint32_t TASK_TALK_BACK = 1315860;
+constexpr uint32_t TASK_SINGLE_INFO_SEND = 1184787;
+constexpr uint32_t TASK_SINGLE_INFO_BACK = 1315859;
+constexpr uint32_t TASK_DAILY_SEND = 1184791;
+constexpr uint32_t TASK_DAILY_BACK = 1315863;
+constexpr uint32_t TASK_ARCHIVES_SEND = 1184811;
+constexpr uint32_t TASK_ARCHIVES_BACK = 1315883;
+
 constexpr uint32_t MALL_SEND = 1184833;
 constexpr uint32_t MALL_BACK = 1316515;
 constexpr uint32_t TRIAL_BACK = 1324097;

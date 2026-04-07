@@ -13,6 +13,7 @@
 #include <memory>
 #include <tuple>
 #include <algorithm>
+#include <deque>
 #include <map>
 #include <unordered_map>
 #include <fstream>
@@ -60,6 +61,8 @@ void ProcessSpiritPresuresResponse(const GamePacket& packet);
 void ProcessSpiritCollectResponse(const GamePacket& packet);
 void ProcessSpiritSendSpiritResponse(const GamePacket& packet);
 void ProcessSpiritPlayerInfoResponse(const GamePacket& packet);
+static void ProcessEightTrigramsUserTaskListResponse(const GamePacket& packet);
+static void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet);
 
 extern bool PostScriptToUI(const std::wstring& jsCode);
 
@@ -378,7 +381,8 @@ static std::vector<int32_t> BuildAct803AwardValues() {
 static BOOL SendActivityPacket(uint32_t activityId, const std::string& operation, const std::vector<int32_t>& bodyValues = {}) {
     std::vector<BYTE> packet = BuildActivityPacket(Opcode::ACTIVITY_QINGYANG_NEW_SEND, activityId, operation, bodyValues);
     return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()),
-                      Opcode::ACTIVITY_QUERY_BACK, WpeHook::TIMEOUT_RESPONSE);
+                      Opcode::ACTIVITY_QUERY_BACK, WpeHook::TIMEOUT_RESPONSE,
+                      activityId, true);
 }
 
 }  // anonymous namespace
@@ -411,6 +415,32 @@ std::atomic<int> g_heavenFuruiBoxCount{0};
 std::atomic<bool> g_heavenFuruiEnteredMap{false};
 std::atomic<int> g_heavenFuruiMaxBoxes{30};  ///< 最大开启宝箱数量
 std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
+
+// 八卦灵盘任务区状态变量
+std::atomic<bool> g_taskZoneRunning{false};
+std::atomic<unsigned long long> g_taskZoneSession{0};
+std::atomic<bool> g_taskZoneMapEntered{false};
+
+struct EightTrigramsProgressState {
+    std::mutex mutex;
+    bool userTaskListLoaded = false;
+    std::vector<uint32_t> acceptedSubtaskIds;
+    std::vector<uint32_t> finishedSubtaskIds;
+    bool taskTalkResponseReceived = false;
+    uint32_t taskTalkResponseType = 0;
+    uint32_t taskTalkResponseDialogId = 0;
+    uint32_t taskTalkResponseNpcId = 0;
+    bool taskTalkResponseMatchNpcId = true;
+    uint32_t talkCurrentId = 0;
+    uint32_t talkDialogId = 0;
+    uint32_t talkTrigram = 0;
+    uint32_t talkExp = 0;
+    uint32_t talkNpcId = 0;
+    uint32_t talkItemId = 0;
+};
+
+EightTrigramsProgressState g_eightTrigramsProgress;
+std::atomic<int> g_eightTrigramsResumeStepIndex{-1};
 
 // 背包物品位置映射（物品ID -> 位置索引）
 std::map<uint32_t, uint32_t> g_itemPositionMap;
@@ -2959,11 +2989,12 @@ void ProcessReceivedGamePackets(const BYTE* pData, DWORD dwSize,
     auto& dispatcher = ResponseDispatcher::Instance();
 
     for (const auto& gp : gamePackets) {
-        // 通知响应等待器收到封包（优化版：快速检查，只在有等待线程时才加锁）
-        ResponseWaiter::NotifyResponse(gp.opcode);
-
         // 使用响应分发器分发封包
         dispatcher.Dispatch(gp);
+
+        // 分发完成后再通知等待器，避免等待方在响应处理完成前提前返回
+        ResponseWaiter::NotifyResponse(gp.opcode, gp.params);
+        Sleep(0);
     }
 }
 
@@ -3196,6 +3227,7 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
             (magic == PacketProtocol::MAGIC_NORMAL || magic == PacketProtocol::MAGIC_COMPRESSED)) {
             CriticalSectionLock lock(g_towerCS);
             g_towerMapEntered = true;
+            g_taskZoneMapEntered = true;
         }
     }
     
@@ -3319,80 +3351,170 @@ VOID SetInterceptType(BOOL bSend, BOOL bRecv) {
 // 响应等待器实现
 // ============================================================================
 
+namespace {
+
+struct ResponseRecord {
+    uint64_t serial;
+    uint32_t opcode;
+    uint32_t params;
+};
+
+std::deque<ResponseRecord> g_responseQueue;
+
+}  // namespace
+
 CRITICAL_SECTION ResponseWaiter::s_cs;
 CONDITION_VARIABLE ResponseWaiter::s_cv;
-bool ResponseWaiter::s_responseReceived = false;
-uint32_t ResponseWaiter::s_receivedOpcode = 0;
+uint64_t ResponseWaiter::s_responseSerial = 0;
 std::atomic<long> ResponseWaiter::s_waitingCount{0};  // 等待线程计数（真正的原子操作）
+std::atomic<uint64_t> ResponseWaiter::s_cancelSerial{0};
 
 void ResponseWaiter::Initialize() {
     InitializeCriticalSection(&s_cs);
     InitializeConditionVariable(&s_cv);
+    s_waitingCount = 0;
+    s_responseSerial = 0;
+    s_cancelSerial = 0;
+    g_responseQueue.clear();
 }
 
 void ResponseWaiter::Cleanup() {
+    CancelWait();
+
+    const DWORD startTick = GetTickCount();
+    while (s_waitingCount.load() > 0) {
+        if (GetTickCount() - startTick > (WpeHook::TIMEOUT_SEND + WpeHook::TIMEOUT_RESPONSE + 1000)) {
+            return;
+        }
+        Sleep(10);
+    }
+
+    EnterCriticalSection(&s_cs);
+    g_responseQueue.clear();
+    LeaveCriticalSection(&s_cs);
     DeleteCriticalSection(&s_cs);
+}
+
+uint64_t ResponseWaiter::BeginWait() {
+    EnterCriticalSection(&s_cs);
+
+    const long previousWaiting = s_waitingCount.fetch_add(1);
+    if (previousWaiting == 0) {
+        g_responseQueue.clear();
+    }
+
+    const uint64_t serial = s_responseSerial;
+    LeaveCriticalSection(&s_cs);
+    return serial;
+}
+
+void ResponseWaiter::EndWait() {
+    EnterCriticalSection(&s_cs);
+
+    const long remainingWaiting = s_waitingCount.fetch_sub(1) - 1;
+    if (remainingWaiting <= 0) {
+        g_responseQueue.clear();
+    }
+
+    LeaveCriticalSection(&s_cs);
+}
+
+uint64_t ResponseWaiter::GetCurrentSerial() {
+    EnterCriticalSection(&s_cs);
+    const uint64_t serial = s_responseSerial;
+    LeaveCriticalSection(&s_cs);
+    return serial;
 }
 
 bool ResponseWaiter::WaitForResponse(
     uint32_t expectedOpcode,
-    DWORD timeoutMs
-) {
+    DWORD timeoutMs,
+    uint64_t baselineSerial,
+    uint32_t expectedParams,
+    bool matchExpectedParams,
+    bool preRegistered) {
     if (expectedOpcode == 0 || timeoutMs == 0) {
         return true;  // 不等待，直接返回
     }
 
-    // 增加等待线程计数
-    s_waitingCount.fetch_add(1);
+    bool ownsRegistration = false;
+    if (!preRegistered) {
+        BeginWait();
+        ownsRegistration = true;
+    }
 
     EnterCriticalSection(&s_cs);
+    const uint64_t cancelSerial = s_cancelSerial.load();
 
-    // 重置状态
-    s_responseReceived = false;
-    s_receivedOpcode = 0;
+    const DWORD startTick = GetTickCount();
+    bool received = false;
 
-    // 简单等待：一次性等待，不循环检查
-    // 这样可以避免在收到错误响应后无限循环
-    BOOL result = SleepConditionVariableCS(
-        &s_cv,
-        &s_cs,
-        timeoutMs
-    );
+    while (true) {
+        if (cancelSerial != s_cancelSerial.load()) {
+            break;
+        }
 
-    // 检查是否收到期望的响应
-    bool received = (s_responseReceived && s_receivedOpcode == expectedOpcode);
+        auto matched = std::find_if(
+            g_responseQueue.begin(),
+            g_responseQueue.end(),
+            [&](const ResponseRecord& record) {
+                if (record.serial <= baselineSerial) {
+                    return false;
+                }
+
+                if (record.opcode != expectedOpcode) {
+                    return false;
+                }
+
+                if (matchExpectedParams && record.params != expectedParams) {
+                    return false;
+                }
+
+                return true;
+            });
+
+        if (matched != g_responseQueue.end()) {
+            received = true;
+            g_responseQueue.erase(matched);
+            break;
+        }
+
+        const DWORD elapsed = GetTickCount() - startTick;
+        if (elapsed >= timeoutMs) {
+            break;
+        }
+
+        SleepConditionVariableCS(
+            &s_cv,
+            &s_cs,
+            timeoutMs - elapsed
+        );
+    }
 
     LeaveCriticalSection(&s_cs);
 
-    // 减少等待线程计数
-    s_waitingCount.fetch_sub(1);
+    if (ownsRegistration) {
+        EndWait();
+    }
 
     return received;
 }
 
-void ResponseWaiter::NotifyResponse(uint32_t opcode) {
-    // 快速检查：如果没有等待线程，直接返回，避免加锁
-    if (s_waitingCount.load() == 0) {
-        return;
-    }
-
+void ResponseWaiter::NotifyResponse(uint32_t opcode, uint32_t params) {
     EnterCriticalSection(&s_cs);
-    s_responseReceived = true;
-    s_receivedOpcode = opcode;
+    ++s_responseSerial;
+    if (s_waitingCount.load() > 0) {
+        g_responseQueue.push_back(ResponseRecord{s_responseSerial, opcode, params});
+    }
     LeaveCriticalSection(&s_cs);
-    WakeConditionVariable(&s_cv);
+    WakeAllConditionVariable(&s_cv);
 }
 
 void ResponseWaiter::CancelWait() {
-
     EnterCriticalSection(&s_cs);
-
-    s_responseReceived = true;
-
+    s_cancelSerial.fetch_add(1);
     LeaveCriticalSection(&s_cs);
-
-    WakeConditionVariable(&s_cv);
-
+    WakeAllConditionVariable(&s_cv);
 }
 
 
@@ -3586,6 +3708,7 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
             g_towerMapEntered = true;
         }
         g_heavenFuruiEnteredMap = true;
+        g_taskZoneMapEntered = true;
     };
 
     const auto registerOpcode = [this](uint32_t opcode, const ResponseHandler& handler) {
@@ -3606,6 +3729,8 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerOpcode(Opcode::MONSTER_LIST, processMonster);
     registerOpcode(Opcode::ENTER_WORLD, ProcessEnterWorldPacket);
     registerOpcode(Opcode::ENTER_SCENE_BACK, enterScene);
+    registerOpcode(Opcode::USER_TASK_LIST_BACK, ProcessEightTrigramsUserTaskListResponse);
+    registerOpcode(Opcode::TASK_TALK_BACK, ProcessEightTrigramsTaskTalkResponse);
 
     registerOpcode(Opcode::DEEP_DIG_BACK, ProcessDeepDigResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, 668, ProcessDeepDigQueryResponse);
@@ -3735,131 +3860,96 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     // ============================================================================
 
 
-
-    
-
-
-
-    BOOL SendPacket(SOCKET s, const BYTE* pData, DWORD dwSize, uint32_t expectedOpcode, DWORD timeoutMs) {
-
+BOOL SendPacket(
+    SOCKET s,
+    const BYTE* pData,
+    DWORD dwSize,
+    uint32_t expectedOpcode,
+    DWORD timeoutMs,
+    uint32_t expectedParams,
+    bool matchExpectedParams) {
     SOCKET targetSocket = (s != 0) ? s : g_LastGameSocket;
-
     if (targetSocket == 0) {
         return FALSE;
     }
 
+    struct PendingResponseGuard {
+        bool active = false;
+        ~PendingResponseGuard() {
+            if (active) {
+                ResponseWaiter::EndWait();
+            }
+        }
+    } pendingResponseGuard;
 
+    uint64_t responseSerial = 0;
+    const bool shouldWait = expectedOpcode != 0 && timeoutMs > 0;
+    if (shouldWait) {
+        responseSerial = ResponseWaiter::BeginWait();
+        pendingResponseGuard.active = true;
+    }
 
-    // 设置发送超时（5秒）
-
-    DWORD sendTimeout = 5000;
-
-    DWORD originalTimeout = 0;
-
-    int optLen = sizeof(originalTimeout);
-
-    getsockopt(targetSocket, SOL_SOCKET, SO_SNDTIMEO,
-
-               (char*)&originalTimeout, &optLen);
-
-    setsockopt(targetSocket, SOL_SOCKET, SO_SNDTIMEO,
-
-               (char*)&sendTimeout, sizeof(sendTimeout));
-
-
-
-    // 重试循环（最多3次）
-    for (int retry = 0; retry < 3; retry++) {
-        if (retry > 0) {
-            Sleep(500);  // 重试延迟500ms
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        if (attempt > 0) {
+            Sleep(WpeHook::TIMEOUT_RETRY_INTERVAL);
         }
 
-        // 每次重试时重新获取套接字（因为 g_LastGameSocket 可能会更新）
         targetSocket = (s != 0) ? s : g_LastGameSocket;
         if (targetSocket == 0) {
-            // 套接字无效，等待500ms后继续下一次重试
-            if (retry < 2) {
-                Sleep(500);
-                continue;
-            }
-            // 最后一次重试仍然无效，返回失败
-            return FALSE;
+            continue;
         }
+
+        DWORD sendTimeout = WpeHook::TIMEOUT_SEND;
+        DWORD originalTimeout = sendTimeout;
+        int optLen = sizeof(originalTimeout);
+        getsockopt(targetSocket, SOL_SOCKET, SO_SNDTIMEO,
+                   reinterpret_cast<char*>(&originalTimeout), &optLen);
+        setsockopt(targetSocket, SOL_SOCKET, SO_SNDTIMEO,
+                   reinterpret_cast<char*>(&sendTimeout), sizeof(sendTimeout));
+
+        struct SocketTimeoutGuard {
+            SOCKET socket = 0;
+            DWORD originalTimeout = 0;
+            ~SocketTimeoutGuard() {
+                if (socket != 0) {
+                    setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO,
+                               reinterpret_cast<const char*>(&originalTimeout),
+                               sizeof(originalTimeout));
+                }
+            }
+        } timeoutGuard{targetSocket, originalTimeout};
 
         int result = send(targetSocket, reinterpret_cast<const char*>(pData),
-                                  static_cast<int>(dwSize), 0);
-
-        // 恢复原始超时
-
-        if (retry == 0 || result != SOCKET_ERROR) {
-
-            setsockopt(targetSocket, SOL_SOCKET, SO_SNDTIMEO,
-
-                       (char*)&originalTimeout, sizeof(originalTimeout));
-
-        }
-
-
-
+                          static_cast<int>(dwSize), 0);
         if (result == SOCKET_ERROR) {
-
-            int error = WSAGetLastError();
-
-
-
-            // 超时 - 继续重试
-
-            if (error == WSAETIMEDOUT) {
-
-                retry++;
-                continue;
-
-            }
-
-
-
-            // 连接断开 - 不再重试
-
+            const int error = WSAGetLastError();
             if (error == WSAECONNRESET || error == WSAECONNABORTED) {
-
                 return FALSE;
-
             }
-
-
-
-            // 其他错误 - 重试
-
             continue;
-
         }
 
-
-
-        // 发送成功
         if (result != static_cast<int>(dwSize)) {
             return FALSE;
         }
 
-        // 如果需要等待响应，只在第一次成功发送时等待
-        if (expectedOpcode != 0 && timeoutMs > 0 && retry == 0) {
-            bool received = ResponseWaiter::WaitForResponse(expectedOpcode, timeoutMs);
+        if (shouldWait) {
+            const bool received = ResponseWaiter::WaitForResponse(
+                expectedOpcode,
+                timeoutMs,
+                responseSerial,
+                expectedParams,
+                matchExpectedParams,
+                true);
             if (!received) {
-                // 等待响应超时不算发送失败，只是没收到响应
                 return FALSE;
             }
         }
 
         return TRUE;
-
     }
 
-
-
-    // 所有重试都失败
-
     return FALSE;
-
 }
 // ============================================================================
 
@@ -4225,7 +4315,14 @@ BOOL SendQueryDeepDigCountPacket() {
         .WriteString("open_ui")
         .Build();
 
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()), Opcode::ACTIVITY_QUERY_BACK, 3000);
+    return SendPacket(
+        0,
+        packet.data(),
+        static_cast<DWORD>(packet.size()),
+        Opcode::ACTIVITY_QUERY_BACK,
+        3000,
+        668,
+        true);
 }
 
 // 处理深度挖宝查询响应
@@ -4798,14 +4895,26 @@ DWORD WINAPI TrialThreadProc(LPVOID lpParam);
 // 通用试炼封包发送函数
 // Opcode: 1184833 (0x00121441), Params: 142
 // Body格式: [protocolId, ...其他参数]
-static BOOL SendTrialPacket(const std::vector<int32_t>& bodyValues, uint32_t expectedOpcode = 0, DWORD timeoutMs = 0) {
+static BOOL SendTrialPacket(
+    const std::vector<int32_t>& bodyValues,
+    uint32_t expectedOpcode = 0,
+    DWORD timeoutMs = 0,
+    uint32_t expectedParams = 0,
+    bool matchExpectedParams = false) {
     auto packet = PacketBuilder()
         .SetOpcode(1184833)
         .SetParams(142)
         .WriteInt32Array(bodyValues)
         .Build();
-    
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()), expectedOpcode, timeoutMs);
+
+    return SendPacket(
+        0,
+        packet.data(),
+        static_cast<DWORD>(packet.size()),
+        expectedOpcode,
+        timeoutMs,
+        expectedParams,
+        matchExpectedParams);
 }
 
 // 根据试炼类型获取配置
@@ -4822,7 +4931,7 @@ static BOOL SendStartTrialPacket(TrialType type) {
     g_waitingTrialResponse = true;
     
     // 发送封包并等待响应
-    BOOL result = SendTrialPacket({config.startOp}, Opcode::TRIAL_BACK, 5000);
+    BOOL result = SendTrialPacket({config.startOp}, Opcode::TRIAL_BACK, 5000, 142, true);
     if (!result) {
         g_waitingTrialResponse = false;
         return FALSE;
@@ -5463,13 +5572,13 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
 // Opcode: 1184313 (0x121239) 小端序 = 39 12 12 00
 // Params: mapId 小端序写入
 // 响应 Opcode: 1315395 = OP_CLIENT_REQ_ENTER_SCENE.back
-BOOL SendEnterScenePacket(int mapId) {
+BOOL SendEnterScenePacket(int mapId, uint32_t expectedOpcode, DWORD timeoutMs) {
     auto packet = PacketBuilder()
         .SetOpcode(1184313)
         .SetParams(static_cast<uint32_t>(mapId))
         .Build();
 
-    return SendPacket(g_LastGameSocket, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()), expectedOpcode, timeoutMs);
 }
 
 // ============ 跳舞大赛封包发送函数 ============
@@ -6274,6 +6383,971 @@ void SendDailyTasksAsync(DWORD flags) {
 }
 
 // ============================================================================
+// 任务区（八卦灵盘）
+// ============================================================================
+
+enum class TaskZoneStepKind {
+    Talk,
+    Acquire,
+    AlertAcquire,
+    SceneAcquire,
+    RewardOnly,
+    Battle,
+    Flash,
+    BranchOnly
+};
+
+struct EightTrigramsTaskData {
+    unsigned long long sessionId;
+};
+
+struct EightTrigramsStep {
+    uint32_t sceneId;
+    uint32_t npcId;
+    uint32_t dialogId;
+    uint32_t chooseId;
+    TaskZoneStepKind kind;
+    const wchar_t* label;
+};
+
+static const EightTrigramsStep EIGHT_TRIGRAMS_STEPS[] = {
+    // 八卦灵盘不能按 XML 外观顺序硬排。
+    // 规则：先任务指令，再采集/战斗，再提交/领奖；带 choose flag="3" 的节点先发 TRAIN_INFO 再发 TASK_TALK。
+    {2001, 21210, 400600101, 3, TaskZoneStepKind::Talk, L"墨乾"},
+    {2005, 21511, 400600103, 0, TaskZoneStepKind::AlertAcquire, L"五彩灵芝"},
+    {3001, 31101, 400600102, 0, TaskZoneStepKind::Talk, L"墨坤"},
+    {2001, 21210, 400600104, 0, TaskZoneStepKind::BranchOnly, L"墨乾(拒绝)"},
+
+    {3001, 31101, 400600201, 3, TaskZoneStepKind::Talk, L"墨坤"},
+    {3002, 31231, 400600203, 0, TaskZoneStepKind::AlertAcquire, L"夺灵丹"},
+    {3002, 31231, 400600204, 0, TaskZoneStepKind::Talk, L"火炎"},
+    {4001, 41101, 400600202, 0, TaskZoneStepKind::Talk, L"墨坎"},
+
+    {4001, 41101, 400600301, 3, TaskZoneStepKind::Talk, L"墨坎"},
+    {4003, 41311, 400600303, 0, TaskZoneStepKind::SceneAcquire, L"菩提子"},
+    {5002, 51206, 400600302, 0, TaskZoneStepKind::Talk, L"墨离"},
+
+    {5002, 51206, 400600401, 3, TaskZoneStepKind::Talk, L"墨离"},
+    {5003, 51305, 400600403, 0, TaskZoneStepKind::AlertAcquire, L"黑河水"},
+    {6001, 61101, 400600402, 0, TaskZoneStepKind::Talk, L"墨震"},
+
+    {6001, 61101, 400600501, 3, TaskZoneStepKind::Talk, L"墨震"},
+    {6002, 401311, 400600506, 0, TaskZoneStepKind::Battle, L"水魂"},
+    {7002, 71201, 400600507, 0, TaskZoneStepKind::RewardOnly, L"墨艮"},
+    {7002, 71201, 400600505, 0, TaskZoneStepKind::Talk, L"墨艮"},
+
+    {7002, 71201, 400600601, 3, TaskZoneStepKind::Talk, L"墨艮"},
+    {8003, 81303, 400600603, 0, TaskZoneStepKind::AlertAcquire, L"火铜"},
+    {9001, 91101, 400600602, 0, TaskZoneStepKind::Talk, L"墨巽"},
+
+    {9001, 91101, 400600701, 3, TaskZoneStepKind::Talk, L"墨巽"},
+    {9004, 91435, 400600703, 0, TaskZoneStepKind::AlertAcquire, L"柿果"},
+    {10001, 101101, 400600702, 0, TaskZoneStepKind::Talk, L"墨兑"},
+    {0, 0, 400600704, 0, TaskZoneStepKind::Flash, L"命运大转盘"},
+
+    {10001, 101101, 400600801, 3, TaskZoneStepKind::Talk, L"墨兑"},
+    {10002, 101201, 400600803, 0, TaskZoneStepKind::Talk, L"墨魂"},
+    {10002, 101201, 400600804, 0, TaskZoneStepKind::Battle, L"墨魂"},
+    {0, 0, 400600805, 0, TaskZoneStepKind::BranchOnly, L"墨魂(败北)"},
+    {0, 0, 400600806, 0, TaskZoneStepKind::BranchOnly, L"墨魂(胜利)"},
+    {2001, 21210, 400600802, 0, TaskZoneStepKind::Talk, L"墨乾"},
+};
+
+static constexpr size_t EIGHT_TRIGRAMS_STEP_COUNT = sizeof(EIGHT_TRIGRAMS_STEPS) / sizeof(EIGHT_TRIGRAMS_STEPS[0]);
+
+static uint32_t GetEightTrigramsGroupId(const EightTrigramsStep& step) {
+    return step.dialogId / 100;
+}
+
+static std::vector<uint32_t> BuildEightTrigramsGroupOrder() {
+    std::vector<uint32_t> groupOrder;
+    uint32_t lastGroupId = 0;
+    for (const auto& step : EIGHT_TRIGRAMS_STEPS) {
+        const uint32_t groupId = GetEightTrigramsGroupId(step);
+        if (groupId == 0 || groupId == lastGroupId) {
+            continue;
+        }
+        groupOrder.push_back(groupId);
+        lastGroupId = groupId;
+    }
+    return groupOrder;
+}
+
+static size_t FindEightTrigramsStepIndexForGroup(uint32_t groupId) {
+    for (size_t i = 0; i < EIGHT_TRIGRAMS_STEP_COUNT; ++i) {
+        if (GetEightTrigramsGroupId(EIGHT_TRIGRAMS_STEPS[i]) == groupId) {
+            return i;
+        }
+    }
+    return EIGHT_TRIGRAMS_STEP_COUNT;
+}
+
+static size_t FindEightTrigramsStepIndexAfterGroup(uint32_t groupId) {
+    bool groupStarted = false;
+    for (size_t i = 0; i < EIGHT_TRIGRAMS_STEP_COUNT; ++i) {
+        const uint32_t stepGroupId = GetEightTrigramsGroupId(EIGHT_TRIGRAMS_STEPS[i]);
+        if (!groupStarted) {
+            if (stepGroupId == groupId) {
+                groupStarted = true;
+            }
+            continue;
+        }
+        if (stepGroupId != groupId && stepGroupId != 0) {
+            return i;
+        }
+    }
+    return EIGHT_TRIGRAMS_STEP_COUNT;
+}
+
+static size_t FindEightTrigramsStepIndexByDialogId(uint32_t dialogId) {
+    for (size_t i = 0; i < EIGHT_TRIGRAMS_STEP_COUNT; ++i) {
+        if (EIGHT_TRIGRAMS_STEPS[i].dialogId == dialogId) {
+            return i;
+        }
+    }
+    return EIGHT_TRIGRAMS_STEP_COUNT;
+}
+
+static void UpdateEightTrigramsResumeHint(size_t nextIndex) {
+    g_eightTrigramsResumeStepIndex.store(static_cast<int>(nextIndex));
+}
+
+static void UpdateEightTrigramsResumeHintByDialogId(uint32_t dialogId);
+
+static void ResetEightTrigramsUserTaskListCache() {
+    std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+    g_eightTrigramsProgress.userTaskListLoaded = false;
+    g_eightTrigramsProgress.acceptedSubtaskIds.clear();
+    g_eightTrigramsProgress.finishedSubtaskIds.clear();
+}
+
+static void ResetEightTrigramsProgressState() {
+    std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+    g_eightTrigramsProgress.userTaskListLoaded = false;
+    g_eightTrigramsProgress.acceptedSubtaskIds.clear();
+    g_eightTrigramsProgress.finishedSubtaskIds.clear();
+    g_eightTrigramsProgress.taskTalkResponseReceived = false;
+    g_eightTrigramsProgress.taskTalkResponseType = 0;
+    g_eightTrigramsProgress.taskTalkResponseDialogId = 0;
+    g_eightTrigramsProgress.taskTalkResponseNpcId = 0;
+    g_eightTrigramsProgress.taskTalkResponseMatchNpcId = true;
+    g_eightTrigramsProgress.talkCurrentId = 0;
+    g_eightTrigramsProgress.talkDialogId = 0;
+    g_eightTrigramsProgress.talkTrigram = 0;
+    g_eightTrigramsProgress.talkExp = 0;
+    g_eightTrigramsProgress.talkNpcId = 0;
+    g_eightTrigramsProgress.talkItemId = 0;
+}
+
+static bool TryResolveEightTrigramsResumeIndex(size_t& startIndex) {
+    const size_t defaultIndex = 0;
+    const auto groupOrder = BuildEightTrigramsGroupOrder();
+
+    const int resumeStepIndex = g_eightTrigramsResumeStepIndex.load();
+    if (resumeStepIndex >= 0) {
+        const size_t resumeIndex = static_cast<size_t>(resumeStepIndex);
+        if (resumeIndex < EIGHT_TRIGRAMS_STEP_COUNT &&
+            EIGHT_TRIGRAMS_STEPS[resumeIndex].dialogId == 400600704) {
+            const size_t fallbackIndex = FindEightTrigramsStepIndexByDialogId(400600702);
+            if (fallbackIndex < EIGHT_TRIGRAMS_STEP_COUNT) {
+                startIndex = fallbackIndex;
+                return true;
+            }
+        }
+        startIndex = resumeIndex > EIGHT_TRIGRAMS_STEP_COUNT ? EIGHT_TRIGRAMS_STEP_COUNT : resumeIndex;
+        return true;
+    }
+
+    std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+    if (g_eightTrigramsProgress.userTaskListLoaded) {
+        if (!g_eightTrigramsProgress.acceptedSubtaskIds.empty()) {
+            const uint32_t acceptedGroupId = *std::max_element(
+                g_eightTrigramsProgress.acceptedSubtaskIds.begin(),
+                g_eightTrigramsProgress.acceptedSubtaskIds.end());
+            const size_t acceptedIndex = FindEightTrigramsStepIndexForGroup(acceptedGroupId);
+            if (acceptedIndex < EIGHT_TRIGRAMS_STEP_COUNT) {
+                startIndex = acceptedIndex;
+                g_eightTrigramsResumeStepIndex.store(static_cast<int>(startIndex));
+                return true;
+            }
+        }
+
+        if (!g_eightTrigramsProgress.finishedSubtaskIds.empty()) {
+            const uint32_t finishedGroupId = *std::max_element(
+                g_eightTrigramsProgress.finishedSubtaskIds.begin(),
+                g_eightTrigramsProgress.finishedSubtaskIds.end());
+            const size_t nextIndex = FindEightTrigramsStepIndexAfterGroup(finishedGroupId);
+            if (nextIndex < EIGHT_TRIGRAMS_STEP_COUNT) {
+                startIndex = nextIndex;
+                g_eightTrigramsResumeStepIndex.store(static_cast<int>(startIndex));
+                return true;
+            }
+            startIndex = EIGHT_TRIGRAMS_STEP_COUNT;
+            g_eightTrigramsResumeStepIndex.store(static_cast<int>(startIndex));
+            return true;
+        }
+    }
+
+    if (g_eightTrigramsProgress.talkCurrentId > 0) {
+        const uint32_t currentId = g_eightTrigramsProgress.talkCurrentId;
+        if (currentId >= groupOrder.size()) {
+            startIndex = EIGHT_TRIGRAMS_STEP_COUNT;
+            return true;
+        }
+
+        const uint32_t nextGroupId = groupOrder[currentId];
+        const size_t nextIndex = FindEightTrigramsStepIndexForGroup(nextGroupId);
+        if (nextIndex < EIGHT_TRIGRAMS_STEP_COUNT) {
+            startIndex = nextIndex;
+            g_eightTrigramsResumeStepIndex.store(static_cast<int>(startIndex));
+            return true;
+        }
+    }
+
+    startIndex = defaultIndex;
+    return false;
+}
+
+static std::wstring BuildTaskZoneStatus(const EightTrigramsStep& step, size_t index, size_t total) {
+    std::wstring status = L"任务区：";
+    status += std::to_wstring(index + 1);
+    status += L"/";
+    status += std::to_wstring(total);
+    status += L" ";
+
+    switch (step.kind) {
+        case TaskZoneStepKind::Talk:
+            status += L"对话 ";
+            break;
+        case TaskZoneStepKind::Acquire:
+        case TaskZoneStepKind::AlertAcquire:
+        case TaskZoneStepKind::SceneAcquire:
+        case TaskZoneStepKind::RewardOnly:
+            status += (step.kind == TaskZoneStepKind::RewardOnly ? L"前往 " : L"获取 ");
+            break;
+        case TaskZoneStepKind::Battle:
+            status += L"战斗 ";
+            break;
+        case TaskZoneStepKind::Flash:
+            status += L"动画 ";
+            break;
+        case TaskZoneStepKind::BranchOnly:
+            status += L"结果 ";
+            break;
+    }
+
+    status += step.label;
+
+    if (step.sceneId != 0) {
+        std::wstring mapName = GetMapName(static_cast<int>(step.sceneId));
+        if (mapName.empty()) {
+            mapName = std::to_wstring(step.sceneId);
+        }
+        status += L" @";
+        status += mapName;
+    }
+
+    return status;
+}
+
+static void ProcessEightTrigramsUserTaskListResponse(const GamePacket& packet) {
+    if (packet.body.empty()) {
+        return;
+    }
+
+    size_t offset = 0;
+    std::string newestFlag;
+    if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, newestFlag)) {
+        return;
+    }
+
+    std::vector<uint32_t> acceptedSubtaskIds;
+    std::vector<uint32_t> finishedSubtaskIds;
+
+    if (offset + 4 > packet.body.size()) {
+        return;
+    }
+    const int acceptedCount = ReadInt32LE(packet.body.data(), offset);
+    for (int i = 0; i < acceptedCount; ++i) {
+        if (offset + 8 > packet.body.size()) {
+            return;
+        }
+
+        const uint32_t subtaskId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+        const int taskParamCount = ReadInt32LE(packet.body.data(), offset);
+        for (int j = 0; j < taskParamCount; ++j) {
+            if (offset + 8 > packet.body.size()) {
+                return;
+            }
+            ReadInt32LE(packet.body.data(), offset);
+            ReadInt32LE(packet.body.data(), offset);
+        }
+
+        const uint32_t taskId = subtaskId - (subtaskId % 1000);
+        if (taskId == 4006000) {
+            acceptedSubtaskIds.push_back(subtaskId);
+        }
+    }
+
+    if (offset + 4 > packet.body.size()) {
+        return;
+    }
+    const int finishedCount = ReadInt32LE(packet.body.data(), offset);
+    for (int i = 0; i < finishedCount; ++i) {
+        if (offset + 8 > packet.body.size()) {
+            return;
+        }
+
+        const uint32_t subtaskId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+        ReadInt32LE(packet.body.data(), offset);  // finishTime
+
+        const uint32_t taskId = subtaskId - (subtaskId % 1000);
+        if (taskId == 4006000) {
+            finishedSubtaskIds.push_back(subtaskId);
+        }
+    }
+
+    std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+    g_eightTrigramsProgress.acceptedSubtaskIds = std::move(acceptedSubtaskIds);
+    g_eightTrigramsProgress.finishedSubtaskIds = std::move(finishedSubtaskIds);
+    g_eightTrigramsProgress.userTaskListLoaded = true;
+}
+
+static void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet) {
+    size_t offset = 0;
+    uint32_t dialogId = 0;
+    uint32_t npcId = 0;
+    uint32_t currentId = 0;
+    uint32_t trigram = 0;
+    uint32_t exp = 0;
+    uint32_t itemId = 0;
+    bool hasDialogId = false;
+    bool hasNpcId = false;
+    bool hasCurrentId = false;
+    bool hasTrigram = false;
+    bool hasExp = false;
+    bool hasItemId = false;
+
+    auto readUInt32 = [&packet, &offset](uint32_t& value) -> bool {
+        if (offset + 4 > packet.body.size()) {
+            return false;
+        }
+        value = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+        return true;
+    };
+
+    switch (packet.params) {
+        case 1:
+        case 5:
+        case 22: {
+            uint32_t itemCount = 0;
+            if (!readUInt32(npcId) || !readUInt32(itemCount)) {
+                return;
+            }
+            for (uint32_t i = 0; i < itemCount; ++i) {
+                uint32_t itemType = 0;
+                uint32_t itemIdValue = 0;
+                uint32_t itemCountValue = 0;
+                if (!readUInt32(itemType) || !readUInt32(itemIdValue) || !readUInt32(itemCountValue)) {
+                    return;
+                }
+            }
+            if (!readUInt32(dialogId)) {
+                return;
+            }
+            hasNpcId = true;
+            hasDialogId = true;
+            break;
+        }
+        case 2:
+        case 14:
+        case 17:
+            if (!readUInt32(dialogId)) {
+                return;
+            }
+            hasDialogId = true;
+            break;
+        case 3:
+            if (!readUInt32(dialogId)) {
+                return;
+            }
+            hasDialogId = true;
+            break;
+        case 7:
+            {
+                uint32_t boardId = 0;
+                if (!readUInt32(boardId) ||
+                    !readUInt32(dialogId) ||
+                    !readUInt32(npcId)) {
+                    return;
+                }
+                hasDialogId = true;
+                hasNpcId = true;
+            }
+            break;
+        case 11:
+            if (!readUInt32(dialogId) ||
+                !readUInt32(currentId) ||
+                !readUInt32(trigram) ||
+                !readUInt32(exp) ||
+                !readUInt32(npcId) ||
+                !readUInt32(itemId)) {
+                return;
+            }
+            hasDialogId = true;
+            hasNpcId = true;
+            hasCurrentId = true;
+            hasTrigram = true;
+            hasExp = true;
+            hasItemId = true;
+            break;
+        case 21: {
+            uint32_t paramCount = 0;
+            if (!readUInt32(npcId) || !readUInt32(paramCount)) {
+                return;
+            }
+            for (uint32_t i = 0; i < paramCount; ++i) {
+                uint32_t itemType = 0;
+                uint32_t itemIdValue = 0;
+                if (!readUInt32(itemType) || !readUInt32(itemIdValue)) {
+                    return;
+                }
+            }
+            if (!readUInt32(dialogId)) {
+                return;
+            }
+            hasNpcId = true;
+            hasDialogId = true;
+            break;
+        }
+        case 26:
+            if (!readUInt32(dialogId)) {
+                return;
+            }
+            hasDialogId = true;
+            break;
+        default:
+            return;
+    }
+
+    uint32_t expectedDialogId = 0;
+    uint32_t expectedNpcId = 0;
+    bool matchNpcId = true;
+    {
+        std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+        expectedDialogId = g_eightTrigramsProgress.taskTalkResponseDialogId;
+        expectedNpcId = g_eightTrigramsProgress.taskTalkResponseNpcId;
+        matchNpcId = g_eightTrigramsProgress.taskTalkResponseMatchNpcId;
+        if (!hasDialogId ||
+            dialogId != expectedDialogId ||
+            (matchNpcId && hasNpcId && npcId != expectedNpcId)) {
+            return;
+        }
+
+        g_eightTrigramsProgress.taskTalkResponseReceived = true;
+        g_eightTrigramsProgress.taskTalkResponseType = packet.params;
+        g_eightTrigramsProgress.taskTalkResponseDialogId = dialogId;
+        g_eightTrigramsProgress.talkDialogId = dialogId;
+        if (hasNpcId) {
+            g_eightTrigramsProgress.taskTalkResponseNpcId = npcId;
+            g_eightTrigramsProgress.talkNpcId = npcId;
+        }
+        if (hasCurrentId) {
+            g_eightTrigramsProgress.talkCurrentId = currentId;
+        }
+        if (hasTrigram) {
+            g_eightTrigramsProgress.talkTrigram = trigram;
+        }
+        if (hasExp) {
+            g_eightTrigramsProgress.talkExp = exp;
+        }
+        if (hasItemId) {
+            g_eightTrigramsProgress.talkItemId = itemId;
+        }
+    }
+
+    UpdateEightTrigramsResumeHintByDialogId(dialogId);
+}
+
+static void UpdateTaskZoneUi(const std::wstring& text, bool running) {
+    UIBridge::Instance().UpdateHelperText(text);
+    std::wstring script = L"if(window.updateTaskZoneStatus) { window.updateTaskZoneStatus('" +
+                          UIBridge::EscapeJsonString(text) + L"', " +
+                          (running ? L"true" : L"false") + L"); }";
+    PostScriptToUI(script);
+}
+
+static BOOL QueryEightTrigramsTaskListProgress() {
+    ResetEightTrigramsUserTaskListCache();
+
+    auto packet = PacketBuilder()
+        .SetOpcode(Opcode::USER_TASK_LIST_SEND)
+        .Build();
+
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()), Opcode::USER_TASK_LIST_BACK, 3000);
+}
+
+// 进图是全局响应事件，这里不用 ResponseWaiter，避免被其他自动流程抢走。
+static bool WaitForEightTrigramsMapEnter(DWORD timeoutMs) {
+    const DWORD startTick = GetTickCount();
+    while (g_taskZoneRunning.load()) {
+        if (g_taskZoneMapEntered.load()) {
+            return true;
+        }
+
+        if (GetTickCount() - startTick >= timeoutMs) {
+            return false;
+        }
+
+        Sleep(50);
+    }
+
+    return false;
+}
+
+static void UpdateEightTrigramsResumeHintByDialogId(uint32_t dialogId) {
+    const size_t stepIndex = FindEightTrigramsStepIndexByDialogId(dialogId);
+    if (stepIndex < EIGHT_TRIGRAMS_STEP_COUNT) {
+        UpdateEightTrigramsResumeHint(stepIndex + 1);
+    }
+}
+
+static BOOL SendTaskZoneTalkPacket(
+    uint32_t npcId,
+    uint32_t dialogId,
+    uint32_t chooseId = 0,
+    bool waitForBack = true,
+    DWORD timeoutMs = 3000,
+    bool matchNpcId = true) {
+    if (chooseId != 0) {
+        auto trainInfoPacket = PacketBuilder()
+            .SetOpcode(Opcode::TRAIN_INFO_SEND)
+            .SetParams(7)
+            .WriteUInt32(dialogId)
+            .WriteUInt32(chooseId)
+            .Build();
+
+        if (!SendPacket(0,
+                        trainInfoPacket.data(),
+                        static_cast<DWORD>(trainInfoPacket.size()))) {
+            return FALSE;
+        }
+    }
+
+    auto packet = PacketBuilder()
+        .SetOpcode(Opcode::TASK_TALK_SEND)
+        .SetParams(npcId)
+        .WriteUInt32(dialogId)
+        .Build();
+
+    if (!waitForBack) {
+        return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+        g_eightTrigramsProgress.taskTalkResponseReceived = false;
+        g_eightTrigramsProgress.taskTalkResponseDialogId = dialogId;
+        g_eightTrigramsProgress.taskTalkResponseNpcId = npcId;
+        g_eightTrigramsProgress.taskTalkResponseMatchNpcId = matchNpcId;
+    }
+
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()), Opcode::TASK_TALK_BACK, timeoutMs);
+}
+
+static BOOL SendTaskZoneClickPacket(uint32_t npcId, bool battleMode = false) {
+    uint32_t counter = battleMode ? static_cast<uint32_t>(g_battleCounter.load()) : 0;
+    if (battleMode && counter == 0) {
+        counter = 1;
+    }
+
+    auto packet = PacketBuilder()
+        .SetOpcode(Opcode::CLICK_NPC)
+        .SetParams(npcId)
+        .WriteUInt32(counter)
+        .Build();
+
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+}
+
+static void PauseAfterEightTrigramsStep(TaskZoneStepKind kind) {
+    switch (kind) {
+        case TaskZoneStepKind::Acquire:
+        case TaskZoneStepKind::AlertAcquire:
+            Sleep(800);
+            break;
+        case TaskZoneStepKind::Flash:
+            Sleep(600);
+            break;
+        case TaskZoneStepKind::Battle:
+            Sleep(400);
+            break;
+        case TaskZoneStepKind::BranchOnly:
+            Sleep(250);
+            break;
+        case TaskZoneStepKind::Talk:
+        default:
+            Sleep(350);
+            break;
+    }
+}
+
+static uint32_t GetBattleTargetSid(const BattleData& battle) {
+    if (battle.otherActiveIndex >= 0 &&
+        battle.otherActiveIndex < static_cast<int>(battle.otherPets.size())) {
+        return static_cast<uint32_t>(battle.otherPets[battle.otherActiveIndex].sid);
+    }
+
+    for (const auto& pet : battle.otherPets) {
+        if (pet.sid != 0) {
+            return static_cast<uint32_t>(pet.sid);
+        }
+    }
+
+    return 0;
+}
+
+static uint32_t GetBattleSkillId(const BattleEntity& battleEntity) {
+    for (const auto& skill : battleEntity.skills) {
+        if (skill.pp > 0) {
+            return skill.id;
+        }
+    }
+
+    for (const auto& skill : battleEntity.skills) {
+        if (skill.id != 0) {
+            return skill.id;
+        }
+    }
+
+    return 0;
+}
+
+static BOOL RunEightTrigramsBattleLoop(unsigned long long sessionId) {
+    if (!SendBattleReadyPacket()) {
+        return FALSE;
+    }
+
+    Sleep(300);
+
+    for (int loop = 0; loop < 40 && g_taskZoneRunning.load(); ++loop) {
+        if (g_taskZoneSession.load() != sessionId) {
+            return FALSE;
+        }
+
+        BattleData& battle = PacketParser::GetCurrentBattle();
+        if (battle.myPets.empty() || battle.otherPets.empty()) {
+            break;
+        }
+
+        if (battle.myActiveIndex < 0 ||
+            battle.myActiveIndex >= static_cast<int>(battle.myPets.size())) {
+            Sleep(100);
+            continue;
+        }
+
+        const BattleEntity& myPet = battle.myPets[battle.myActiveIndex];
+        uint32_t targetSid = GetBattleTargetSid(battle);
+        uint32_t skillId = GetBattleSkillId(myPet);
+        if (targetSid == 0 || skillId == 0) {
+            Sleep(200);
+            continue;
+        }
+
+        auto packet = PacketBuilder()
+            .SetOpcode(Opcode::USER_OP_SEND)
+            .SetParams(0)
+            .WriteInt32(static_cast<int32_t>(targetSid))
+            .WriteInt32(static_cast<int32_t>(skillId))
+            .Build();
+
+        if (!SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()))) {
+            return FALSE;
+        }
+
+        Sleep(1000);
+
+        if (!SendBattlePlayOverPacket()) {
+            return FALSE;
+        }
+
+        Sleep(500);
+
+        if (PacketParser::GetCurrentBattle().myPets.empty() ||
+            PacketParser::GetCurrentBattle().otherPets.empty()) {
+            break;
+        }
+    }
+
+    return TRUE;
+}
+
+static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
+    std::unique_ptr<EightTrigramsTaskData> taskData(static_cast<EightTrigramsTaskData*>(lpParam));
+    const unsigned long long sessionId = taskData->sessionId;
+
+    const size_t stepCount = sizeof(EIGHT_TRIGRAMS_STEPS) / sizeof(EIGHT_TRIGRAMS_STEPS[0]);
+    size_t startIndex = 0;
+    if (startIndex >= stepCount) {
+        startIndex = 0;
+    }
+
+    uint32_t currentSceneId = 0;
+    uint32_t lastRelevantNpcId = 0;
+    bool flowFailed = false;
+    std::wstring startText;
+
+    UpdateTaskZoneUi(L"任务区：读取当前进度...", true);
+    const bool progressLoaded = QueryEightTrigramsTaskListProgress();
+    bool hasResumeIndex = TryResolveEightTrigramsResumeIndex(startIndex);
+    if (!progressLoaded && !hasResumeIndex) {
+        UpdateTaskZoneUi(L"任务区：读取当前进度失败", false);
+        flowFailed = true;
+        goto CLEANUP;
+    }
+
+    if (startIndex >= stepCount) {
+        UpdateTaskZoneUi(L"任务区：八卦灵盘已经完成", false);
+        g_eightTrigramsResumeStepIndex.store(-1);
+        goto CLEANUP;
+    }
+
+    startText = (startIndex == 0) ? L"任务区：开始执行八卦灵盘..." : L"任务区：继续执行八卦灵盘...";
+    UpdateTaskZoneUi(startText, true);
+    Sleep(300);
+
+    for (size_t i = startIndex; i < stepCount && g_taskZoneRunning.load(); ++i) {
+        if (g_taskZoneSession.load() != sessionId) {
+            goto CLEANUP;
+        }
+
+        const EightTrigramsStep& step = EIGHT_TRIGRAMS_STEPS[i];
+        UpdateTaskZoneUi(BuildTaskZoneStatus(step, i - startIndex, stepCount - startIndex), true);
+
+        if (step.kind == TaskZoneStepKind::Flash) {
+            if (step.dialogId == 400600704) {
+                const uint32_t turntableNpcId = lastRelevantNpcId != 0 ? lastRelevantNpcId : 61101;
+                // 1111111 是特殊转盘结果回包，npcid 可能与发起时不一致，不做强匹配。
+                if (!SendTaskZoneTalkPacket(turntableNpcId, 1111111, 0, true, 5000, false)) {
+                    UpdateTaskZoneUi(L"任务区：转盘收口失败", false);
+                    flowFailed = true;
+                    break;
+                }
+                UpdateEightTrigramsResumeHint(i + 1);
+            }
+            continue;
+        }
+
+        if (step.kind == TaskZoneStepKind::BranchOnly) {
+            continue;
+        }
+
+        if (step.sceneId != 0 && step.sceneId != currentSceneId) {
+            std::wstring mapName = GetMapName(static_cast<int>(step.sceneId));
+            if (mapName.empty()) {
+                mapName = std::to_wstring(step.sceneId);
+            }
+            UpdateTaskZoneUi(L"任务区：进入 " + mapName + L"...", true);
+            g_taskZoneMapEntered = false;
+            if (!SendEnterScenePacket(static_cast<int>(step.sceneId))) {
+                UpdateTaskZoneUi(L"任务区：进入场景失败", false);
+                flowFailed = true;
+                break;
+            }
+            if (!WaitForEightTrigramsMapEnter(5000)) {
+                UpdateTaskZoneUi(L"任务区：进入场景失败", false);
+                flowFailed = true;
+                break;
+            }
+            currentSceneId = step.sceneId;
+            UpdateEightTrigramsResumeHint(i + 1);
+            Sleep(300);
+        }
+
+        if (step.kind == TaskZoneStepKind::Battle) {
+            if (step.dialogId == 400600506) {
+                // 水魂战斗按实际封包发送：CLICK_NPC + counter。
+                // 抓包显示 params 末三字节对应 0x17 / 0x10 / 0x08。
+                if (!SendBattlePacket(0x17, 0x10, 0x08, 1)) {
+                    UpdateTaskZoneUi(L"任务区：发起战斗失败", false);
+                    flowFailed = true;
+                    break;
+                }
+            } else if (!SendTaskZoneClickPacket(step.npcId, true)) {
+                UpdateTaskZoneUi(L"任务区：发起战斗失败", false);
+                flowFailed = true;
+                break;
+            }
+
+            Sleep(800);
+
+            const DWORD battleWaitStart = GetTickCount();
+            while (g_taskZoneRunning.load()) {
+                if (g_taskZoneSession.load() != sessionId) {
+                    break;
+                }
+                BattleData& battle = PacketParser::GetCurrentBattle();
+                if (!battle.myPets.empty() && !battle.otherPets.empty()) {
+                    break;
+                }
+                if (GetTickCount() - battleWaitStart > 10000) {
+                    UpdateTaskZoneUi(L"任务区：等待战斗开始超时", false);
+                    g_taskZoneRunning = false;
+                    flowFailed = true;
+                    return FALSE;
+                }
+                Sleep(100);
+            }
+
+            if (!g_taskZoneRunning.load() || g_taskZoneSession.load() != sessionId) {
+                break;
+            }
+
+            if (!RunEightTrigramsBattleLoop(sessionId)) {
+                UpdateTaskZoneUi(L"任务区：战斗流程失败", false);
+                flowFailed = true;
+                break;
+            }
+
+            UpdateEightTrigramsResumeHint(i + 1);
+            continue;
+        }
+
+        const bool shouldClickNpc =
+            (step.kind == TaskZoneStepKind::Talk ||
+             step.kind == TaskZoneStepKind::Acquire ||
+             step.kind == TaskZoneStepKind::AlertAcquire);
+
+        if (shouldClickNpc) {
+            if (!SendTaskZoneClickPacket(step.npcId, false)) {
+                UpdateTaskZoneUi(L"任务区：点击目标失败", false);
+                flowFailed = true;
+                break;
+            }
+        }
+
+        if (step.kind == TaskZoneStepKind::SceneAcquire) {
+            // 菩提子这里按抓包样本走特殊区域点击包，场景对象是 41311，但实际发包参数是 41312。
+            const uint32_t specialAreaNpcId = step.npcId + 1;
+            if (!SendTaskZoneClickPacket(specialAreaNpcId, false)) {
+                UpdateTaskZoneUi(L"任务区：获取失败", false);
+                flowFailed = true;
+                break;
+            }
+            lastRelevantNpcId = specialAreaNpcId;
+            UpdateEightTrigramsResumeHint(i + 1);
+            continue;
+        }
+
+        if (step.kind == TaskZoneStepKind::RewardOnly) {
+            // 只做转场，不再主动发包。
+            UpdateEightTrigramsResumeHint(i + 1);
+            continue;
+        }
+
+        if (step.kind == TaskZoneStepKind::AlertAcquire) {
+            if (!SendTaskZoneTalkPacket(step.npcId, step.dialogId, step.chooseId, true)) {
+                UpdateTaskZoneUi(L"任务区：获取失败", false);
+                flowFailed = true;
+                break;
+            }
+            lastRelevantNpcId = step.npcId;
+            UpdateEightTrigramsResumeHint(i + 1);
+            continue;
+        }
+
+        if (step.kind == TaskZoneStepKind::Acquire) {
+            if (!SendTaskZoneTalkPacket(step.npcId, step.dialogId, step.chooseId, true)) {
+                UpdateTaskZoneUi(L"任务区：获取失败", false);
+                flowFailed = true;
+                break;
+            }
+            lastRelevantNpcId = step.npcId;
+            UpdateEightTrigramsResumeHint(i + 1);
+            continue;
+        }
+
+        if (step.dialogId != 0) {
+            if (!SendTaskZoneTalkPacket(step.npcId, step.dialogId, step.chooseId, true)) {
+                UpdateTaskZoneUi(L"任务区：对话发送失败", false);
+                flowFailed = true;
+                break;
+            }
+
+            lastRelevantNpcId = step.npcId;
+            if (step.dialogId == 400600702) {
+                // 702 是提交柿果后的过渡对话，保留在这里，避免重开直接落到转盘。
+                UpdateEightTrigramsResumeHint(i);
+            } else {
+                UpdateEightTrigramsResumeHint(i + 1);
+            }
+        }
+    }
+
+    CLEANUP:
+    const bool stillRunning = g_taskZoneRunning.exchange(false);
+    g_taskZoneMapEntered = false;
+    if (!flowFailed && stillRunning) {
+        g_eightTrigramsResumeStepIndex.store(-1);
+        UpdateTaskZoneUi(L"任务区：八卦灵盘流程已完成", false);
+    } else {
+        UpdateTaskZoneUi(flowFailed ? L"任务区：流程中断" : L"任务区：已停止", false);
+    }
+
+    return 0;
+}
+
+BOOL SendEightTrigramsTaskAsync() {
+    if (g_taskZoneRunning.load()) {
+        UpdateTaskZoneUi(L"任务区：八卦灵盘已在运行中", true);
+        return FALSE;
+    }
+
+    if (g_LastGameSocket == 0 || g_userId.load() == 0) {
+        UpdateTaskZoneUi(L"任务区：请先进入游戏", false);
+        return FALSE;
+    }
+
+    if (g_battleSixAuto.IsInBattle() || g_battleSixAuto.IsAutoMatching() || g_shuangtaiAuto.IsRunning()) {
+        UpdateTaskZoneUi(L"任务区：请先停止其他自动战斗", false);
+        return FALSE;
+    }
+
+    const unsigned long long sessionId = g_taskZoneSession.fetch_add(1) + 1;
+    g_taskZoneRunning = true;
+    g_taskZoneMapEntered = false;
+    ResetEightTrigramsProgressState();
+
+    EightTrigramsTaskData* taskData = new EightTrigramsTaskData();
+    taskData->sessionId = sessionId;
+
+    HANDLE hThread = CreateThread(nullptr, 0, EightTrigramsTaskThreadProc, taskData, 0, nullptr);
+    if (hThread) {
+        CloseHandle(hThread);
+        return TRUE;
+    }
+
+    delete taskData;
+    g_taskZoneRunning = false;
+    g_taskZoneMapEntered = false;
+    UpdateTaskZoneUi(L"任务区：启动失败", false);
+    return FALSE;
+}
+
+VOID StopEightTrigramsTask() {
+    if (!g_taskZoneRunning.load()) {
+        UpdateTaskZoneUi(L"任务区：已停止", false);
+        return;
+    }
+
+    g_taskZoneRunning = false;
+    g_taskZoneMapEntered = false;
+    g_taskZoneSession.fetch_add(1);
+    ResponseWaiter::CancelWait();
+    UpdateTaskZoneUi(L"任务区：已停止", false);
+}
+
+// ============================================================================
 // 一键采集实现
 // ============================================================================
 
@@ -6950,10 +8024,10 @@ void ProcessCollectResponse(const GamePacket& packet) {
     
     
     
-    BOOL SendBattlePacket(uint32_t spiritId, uint32_t useId, uint8_t extraParam) {
+    BOOL SendBattlePacket(uint32_t spiritId, uint32_t useId, uint8_t extraParam, uint32_t forcedCounter) {
     // 直接使用全局变量 g_battleCounter
     // 如果从未进入过战斗（counter 为 0），则使用默认值 1
-    uint32_t counter = g_battleCounter.load();
+    uint32_t counter = forcedCounter != 0 ? forcedCounter : g_battleCounter.load();
     if (counter == 0) {
         counter = 1;
     }
@@ -8327,7 +9401,8 @@ BOOL SendDungeonJumpLayerPacket(int layer) {
         .WriteInt32(layer)
         .Build();
     
-    BOOL result = SendPacket(g_LastGameSocket, packet.data(), static_cast<DWORD>(packet.size()));
+    BOOL result = SendPacket(g_LastGameSocket, packet.data(), static_cast<DWORD>(packet.size()),
+                              DungeonJump::JUMP_LAYER_BACK, 3000);
     
     if (result) {
         wchar_t msg[256];
@@ -8345,7 +9420,8 @@ BOOL SendQueryDungeonInfoPacket() {
         .SetParams(0)
         .Build();
     
-    return SendPacket(g_LastGameSocket, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacket(g_LastGameSocket, packet.data(), static_cast<DWORD>(packet.size()),
+                      DungeonJump::QUERY_DUNGEON_BACK, 3000);
 }
 
 BOOL SendPrepareBattlePacket() {
@@ -8355,7 +9431,8 @@ BOOL SendPrepareBattlePacket() {
         .SetParams(0)
         .Build();
     
-    return SendPacket(g_LastGameSocket, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacket(g_LastGameSocket, packet.data(), static_cast<DWORD>(packet.size()),
+                      DungeonJump::PREPARE_BATTLE_BACK, 3000);
 }
 
 BOOL SendDungeonActivityPacket(int activityId, int opType, int param) {
@@ -8367,7 +9444,8 @@ BOOL SendDungeonActivityPacket(int activityId, int opType, int param) {
         .WriteInt32(param)
         .Build();
     
-    return SendPacket(g_LastGameSocket, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacket(g_LastGameSocket, packet.data(), static_cast<DWORD>(packet.size()),
+                      DungeonJump::ACTIVITY_BACK, 3000, static_cast<uint32_t>(activityId), true);
 }
 
 BOOL SendCompleteJumpPacket() {
@@ -8377,7 +9455,8 @@ BOOL SendCompleteJumpPacket() {
         .SetParams(19012)
         .Build();
     
-    BOOL result = SendPacket(g_LastGameSocket, packet.data(), static_cast<DWORD>(packet.size()));
+    BOOL result = SendPacket(g_LastGameSocket, packet.data(), static_cast<DWORD>(packet.size()),
+                             DungeonJump::COMPLETE_JUMP_BACK, 3000);
     
     if (result) {
         UIBridge::Instance().UpdateHelperText(L"副本跳层：完成跳层操作");
@@ -8495,15 +9574,13 @@ static DWORD WINAPI DungeonJumpThreadProc(LPVOID lpParam) {
     if (!SendDungeonJumpLayerPacket(targetLayer)) {
         goto CLEANUP;
     }
-    ResponseWaiter::WaitForResponse(DungeonJump::JUMP_LAYER_BACK, 3000);
     
     if (!g_dungeonJumpState.isRunning) goto CLEANUP;
     
     // 2. 进入地图，等待返回 1315395 (使用项目中已有的 Opcode::ENTER_SCENE_BACK)
-    if (!SendEnterScenePacket(DungeonJump::DUNGEON_MAP_ID)) {
+    if (!SendEnterScenePacket(DungeonJump::DUNGEON_MAP_ID, Opcode::ENTER_SCENE_BACK, 5000)) {
         goto CLEANUP;
     }
-    ResponseWaiter::WaitForResponse(Opcode::ENTER_SCENE_BACK, 5000);
     
     if (!g_dungeonJumpState.isRunning) goto CLEANUP;
     
@@ -8511,7 +9588,6 @@ static DWORD WINAPI DungeonJumpThreadProc(LPVOID lpParam) {
     if (!SendQueryDungeonInfoPacket()) {
         goto CLEANUP;
     }
-    ResponseWaiter::WaitForResponse(DungeonJump::QUERY_DUNGEON_BACK, 3000);
     
     if (!g_dungeonJumpState.isRunning) goto CLEANUP;
     
@@ -8519,25 +9595,27 @@ static DWORD WINAPI DungeonJumpThreadProc(LPVOID lpParam) {
     if (!SendPrepareBattlePacket()) {
         goto CLEANUP;
     }
-    ResponseWaiter::WaitForResponse(DungeonJump::PREPARE_BATTLE_BACK, 3000);
     
     if (!g_dungeonJumpState.isRunning) goto CLEANUP;
     
     // 5. 活动操作900，等待返回 1324097
-    SendDungeonActivityPacket(DungeonJump::ACTIVITY_ID_900, 1, DungeonJump::DUNGEON_MAP_ID);
-    ResponseWaiter::WaitForResponse(DungeonJump::ACTIVITY_BACK, 3000);
+    if (!SendDungeonActivityPacket(DungeonJump::ACTIVITY_ID_900, 1, DungeonJump::DUNGEON_MAP_ID)) {
+        goto CLEANUP;
+    }
     
     if (!g_dungeonJumpState.isRunning) goto CLEANUP;
     
     // 6. 活动操作902，等待返回 1324097
-    SendDungeonActivityPacket(DungeonJump::ACTIVITY_ID_902, 1, DungeonJump::DUNGEON_MAP_ID);
-    ResponseWaiter::WaitForResponse(DungeonJump::ACTIVITY_BACK, 3000);
+    if (!SendDungeonActivityPacket(DungeonJump::ACTIVITY_ID_902, 1, DungeonJump::DUNGEON_MAP_ID)) {
+        goto CLEANUP;
+    }
     
     if (!g_dungeonJumpState.isRunning) goto CLEANUP;
     
     // 7. 活动操作325，等待返回 1324097
-    SendDungeonActivityPacket(DungeonJump::ACTIVITY_ID_325, 4, DungeonJump::DUNGEON_MAP_ID);
-    ResponseWaiter::WaitForResponse(DungeonJump::ACTIVITY_BACK, 3000);
+    if (!SendDungeonActivityPacket(DungeonJump::ACTIVITY_ID_325, 4, DungeonJump::DUNGEON_MAP_ID)) {
+        goto CLEANUP;
+    }
     
     if (!g_dungeonJumpState.isRunning) goto CLEANUP;
     
@@ -8545,7 +9623,6 @@ static DWORD WINAPI DungeonJumpThreadProc(LPVOID lpParam) {
     if (!SendCompleteJumpPacket()) {
         goto CLEANUP;
     }
-    ResponseWaiter::WaitForResponse(DungeonJump::COMPLETE_JUMP_BACK, 3000);
     
     // 跳层完成
     UIBridge::Instance().UpdateHelperText(L"跳层完成");
