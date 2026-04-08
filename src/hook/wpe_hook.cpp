@@ -2908,6 +2908,8 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
 // 接收封包处理器（拆分自 HookedRecv）
 // ============================================================================
 
+static void ResetEightTrigramsSessionState();
+
 namespace {
 
 /**
@@ -2942,6 +2944,7 @@ void ProcessEnterWorldPacket(const GamePacket& gp) {
     offset += 4;
     
     g_userId = kabuId;
+    ResetEightTrigramsSessionState();
     
     // 读取卡布名
     if (offset + 2 > body.size()) return;
@@ -6539,6 +6542,11 @@ static void ResetEightTrigramsProgressState() {
     g_eightTrigramsProgress.talkItemId = 0;
 }
 
+static void ResetEightTrigramsSessionState() {
+    ResetEightTrigramsProgressState();
+    g_eightTrigramsResumeStepIndex.store(-1);
+}
+
 static bool TryResolveEightTrigramsResumeIndex(size_t& startIndex) {
     const size_t defaultIndex = 0;
     const auto groupOrder = BuildEightTrigramsGroupOrder();
@@ -6970,113 +6978,36 @@ static BOOL SendTaskZoneClickPacket(uint32_t npcId, bool battleMode = false) {
     return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
 }
 
-static void PauseAfterEightTrigramsStep(TaskZoneStepKind kind) {
-    switch (kind) {
-        case TaskZoneStepKind::Acquire:
-        case TaskZoneStepKind::AlertAcquire:
-            Sleep(800);
-            break;
-        case TaskZoneStepKind::Flash:
-            Sleep(600);
-            break;
-        case TaskZoneStepKind::Battle:
-            Sleep(400);
-            break;
-        case TaskZoneStepKind::BranchOnly:
-            Sleep(250);
-            break;
-        case TaskZoneStepKind::Talk:
-        default:
-            Sleep(350);
-            break;
-    }
-}
-
-static uint32_t GetBattleTargetSid(const BattleData& battle) {
-    if (battle.otherActiveIndex >= 0 &&
-        battle.otherActiveIndex < static_cast<int>(battle.otherPets.size())) {
-        return static_cast<uint32_t>(battle.otherPets[battle.otherActiveIndex].sid);
-    }
-
-    for (const auto& pet : battle.otherPets) {
-        if (pet.sid != 0) {
-            return static_cast<uint32_t>(pet.sid);
-        }
-    }
-
-    return 0;
-}
-
-static uint32_t GetBattleSkillId(const BattleEntity& battleEntity) {
-    for (const auto& skill : battleEntity.skills) {
-        if (skill.pp > 0) {
-            return skill.id;
-        }
-    }
-
-    for (const auto& skill : battleEntity.skills) {
-        if (skill.id != 0) {
-            return skill.id;
-        }
-    }
-
-    return 0;
-}
-
 static BOOL RunEightTrigramsBattleLoop(unsigned long long sessionId) {
+    if (!g_battleSixAuto.IsAutoBattleEnabled()) {
+        UpdateTaskZoneUi(L"任务区：请先开启自动战斗", false);
+        return FALSE;
+    }
+
     if (!SendBattleReadyPacket()) {
         return FALSE;
     }
 
     Sleep(300);
 
-    for (int loop = 0; loop < 40 && g_taskZoneRunning.load(); ++loop) {
+    const DWORD battleWaitStart = GetTickCount();
+    while (g_taskZoneRunning.load()) {
         if (g_taskZoneSession.load() != sessionId) {
             return FALSE;
         }
 
         BattleData& battle = PacketParser::GetCurrentBattle();
-        if (battle.myPets.empty() || battle.otherPets.empty()) {
+        if ((battle.myPets.empty() || battle.otherPets.empty()) &&
+            !g_battleSixAuto.IsInBattle()) {
             break;
         }
 
-        if (battle.myActiveIndex < 0 ||
-            battle.myActiveIndex >= static_cast<int>(battle.myPets.size())) {
-            Sleep(100);
-            continue;
-        }
-
-        const BattleEntity& myPet = battle.myPets[battle.myActiveIndex];
-        uint32_t targetSid = GetBattleTargetSid(battle);
-        uint32_t skillId = GetBattleSkillId(myPet);
-        if (targetSid == 0 || skillId == 0) {
-            Sleep(200);
-            continue;
-        }
-
-        auto packet = PacketBuilder()
-            .SetOpcode(Opcode::USER_OP_SEND)
-            .SetParams(0)
-            .WriteInt32(static_cast<int32_t>(targetSid))
-            .WriteInt32(static_cast<int32_t>(skillId))
-            .Build();
-
-        if (!SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()))) {
+        if (GetTickCount() - battleWaitStart > 60000) {
+            UpdateTaskZoneUi(L"任务区：等待战斗结束超时", false);
             return FALSE;
         }
 
-        Sleep(1000);
-
-        if (!SendBattlePlayOverPacket()) {
-            return FALSE;
-        }
-
-        Sleep(500);
-
-        if (PacketParser::GetCurrentBattle().myPets.empty() ||
-            PacketParser::GetCurrentBattle().otherPets.empty()) {
-            break;
-        }
+        Sleep(200);
     }
 
     return TRUE;
@@ -7084,214 +7015,256 @@ static BOOL RunEightTrigramsBattleLoop(unsigned long long sessionId) {
 
 static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
     std::unique_ptr<EightTrigramsTaskData> taskData(static_cast<EightTrigramsTaskData*>(lpParam));
-    const unsigned long long sessionId = taskData->sessionId;
-
-    const size_t stepCount = sizeof(EIGHT_TRIGRAMS_STEPS) / sizeof(EIGHT_TRIGRAMS_STEPS[0]);
-    size_t startIndex = 0;
-    if (startIndex >= stepCount) {
-        startIndex = 0;
-    }
-
-    uint32_t currentSceneId = 0;
-    uint32_t lastRelevantNpcId = 0;
+    unsigned long long sessionId = taskData->sessionId;
+    int autoRestartCount = 0;
+    bool flowCompleted = false;
     bool flowFailed = false;
-    std::wstring startText;
 
-    UpdateTaskZoneUi(L"任务区：读取当前进度...", true);
-    const bool progressLoaded = QueryEightTrigramsTaskListProgress();
-    bool hasResumeIndex = TryResolveEightTrigramsResumeIndex(startIndex);
-    if (!progressLoaded && !hasResumeIndex) {
-        UpdateTaskZoneUi(L"任务区：读取当前进度失败", false);
-        flowFailed = true;
-        goto CLEANUP;
-    }
+    while (g_taskZoneRunning.load()) {
+        const size_t stepCount = sizeof(EIGHT_TRIGRAMS_STEPS) / sizeof(EIGHT_TRIGRAMS_STEPS[0]);
+        size_t startIndex = 0;
+        uint32_t currentSceneId = 0;
+        uint32_t lastRelevantNpcId = 0;
+        std::wstring startText;
 
-    if (startIndex >= stepCount) {
-        UpdateTaskZoneUi(L"任务区：八卦灵盘已经完成", false);
-        g_eightTrigramsResumeStepIndex.store(-1);
-        goto CLEANUP;
-    }
+        if (startIndex >= stepCount) {
+            startIndex = 0;
+        }
 
-    startText = (startIndex == 0) ? L"任务区：开始执行八卦灵盘..." : L"任务区：继续执行八卦灵盘...";
-    UpdateTaskZoneUi(startText, true);
-    Sleep(300);
+        if (g_eightTrigramsResumeStepIndex.load() >= static_cast<int>(stepCount)) {
+            flowCompleted = true;
+            g_eightTrigramsResumeStepIndex.store(static_cast<int>(stepCount));
+            break;
+        }
 
-    for (size_t i = startIndex; i < stepCount && g_taskZoneRunning.load(); ++i) {
-        if (g_taskZoneSession.load() != sessionId) {
+        flowFailed = false;
+
+        ResetEightTrigramsProgressState();
+        g_taskZoneMapEntered = false;
+        UpdateTaskZoneUi(L"任务区：读取当前进度...", true);
+        const bool progressLoaded = QueryEightTrigramsTaskListProgress();
+        bool hasResumeIndex = TryResolveEightTrigramsResumeIndex(startIndex);
+        if (!progressLoaded && !hasResumeIndex) {
+            UpdateTaskZoneUi(L"任务区：读取当前进度失败", false);
+            flowFailed = true;
             goto CLEANUP;
         }
 
-        const EightTrigramsStep& step = EIGHT_TRIGRAMS_STEPS[i];
-        UpdateTaskZoneUi(BuildTaskZoneStatus(step, i - startIndex, stepCount - startIndex), true);
+        if (startIndex >= stepCount) {
+            flowCompleted = true;
+            g_eightTrigramsResumeStepIndex.store(static_cast<int>(stepCount));
+            break;
+        }
 
-        if (step.kind == TaskZoneStepKind::Flash) {
-            if (step.dialogId == 400600704) {
-                const uint32_t turntableNpcId = lastRelevantNpcId != 0 ? lastRelevantNpcId : 61101;
-                // 1111111 是特殊转盘结果回包，npcid 可能与发起时不一致，不做强匹配。
-                if (!SendTaskZoneTalkPacket(turntableNpcId, 1111111, 0, true, 5000, false)) {
-                    UpdateTaskZoneUi(L"任务区：转盘收口失败", false);
+        startText = (startIndex == 0) ? L"任务区：开始执行八卦灵盘..." : L"任务区：继续执行八卦灵盘...";
+        UpdateTaskZoneUi(startText, true);
+        Sleep(300);
+
+        for (size_t i = startIndex; i < stepCount && g_taskZoneRunning.load(); ++i) {
+            if (g_taskZoneSession.load() != sessionId) {
+                goto CLEANUP;
+            }
+
+            const EightTrigramsStep& step = EIGHT_TRIGRAMS_STEPS[i];
+            UpdateTaskZoneUi(BuildTaskZoneStatus(step, i - startIndex, stepCount - startIndex), true);
+
+            if (step.kind == TaskZoneStepKind::Flash) {
+                if (step.dialogId == 400600704) {
+                    const uint32_t turntableNpcId = lastRelevantNpcId != 0 ? lastRelevantNpcId : 61101;
+                    // 1111111 是特殊转盘结果回包，npcid 可能与发起时不一致，不做强匹配。
+                    if (!SendTaskZoneTalkPacket(turntableNpcId, 1111111, 0, true, 5000, false)) {
+                        UpdateTaskZoneUi(L"任务区：转盘收口失败", false);
+                        flowFailed = true;
+                        break;
+                    }
+                    UpdateEightTrigramsResumeHint(i + 1);
+                }
+                continue;
+            }
+
+            if (step.kind == TaskZoneStepKind::BranchOnly) {
+                continue;
+            }
+
+            if (step.sceneId != 0 && step.sceneId != currentSceneId) {
+                std::wstring mapName = GetMapName(static_cast<int>(step.sceneId));
+                if (mapName.empty()) {
+                    mapName = std::to_wstring(step.sceneId);
+                }
+                UpdateTaskZoneUi(L"任务区：进入 " + mapName + L"...", true);
+                g_taskZoneMapEntered = false;
+                if (!SendEnterScenePacket(static_cast<int>(step.sceneId))) {
+                    UpdateTaskZoneUi(L"任务区：进入场景失败", false);
                     flowFailed = true;
                     break;
                 }
+                if (!WaitForEightTrigramsMapEnter(5000)) {
+                    UpdateTaskZoneUi(L"任务区：进入场景失败", false);
+                    flowFailed = true;
+                    break;
+                }
+                currentSceneId = step.sceneId;
                 UpdateEightTrigramsResumeHint(i + 1);
+                Sleep(300);
             }
-            continue;
-        }
-
-        if (step.kind == TaskZoneStepKind::BranchOnly) {
-            continue;
-        }
-
-        if (step.sceneId != 0 && step.sceneId != currentSceneId) {
-            std::wstring mapName = GetMapName(static_cast<int>(step.sceneId));
-            if (mapName.empty()) {
-                mapName = std::to_wstring(step.sceneId);
-            }
-            UpdateTaskZoneUi(L"任务区：进入 " + mapName + L"...", true);
-            g_taskZoneMapEntered = false;
-            if (!SendEnterScenePacket(static_cast<int>(step.sceneId))) {
-                UpdateTaskZoneUi(L"任务区：进入场景失败", false);
-                flowFailed = true;
-                break;
-            }
-            if (!WaitForEightTrigramsMapEnter(5000)) {
-                UpdateTaskZoneUi(L"任务区：进入场景失败", false);
-                flowFailed = true;
-                break;
-            }
-            currentSceneId = step.sceneId;
-            UpdateEightTrigramsResumeHint(i + 1);
-            Sleep(300);
-        }
-
-        if (step.kind == TaskZoneStepKind::Battle) {
-            if (step.dialogId == 400600506) {
-                // 水魂战斗按实际封包发送：CLICK_NPC + counter。
-                // 抓包显示 params 末三字节对应 0x17 / 0x10 / 0x08。
-                if (!SendBattlePacket(0x17, 0x10, 0x08, 1)) {
+            if (step.kind == TaskZoneStepKind::Battle) {
+                if (step.dialogId == 400600506) {
+                    // 水魂战斗按实际封包发送：CLICK_NPC + counter。
+                    // 抓包显示 params 末三字节对应 0x17 / 0x10 / 0x08。
+                    if (!SendBattlePacket(0x17, 0x10, 0x08, 1)) {
+                        UpdateTaskZoneUi(L"任务区：发起战斗失败", false);
+                        flowFailed = true;
+                        break;
+                    }
+                } else if (!SendTaskZoneClickPacket(step.npcId, true)) {
                     UpdateTaskZoneUi(L"任务区：发起战斗失败", false);
                     flowFailed = true;
                     break;
                 }
-            } else if (!SendTaskZoneClickPacket(step.npcId, true)) {
-                UpdateTaskZoneUi(L"任务区：发起战斗失败", false);
-                flowFailed = true;
-                break;
-            }
 
-            Sleep(800);
+                Sleep(800);
 
-            const DWORD battleWaitStart = GetTickCount();
-            while (g_taskZoneRunning.load()) {
-                if (g_taskZoneSession.load() != sessionId) {
+                const DWORD battleWaitStart = GetTickCount();
+                while (g_taskZoneRunning.load()) {
+                    if (g_taskZoneSession.load() != sessionId) {
+                        break;
+                    }
+                    BattleData& battle = PacketParser::GetCurrentBattle();
+                    if (!battle.myPets.empty() && !battle.otherPets.empty()) {
+                        break;
+                    }
+                    if (GetTickCount() - battleWaitStart > 10000) {
+                        UpdateTaskZoneUi(L"任务区：等待战斗开始超时", false);
+                        flowFailed = true;
+                        break;
+                    }
+                    Sleep(100);
+                }
+
+                if (flowFailed) {
                     break;
                 }
-                BattleData& battle = PacketParser::GetCurrentBattle();
-                if (!battle.myPets.empty() && !battle.otherPets.empty()) {
+
+                if (!g_taskZoneRunning.load() || g_taskZoneSession.load() != sessionId) {
                     break;
                 }
-                if (GetTickCount() - battleWaitStart > 10000) {
-                    UpdateTaskZoneUi(L"任务区：等待战斗开始超时", false);
-                    g_taskZoneRunning = false;
+
+                if (!RunEightTrigramsBattleLoop(sessionId)) {
+                    UpdateTaskZoneUi(L"任务区：战斗流程失败", false);
                     flowFailed = true;
-                    return FALSE;
+                    break;
                 }
-                Sleep(100);
-            }
 
-            if (!g_taskZoneRunning.load() || g_taskZoneSession.load() != sessionId) {
-                break;
-            }
-
-            if (!RunEightTrigramsBattleLoop(sessionId)) {
-                UpdateTaskZoneUi(L"任务区：战斗流程失败", false);
-                flowFailed = true;
-                break;
-            }
-
-            UpdateEightTrigramsResumeHint(i + 1);
-            continue;
-        }
-
-        const bool shouldClickNpc =
-            (step.kind == TaskZoneStepKind::Talk ||
-             step.kind == TaskZoneStepKind::Acquire ||
-             step.kind == TaskZoneStepKind::AlertAcquire);
-
-        if (shouldClickNpc) {
-            if (!SendTaskZoneClickPacket(step.npcId, false)) {
-                UpdateTaskZoneUi(L"任务区：点击目标失败", false);
-                flowFailed = true;
-                break;
-            }
-        }
-
-        if (step.kind == TaskZoneStepKind::SceneAcquire) {
-            // 菩提子这里按抓包样本走特殊区域点击包，场景对象是 41311，但实际发包参数是 41312。
-            const uint32_t specialAreaNpcId = step.npcId + 1;
-            if (!SendTaskZoneClickPacket(specialAreaNpcId, false)) {
-                UpdateTaskZoneUi(L"任务区：获取失败", false);
-                flowFailed = true;
-                break;
-            }
-            lastRelevantNpcId = specialAreaNpcId;
-            UpdateEightTrigramsResumeHint(i + 1);
-            continue;
-        }
-
-        if (step.kind == TaskZoneStepKind::RewardOnly) {
-            // 只做转场，不再主动发包。
-            UpdateEightTrigramsResumeHint(i + 1);
-            continue;
-        }
-
-        if (step.kind == TaskZoneStepKind::AlertAcquire) {
-            if (!SendTaskZoneTalkPacket(step.npcId, step.dialogId, step.chooseId, true)) {
-                UpdateTaskZoneUi(L"任务区：获取失败", false);
-                flowFailed = true;
-                break;
-            }
-            lastRelevantNpcId = step.npcId;
-            UpdateEightTrigramsResumeHint(i + 1);
-            continue;
-        }
-
-        if (step.kind == TaskZoneStepKind::Acquire) {
-            if (!SendTaskZoneTalkPacket(step.npcId, step.dialogId, step.chooseId, true)) {
-                UpdateTaskZoneUi(L"任务区：获取失败", false);
-                flowFailed = true;
-                break;
-            }
-            lastRelevantNpcId = step.npcId;
-            UpdateEightTrigramsResumeHint(i + 1);
-            continue;
-        }
-
-        if (step.dialogId != 0) {
-            if (!SendTaskZoneTalkPacket(step.npcId, step.dialogId, step.chooseId, true)) {
-                UpdateTaskZoneUi(L"任务区：对话发送失败", false);
-                flowFailed = true;
-                break;
-            }
-
-            lastRelevantNpcId = step.npcId;
-            if (step.dialogId == 400600702) {
-                // 702 是提交柿果后的过渡对话，保留在这里，避免重开直接落到转盘。
-                UpdateEightTrigramsResumeHint(i);
-            } else {
                 UpdateEightTrigramsResumeHint(i + 1);
+                continue;
+            }
+
+            const bool shouldClickNpc =
+                (step.kind == TaskZoneStepKind::Talk ||
+                 step.kind == TaskZoneStepKind::Acquire ||
+                 step.kind == TaskZoneStepKind::AlertAcquire);
+
+            if (shouldClickNpc) {
+                if (!SendTaskZoneClickPacket(step.npcId, false)) {
+                    UpdateTaskZoneUi(L"任务区：点击目标失败", false);
+                    flowFailed = true;
+                    break;
+                }
+            }
+
+            if (step.kind == TaskZoneStepKind::SceneAcquire) {
+                // 菩提子这里按抓包样本走特殊区域点击包，场景对象是 41311，但实际发包参数是 41312。
+                const uint32_t specialAreaNpcId = step.npcId + 1;
+                if (!SendTaskZoneClickPacket(specialAreaNpcId, false)) {
+                    UpdateTaskZoneUi(L"任务区：获取失败", false);
+                    flowFailed = true;
+                    break;
+                }
+                lastRelevantNpcId = specialAreaNpcId;
+                UpdateEightTrigramsResumeHint(i + 1);
+                continue;
+            }
+
+            if (step.kind == TaskZoneStepKind::RewardOnly) {
+                // 只做转场，不再主动发包。
+                UpdateEightTrigramsResumeHint(i + 1);
+                continue;
+            }
+
+            if (step.kind == TaskZoneStepKind::AlertAcquire) {
+                if (!SendTaskZoneTalkPacket(step.npcId, step.dialogId, step.chooseId, true)) {
+                    UpdateTaskZoneUi(L"任务区：获取失败", false);
+                    flowFailed = true;
+                    break;
+                }
+                lastRelevantNpcId = step.npcId;
+                UpdateEightTrigramsResumeHint(i + 1);
+                continue;
+            }
+
+            if (step.kind == TaskZoneStepKind::Acquire) {
+                if (!SendTaskZoneTalkPacket(step.npcId, step.dialogId, step.chooseId, true)) {
+                    UpdateTaskZoneUi(L"任务区：获取失败", false);
+                    flowFailed = true;
+                    break;
+                }
+                lastRelevantNpcId = step.npcId;
+                UpdateEightTrigramsResumeHint(i + 1);
+                continue;
+            }
+
+            if (step.dialogId != 0) {
+                if (!SendTaskZoneTalkPacket(step.npcId, step.dialogId, step.chooseId, true)) {
+                    UpdateTaskZoneUi(L"任务区：对话发送失败", false);
+                    flowFailed = true;
+                    break;
+                }
+
+                lastRelevantNpcId = step.npcId;
+                if (step.dialogId == 400600702) {
+                    // 702 是提交柿果后的过渡对话，保留在这里，避免重开直接落到转盘。
+                    UpdateEightTrigramsResumeHint(i);
+                } else {
+                    UpdateEightTrigramsResumeHint(i + 1);
+                }
+            }
+        }
+
+    CLEANUP:
+        if (flowFailed &&
+            g_taskZoneRunning.load() &&
+            g_taskZoneSession.load() == sessionId) {
+            size_t resolvedIndex = 0;
+            if (TryResolveEightTrigramsResumeIndex(resolvedIndex) &&
+                resolvedIndex >= stepCount) {
+                flowCompleted = true;
+                g_eightTrigramsResumeStepIndex.store(static_cast<int>(EIGHT_TRIGRAMS_STEP_COUNT));
+                break;
+            } else if (autoRestartCount < 3) {
+                ++autoRestartCount;
+                g_taskZoneMapEntered = false;
+                sessionId = g_taskZoneSession.fetch_add(1) + 1;
+                ResponseWaiter::CancelWait();
+
+                std::wstring retryText = L"任务区：流程中断，自动重启第 ";
+                retryText += std::to_wstring(autoRestartCount);
+                retryText += L" 次...";
+                UpdateTaskZoneUi(retryText, true);
+                Sleep(300);
+                continue;
             }
         }
     }
 
-    CLEANUP:
     const bool stillRunning = g_taskZoneRunning.exchange(false);
     g_taskZoneMapEntered = false;
-    if (!flowFailed && stillRunning) {
-        g_eightTrigramsResumeStepIndex.store(-1);
+    if (flowCompleted) {
+        g_eightTrigramsResumeStepIndex.store(static_cast<int>(EIGHT_TRIGRAMS_STEP_COUNT));
         UpdateTaskZoneUi(L"任务区：八卦灵盘流程已完成", false);
+    } else if (flowFailed && stillRunning) {
+        UpdateTaskZoneUi(L"任务区：流程中断", false);
     } else {
-        UpdateTaskZoneUi(flowFailed ? L"任务区：流程中断" : L"任务区：已停止", false);
+        UpdateTaskZoneUi(L"任务区：已停止", false);
     }
 
     return 0;
@@ -7310,6 +7283,18 @@ BOOL StartEightTrigramsTaskAsync() {
 
     if (g_battleSixAuto.IsInBattle() || g_battleSixAuto.IsAutoMatching() || g_shuangtaiAuto.IsRunning()) {
         UpdateTaskZoneUi(L"任务区：请先停止其他自动战斗", false);
+        return FALSE;
+    }
+
+    size_t cachedStartIndex = 0;
+    if (TryResolveEightTrigramsResumeIndex(cachedStartIndex) &&
+        cachedStartIndex >= EIGHT_TRIGRAMS_STEP_COUNT) {
+        UpdateTaskZoneUi(L"任务区：八卦灵盘已经完成", false);
+        return FALSE;
+    }
+
+    if (!g_battleSixAuto.IsAutoBattleEnabled()) {
+        UpdateTaskZoneUi(L"任务区：请先开启自动战斗", false);
         return FALSE;
     }
 

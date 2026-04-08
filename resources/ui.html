@@ -62,7 +62,36 @@
         }
         
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; background: var(--color-background); height: 100vh; overflow: visible; color: var(--color-text-primary); font-size: 11px; font-weight: 400; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            background:
+                radial-gradient(circle at 14% 18%, rgba(0, 120, 212, 0.08), transparent 24%),
+                radial-gradient(circle at 86% 12%, rgba(16, 110, 190, 0.06), transparent 22%),
+                radial-gradient(circle at 82% 84%, rgba(0, 120, 212, 0.05), transparent 26%),
+                linear-gradient(180deg, #fbfdff 0%, #f6f9fd 100%);
+            height: 100vh;
+            overflow: visible;
+            color: var(--color-text-primary);
+            font-size: 11px;
+            font-weight: 400;
+            position: relative;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: -30px;
+            pointer-events: none;
+            z-index: 0;
+            background:
+                radial-gradient(circle at 20% 20%, rgba(0, 120, 212, 0.10), transparent 26%),
+                radial-gradient(circle at 80% 16%, rgba(0, 120, 212, 0.07), transparent 22%),
+                radial-gradient(circle at 82% 78%, rgba(16, 110, 190, 0.06), transparent 24%),
+                radial-gradient(circle at 14% 84%, rgba(0, 120, 212, 0.05), transparent 20%);
+            filter: blur(18px);
+            opacity: 0.72;
+            animation: ambientDrift 18s ease-in-out infinite alternate;
+        }
         
         /* 自定义标题栏样式 *//* 自定义标题栏样式 - 浅色主题 */
         .title-bar {
@@ -506,6 +535,14 @@
             from { opacity: 0; transform: translateY(-4px); } 
             to { opacity: 1; transform: translateY(0); } 
         }
+
+        @keyframes ambientDrift {
+            0% { transform: translate3d(0, 0, 0) scale(1); }
+            50% { transform: translate3d(-1.5%, -1.2%, 0) scale(1.025); }
+            100% { transform: translate3d(1.2%, 1.5%, 0) scale(1.05); }
+        }
+
+        
         
         /* 面板容器动画 - 加快显示速度 */
         .panel-animate {
@@ -517,6 +554,10 @@
         .panel-animate:nth-child(1) { animation-delay: 0.02s; }
         .panel-animate:nth-child(2) { animation-delay: 0.04s; }
         .panel-animate:nth-child(3) { animation-delay: 0.06s; }
+
+        
+
+        
         
         /* 聚焦效果 - 线性缓动特效 */
         .input {
@@ -532,10 +573,39 @@
             border-color: var(--color-primary); 
             transform: translateY(0); 
         }
-        .btn-primary { background: var(--color-primary); color: #ffffff; border-color: var(--color-primary); transition: background-color 0.1s linear, border-color 0.1s linear; }
-        .btn-primary:hover { background: var(--color-primary-hover); border-color: var(--color-primary-hover); }
-        .btn-secondary { background: var(--color-background); color: var(--color-text-primary); border-color: var(--color-border); transition: background-color 0.1s linear, border-color 0.1s linear; }
-        .btn-secondary:hover { background: var(--color-background-secondary); border-color: var(--color-primary); }
+        .btn-primary {
+            background: linear-gradient(180deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+            color: #ffffff;
+            border-color: var(--color-primary);
+            transition: transform var(--duration-fast) var(--easing-standard), box-shadow var(--duration-fast) var(--easing-standard), background-color 0.1s linear, border-color 0.1s linear;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+        }
+        .btn-primary:hover {
+            background: linear-gradient(180deg, var(--color-primary-hover) 0%, #0d64b8 100%);
+            border-color: var(--color-primary-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 120, 212, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+        }
+        .btn-primary:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 6px rgba(0, 120, 212, 0.12);
+        }
+        .btn-secondary {
+            background: linear-gradient(180deg, var(--color-background) 0%, #fbfbfb 100%);
+            color: var(--color-text-primary);
+            border-color: var(--color-border);
+            transition: transform var(--duration-fast) var(--easing-standard), box-shadow var(--duration-fast) var(--easing-standard), background-color 0.1s linear, border-color 0.1s linear;
+        }
+        .btn-secondary:hover {
+            background: linear-gradient(180deg, var(--color-background-secondary) 0%, #f6f6f6 100%);
+            border-color: var(--color-primary);
+            transform: translateY(-1px);
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
+        }
+        .btn-secondary:active {
+            transform: translateY(0);
+            box-shadow: none;
+        }
         
         /* 滚动条样式 - WinUI3 风格 */
         ::-webkit-scrollbar { width: 6px; } /* 更细的滚动条 */
@@ -637,8 +707,9 @@
         }
         
         .sub-tab-button.active {
-            background: var(--color-primary);
+            background: linear-gradient(180deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
             color: white;
+            box-shadow: 0 3px 8px rgba(0, 120, 212, 0.16);
         }
         
         .sub-tab-content {
@@ -658,6 +729,33 @@
         .tab-content.active .sub-tab-content.active {
             display: flex;
             flex-direction: column;
+        }
+
+        .btn,
+        .sub-tab-button,
+        .tab-action-button {
+            position: relative;
+            overflow: hidden;
+            will-change: transform, box-shadow, background-color, border-color;
+            transform: translateZ(0);
+        }
+
+        .tab-button {
+            will-change: transform, box-shadow, background-color, border-color;
+        }
+
+        .btn:hover,
+        .sub-tab-button:hover,
+        .tab-action-button:hover,
+        .tab-button:hover {
+            transform: translateY(-1px);
+        }
+
+        .btn:active,
+        .sub-tab-button:active,
+        .tab-action-button:active,
+        .tab-button:active {
+            transform: translateY(0);
         }
 
         #sub-spiritcollect {
@@ -1244,6 +1342,68 @@
         .update-dialog-btn.secondary:hover {
             background: #f1f5f9;
         }
+        .tab-button,
+        .sub-tab-button,
+        .tab-action-button,
+        .btn {
+            position: relative;
+            overflow: hidden;
+            will-change: transform, box-shadow, background-color, border-color;
+        }
+
+        .tab-button:hover,
+        .sub-tab-button:hover,
+        .tab-action-button:hover,
+        .btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .tab-button:active,
+        .sub-tab-button:active,
+        .tab-action-button:active,
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .tab-button.active {
+            box-shadow: inset 0 -2px 0 rgba(0, 120, 212, 0.18), 0 2px 8px rgba(0, 120, 212, 0.08);
+        }
+
+        .sub-tab-button.active {
+            box-shadow: 0 3px 8px rgba(0, 120, 212, 0.16);
+        }
+
+        #wpe button {
+            position: relative;
+            will-change: transform, box-shadow, filter;
+            transform: translateZ(0);
+            transition: transform var(--duration-fast) var(--easing-standard), box-shadow var(--duration-fast) var(--easing-standard), filter var(--duration-fast) var(--easing-standard);
+        }
+
+        #wpe button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+            filter: brightness(1.02);
+        }
+
+        #wpe button:active {
+            transform: translateY(0);
+            box-shadow: none;
+            filter: brightness(0.98);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+
+            body::before {
+                animation: none !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1698,14 +1858,18 @@
                         </div>
                     </div>
 
-                    <!-- 自动回血卡片 -->
+                    <!-- 游戏辅助卡片 -->
                     <div class="panel-animate" style="background: var(--color-background); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; box-shadow: var(--shadow-sm); width: 140px; flex-shrink: 0; height: 99px; display: flex; flex-direction: column;">
                         <div style="font-size: 13px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 8px;">游戏辅助</div>
 
-                        <div style="display: flex; flex-direction: column; gap: 6px; justify-content: center; flex: 1;">
+                        <div style="display: flex; flex-direction: column; gap: 2px; justify-content: center; flex: 1;">
                             <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 10px; color: var(--color-text-primary); padding: 2px 0;">
                                 <input type="checkbox" id="auto-heal" style="width: 12px; height: 12px; cursor: pointer;" onchange="toggleAutoHeal(this.checked)">
                                 <span>自动回血</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 10px; color: var(--color-text-primary); padding: 2px 0;">
+                                <input type="checkbox" id="battlesix-auto-battle" style="width: 12px; height: 12px; cursor: pointer;" onchange="toggleBattleSixAutoBattle(this.checked)">
+                                <span>自动战斗</span>
                             </label>
                         </div>
                     </div>
@@ -2277,12 +2441,6 @@
                         <div style="display: flex; gap: 6px;">
                             <button id="battlesix-auto-match" class="btn btn-primary" style="font-size: 10.5px; padding: 4px 8px;">自动匹配</button>
                             <button id="battlesix-cancel-match" class="btn btn-secondary" style="font-size: 10.5px; padding: 4px 8px;">取消匹配</button>
-                        </div>
-
-                        <!-- 自动战斗设置 -->
-                        <div style="display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px;">
-                            <input type="checkbox" id="battlesix-auto-battle" style="width: 11px; height: 11px;">
-                            <label for="battlesix-auto-battle" style="font-size: 9.5px; cursor: pointer;">自动战斗</label>
                         </div>
                     </div>
                     
@@ -3999,6 +4157,16 @@
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage({
                     type: 'toggle_auto_heal',
+                    enabled: enabled
+                });
+            }
+        };
+
+        // 万妖盛会 / 八卦灵盘共用自动战斗功能实现
+        window.toggleBattleSixAutoBattle = function(enabled) {
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage({
+                    type: 'battlesix_set_auto_battle',
                     enabled: enabled
                 });
             }
@@ -5945,19 +6113,6 @@
                 };
             }
 
-            // 自动战斗复选框
-            const autoBattleCheckbox = document.getElementById('battlesix-auto-battle');
-            if (autoBattleCheckbox) {
-                autoBattleCheckbox.onchange = function() {
-                    if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
-                        window.chrome.webview.postMessage({
-                            type: 'battlesix_set_auto_battle',
-                            enabled: autoBattleCheckbox.checked
-                        });
-                    }
-                };
-            }
-            
             // 副本跳层按钮
             const dungeonJumpBtn = document.getElementById('dungeon-jump-btn');
             if (dungeonJumpBtn) {
