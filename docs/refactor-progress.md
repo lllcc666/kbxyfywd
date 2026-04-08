@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-第一阶段已经完成，当前仍只在 UI / 消息层边界内做低风险整理。
+第一阶段已经完成，第二阶段已开始，当前在做 UI / 消息层的命名对齐与轻量包装整理。
 
 ## 已完成
 
@@ -30,6 +30,8 @@
 - 已将 `send_packet` / `battlesix_auto_match` / `dungeon_jump_start` 的线程入口收口为命名 helper
 - 已将 `one_key_act793` / `one_key_act791` / `one_key_act782` / `one_key_act803` / `spiritCollect open_ui` / `spiritCollect getSpirits` 改为直接函数指针调用
 - 已将 `one_key_act624` / `one_key_sea_battle` 改为共享调用重载调用
+- 已将 `query_lingyu` / `query_monsters` / `refresh_pack_items` / `buy_dice` / `clear_packets` / `query_shuangtai` / `battlesix_auto_match` / `battlesix_cancel_match` / `battlesix_set_auto_battle` / `one_key_collect` / `one_key_xuantta` / `one_key_horse_competition` 的内部 wrapper 命名对齐
+- 已将 `one_key_act*` / `one_key_sea_battle` 的内部发送 helper 命名对齐为 `HandleSendOneKeyActCommand` / `HandleStartOneKeySeaBattleCommand`
 - 已将 `send_packet` 改为 helper 自己解析 `msg`
 - 已将 `toggle_auto_heal` / `set_block_battle` / `set_auto_go_home` 改为共享布尔写入 helper
 - 已将 `send_packet` / `battlesix_auto_match` / `dungeon_jump_start` 的线程启动与失败清理收口为共享 helper

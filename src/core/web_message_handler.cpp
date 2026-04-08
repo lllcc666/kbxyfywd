@@ -326,21 +326,21 @@ void HandleSetAutoGoHomeEnabledCommand(const std::wstring& msg) {
     HandleSetBoolFlagCommand(msg, L"enabled", g_autoGoHome);
 }
 
-void HandleQueryLingyuCommand() {
+void HandleSendLingyuQueryCommand() {
     HandleActionCommand(SendQueryLingyuPacket);
 }
 
-void HandleQueryMonstersCommand() {
+void HandleSendMonsterQueryCommand() {
     HandleActionCommand(SendQueryMonsterPacket);
 }
 
-void HandleRefreshPackItemsCommand() {
+void HandleSendPackItemsRequestCommand() {
     HandleActionCommand([]() {
         SendReqPackageDataPacket(0xFFFFFFFF);
     });
 }
 
-void HandleBuyDiceCommand() {
+void HandleSendBuyDiceCommand() {
     HandleActionCommand(SendBuyDicePacket);
 }
 
@@ -348,7 +348,7 @@ void HandleBuyDice18Command() {
     HandleBoolResultCommand(SendBuyDicePacket, L"已购买18个骰子");
 }
 
-void HandleClearPacketsCommand() {
+void HandleClearPacketListCommand() {
     HandleActionCommand(ClearPacketList);
 }
 
@@ -383,7 +383,7 @@ void HandleStartTaskZoneCommand() {
     HandleActionCommand(SendEightTrigramsTaskAsync);
 }
 
-void HandleQueryShuangTaiCommand() {
+void HandleSendShuangTaiQueryCommand() {
     HandleActionCommand(QueryShuangTaiMonsters);
 }
 
@@ -401,7 +401,7 @@ void HandleStopShuangTaiCommand() {
     HandleActionWithTextCommand(StopShuangTai, L"双台谷刷级已停止");
 }
 
-void HandleBattlesixCancelMatchCommand() {
+void HandleCancelBattlesixMatchCommand() {
     HandleBoolResultCommand(
         []() {
             g_battleSixAuto.SetAutoMatching(false);
@@ -493,7 +493,7 @@ void HandleEnterBossBattleCommand(const std::wstring& msg) {
     }
 }
 
-void HandleOneKeyCollectCommand(const std::wstring& msg) {
+void HandleStartOneKeyCollectCommand(const std::wstring& msg) {
     const DWORD flags = GetJsonDWORDValue(msg, L"flags");
     HandleBoolResultCommand(
         [flags]() {
@@ -503,7 +503,7 @@ void HandleOneKeyCollectCommand(const std::wstring& msg) {
         L"一键采集启动失败，可能已经在运行或未进入游戏");
 }
 
-void HandleOneKeyXuanttaCommand() {
+void HandleStartOneKeyXuanttaCommand() {
     HandleBoolResultCommand(
         SendOneKeyTowerPacket,
         L"一键玄塔已开始，请查看辅助日志",
@@ -512,7 +512,7 @@ void HandleOneKeyXuanttaCommand() {
 
 DWORD WINAPI HandleBattlesixAutoMatchWorker(LPVOID param);
 
-void HandleBattlesixAutoMatchCommand(const std::wstring& msg) {
+void HandleStartBattlesixAutoMatchCommand(const std::wstring& msg) {
     const std::wstring matchCountStr = GetTrimmedJsonValue(msg, L"matchCount");
     int matchCount = 1;
     TryParseIntInRangeLocal(matchCountStr, 1, 999, 1, matchCount);
@@ -523,7 +523,7 @@ void HandleBattlesixAutoMatchCommand(const std::wstring& msg) {
     LaunchDetachedWorkerThread(pMatchCount, HandleBattlesixAutoMatchWorker);
 }
 
-void HandleBattlesixSetAutoBattleCommand(const std::wstring& msg) {
+void HandleSetBattlesixAutoBattleCommand(const std::wstring& msg) {
     const std::wstring enabledStr = GetTrimmedJsonValue(msg, L"enabled");
     const bool enabled = (enabledStr == L"true");
     g_battleSixAuto.SetAutoBattle(enabled);
@@ -571,7 +571,7 @@ void HandleOneKeyHorseCompetitionWorker() {
     SendOneKeyHorseCompetitionPacket(true);
 }
 
-void HandleOneKeyHorseCompetitionCommand() {
+void HandleStartOneKeyHorseCompetitionCommand() {
     SetHelperText(L"坐骑大赛已开始（临时坐骑），请等待...");
     SetHorseProgressCallback(HandleHorseCompetitionProgressCommand);
     LaunchDetachedStdThread(HandleOneKeyHorseCompetitionWorker);
@@ -656,15 +656,15 @@ void HandleSendAllPacketsCommand(const std::wstring& msg) {
 }
 
 template <typename SendFunc>
-void HandleOneKeyActCommand(const std::wstring& msg,
-                            const wchar_t* paramKey,
-                            int defaultValue,
-                            int minValue,
-                            int maxValue,
-                            const wchar_t* sweepText,
-                            const wchar_t* gameText,
-                            const wchar_t* failureText,
-                            SendFunc sendFunc) {
+void HandleSendOneKeyActCommand(const std::wstring& msg,
+                                const wchar_t* paramKey,
+                                int defaultValue,
+                                int minValue,
+                                int maxValue,
+                                const wchar_t* sweepText,
+                                const wchar_t* gameText,
+                                const wchar_t* failureText,
+                                SendFunc sendFunc) {
     const bool useSweep = GetJsonBoolValue(msg, L"sweep");
     int targetValue = defaultValue;
     if (paramKey && *paramKey) {
@@ -681,7 +681,7 @@ void HandleOneKeyActCommand(const std::wstring& msg,
 }
 
 void HandleOneKeyAct793Command(const std::wstring& msg) {
-    HandleOneKeyActCommand(
+    HandleSendOneKeyActCommand(
         msg,
         L"medals",
         Act793::TARGET_MEDALS,
@@ -694,7 +694,7 @@ void HandleOneKeyAct793Command(const std::wstring& msg) {
 }
 
 void HandleOneKeyAct791Command(const std::wstring& msg) {
-    HandleOneKeyActCommand(
+    HandleSendOneKeyActCommand(
         msg,
         L"score",
         Act791::TARGET_SCORE,
@@ -707,7 +707,7 @@ void HandleOneKeyAct791Command(const std::wstring& msg) {
 }
 
 void HandleOneKeyAct782Command(const std::wstring& msg) {
-    HandleOneKeyActCommand(
+    HandleSendOneKeyActCommand(
         msg,
         nullptr,
         Act782::TARGET_SCORE,
@@ -720,7 +720,7 @@ void HandleOneKeyAct782Command(const std::wstring& msg) {
 }
 
 void HandleOneKeyAct803Command(const std::wstring& msg) {
-    HandleOneKeyActCommand(
+    HandleSendOneKeyActCommand(
         msg,
         nullptr,
         Act803::MAX_NUM,
@@ -733,7 +733,7 @@ void HandleOneKeyAct803Command(const std::wstring& msg) {
 }
 
 void HandleOneKeyAct624Command(const std::wstring& msg) {
-    HandleOneKeyActCommand(
+    HandleSendOneKeyActCommand(
         msg,
         nullptr,
         0,
@@ -745,8 +745,8 @@ void HandleOneKeyAct624Command(const std::wstring& msg) {
         SendOneKeyAct624Packet);
 }
 
-void HandleOneKeySeaBattleCommand(const std::wstring& msg) {
-    HandleOneKeyActCommand(
+void HandleStartOneKeySeaBattleCommand(const std::wstring& msg) {
+    HandleSendOneKeyActCommand(
         msg,
         nullptr,
         0,
@@ -1077,7 +1077,7 @@ public:
         } else if (msg.find(L"delete_selected_packets") != std::wstring::npos) {
             HandleDeleteSelectedPacketsCommand(msg);
         } else if (msg.find(L"clear_packets") != std::wstring::npos) {
-            HandleClearPacketsCommand();
+            HandleClearPacketListCommand();
         } else if (msg.find(L"start_intercept") != std::wstring::npos) {
             HandleStartInterceptCommand();
         } else if (msg.find(L"stop_intercept") != std::wstring::npos) {
@@ -1095,11 +1095,11 @@ public:
         } else if (msg.find(L"set_auto_go_home") != std::wstring::npos) {
             HandleSetAutoGoHomeEnabledCommand(msg);
         } else if (msg.find(L"query_lingyu") != std::wstring::npos) {
-            HandleQueryLingyuCommand();
+            HandleSendLingyuQueryCommand();
         } else if (msg.find(L"query_monsters") != std::wstring::npos) {
-            HandleQueryMonstersCommand();
+            HandleSendMonsterQueryCommand();
         } else if (msg.find(L"refresh_pack_items") != std::wstring::npos) {
-            HandleRefreshPackItemsCommand();
+            HandleSendPackItemsRequestCommand();
         } else if (msg.find(L"buy_item") != std::wstring::npos) {
             HandleBuyItemCommand(msg);
         } else if (msg.find(L"use_item") != std::wstring::npos) {
@@ -1111,25 +1111,25 @@ public:
         } else if (msg.find(L"task_zone") != std::wstring::npos) {
             HandleStartTaskZoneCommand();
         } else if (msg.find(L"one_key_collect") != std::wstring::npos) {
-            HandleOneKeyCollectCommand(msg);
+            HandleStartOneKeyCollectCommand(msg);
         } else if (msg.find(L"buy_dice_18") != std::wstring::npos) {
             HandleBuyDice18Command();
         } else if (msg.find(L"buy_dice") != std::wstring::npos) {
-            HandleBuyDiceCommand();
+            HandleSendBuyDiceCommand();
         } else if (msg.find(L"one_key_xuantta") != std::wstring::npos) {
-            HandleOneKeyXuanttaCommand();
+            HandleStartOneKeyXuanttaCommand();
         } else if (msg.find(L"query_shuangtai") != std::wstring::npos) {
-            HandleQueryShuangTaiCommand();
+            HandleSendShuangTaiQueryCommand();
         } else if (msg.find(L"start_shuangtai") != std::wstring::npos) {
             HandleStartShuangTaiCommand(msg);
         } else if (msg.find(L"stop_shuangtai") != std::wstring::npos) {
             HandleStopShuangTaiCommand();
         } else if (msg.find(L"battlesix_auto_match") != std::wstring::npos) {
-            HandleBattlesixAutoMatchCommand(msg);
+            HandleStartBattlesixAutoMatchCommand(msg);
         } else if (msg.find(L"battlesix_cancel_match") != std::wstring::npos) {
-            HandleBattlesixCancelMatchCommand();
+            HandleCancelBattlesixMatchCommand();
         } else if (msg.find(L"battlesix_set_auto_battle") != std::wstring::npos) {
-            HandleBattlesixSetAutoBattleCommand(msg);
+            HandleSetBattlesixAutoBattleCommand(msg);
         } else if (msg.find(L"dungeon_jump_start") != std::wstring::npos) {
             HandleDungeonJumpStartCommand(msg);
         } else if (msg.find(L"dungeon_jump_stop") != std::wstring::npos) {
@@ -1145,9 +1145,9 @@ public:
         } else if (msg.find(L"one_key_act624") != std::wstring::npos) {
             HandleOneKeyAct624Command(msg);
         } else if (msg.find(L"one_key_sea_battle") != std::wstring::npos) {
-            HandleOneKeySeaBattleCommand(msg);
+            HandleStartOneKeySeaBattleCommand(msg);
         } else if (msg.find(L"one_key_horse_competition") != std::wstring::npos) {
-            HandleOneKeyHorseCompetitionCommand();
+            HandleStartOneKeyHorseCompetitionCommand();
         } else if (msg.find(L"stop_horse_competition") != std::wstring::npos) {
             HandleStopHorseCompetitionCommand();
         } else if (msg.find(L"start_heaven_furui") != std::wstring::npos) {

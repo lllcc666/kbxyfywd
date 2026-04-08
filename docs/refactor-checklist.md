@@ -72,6 +72,8 @@
 
 ## 阶段 2：函数命名对齐
 
+- [x] 将 `query_lingyu` / `query_monsters` / `refresh_pack_items` / `buy_dice` / `clear_packets` / `query_shuangtai` / `battlesix_auto_match` / `battlesix_cancel_match` / `battlesix_set_auto_battle` / `one_key_collect` / `one_key_xuantta` / `one_key_horse_competition` 的内部 wrapper 命名对齐
+- [x] 将 `one_key_act*` / `one_key_sea_battle` 的内部发送 helper 命名对齐为 `HandleSendOneKeyActCommand` / `HandleStartOneKeySeaBattleCommand`
 - [ ] 统一 `Send*` / `Process*Response` / `Start*` / `Stop*` 的职责边界
 - [ ] 统一活动模块的命名风格
 - [ ] 标记每个业务状态的唯一 owner

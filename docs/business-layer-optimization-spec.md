@@ -320,6 +320,7 @@
 - `send_packet` / `battlesix_auto_match` / `dungeon_jump_start` 的线程入口由共享 helper 负责
 - `one_key_act793` / `one_key_act791` / `one_key_act782` / `one_key_act803` / `spiritCollect open_ui` / `spiritCollect getSpirits` 由直接函数指针负责
 - `one_key_act624` / `one_key_sea_battle` 由共享调用重载负责
+- `one_key_act*` / `one_key_sea_battle` 的内部发送 helper 已对齐为 `HandleSendOneKeyActCommand` / `HandleStartOneKeySeaBattleCommand`
 - `send_packet` 的参数解析由 helper 负责
 - `toggle_auto_heal` / `set_block_battle` / `set_auto_go_home` 的布尔写入由共享 helper 负责
 - `send_packet` / `battlesix_auto_match` / `dungeon_jump_start` 的线程启动与失败清理由共享 helper 负责
