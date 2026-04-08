@@ -50,6 +50,7 @@ struct SpiritCollectState {
     }
 };
 
+// 精魄收集状态唯一 owner。
 extern SpiritCollectState g_spiritCollectState;
 
 BOOL SendSpiritPresuresPacket();

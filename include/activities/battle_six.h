@@ -103,6 +103,7 @@ public:
     void SetCurrentSpiritIndex(int index) { m_currentSpiritIndex = index; }
 };
 
+// 战斗六自动战斗状态唯一 owner。
 extern BattleSixAutoBattle g_battleSixAuto;
 extern std::atomic<bool> g_battleSixMatching;
 extern std::atomic<bool> g_battleSixMatchSuccess;
@@ -125,5 +126,5 @@ void ProcessBattleSixCombatInfoResponse(const GamePacket& packet);
 void ProcessBattleSixBattleRoundResultResponse(const GamePacket& packet);
 void ProcessBattleSixBattleEndResponse(const GamePacket& packet);
 
-BOOL SendOneKeyBattleSixPacket(int matchCount = 1);
-BOOL SendCancelBattleSixPacket();
+BOOL StartOneKeyBattleSixPacket(int matchCount = 1);
+BOOL CancelBattleSixMatch();

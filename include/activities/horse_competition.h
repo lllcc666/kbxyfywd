@@ -26,7 +26,7 @@ BOOL SendHorseExchangePacket(int exchangeId, int count);
 BOOL SendHorsePlayGamePacket(int distance);
 BOOL SendHorseUseItemPacket(int itemIdx);
 BOOL SendHorseGetRegressionPacket(int idx);
-BOOL SendOneKeyHorseCompetitionPacket(bool useTempMount = true);
+BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount = true);
 void RequestStopHorseCompetition();
 void SetHorseProgressCallback(HorseProgressCallback callback);
 void ProcessHorseCompetitionResponse(const GamePacket& packet);

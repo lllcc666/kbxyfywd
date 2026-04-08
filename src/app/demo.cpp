@@ -150,7 +150,7 @@ bool LoadSpeedhackFromMemory() {
     return true;
 }
 
-// 游戏静音状态跟踪
+// 游戏静音状态唯一 owner：音频会话快照和当前静音标记由这里统一维护。
 std::atomic<bool> g_isGameMuted{false};
 
 // 音频会话状态结构体

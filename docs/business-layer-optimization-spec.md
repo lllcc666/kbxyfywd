@@ -65,9 +65,21 @@
 - `send_all_packets` 的进度输出已收口为命名 helper
 - `one_key_horse_competition` 的进度回调已收口为命名 helper
 - `one_key_horse_competition` 的启动 worker 已收口为命名 helper
+- 剩余一批真正承担“启动整套流程”的入口已对齐为 `StartOneKeyTowerPacket` / `StartOneKeyBattleSixPacket` / `StartOneKeyDungeonJumpPacket` / `StartOneKeyShuangTaiPacket` / `StartOneKeyHorseCompetitionPacket` / `StartOneKeyHeavenFuruiPacket`，战斗六取消入口已对齐为 `CancelBattleSixMatch`
+- `one_key_act*` / `one_key_sea_battle` 的一键入口已对齐为 `StartOneKeyAct*` / `StartOneKeySeaBattlePacket`
+- `one_key_act793` / `one_key_act791` / `one_key_act782` / `one_key_act803` / `one_key_act624` 的路由处理函数已对齐为 `HandleStartOneKeyAct793Command` / `HandleStartOneKeyAct791Command` / `HandleStartOneKeyAct782Command` / `HandleStartOneKeyAct803Command` / `HandleStartOneKeyAct624Command`
+- `one_key_xuantta` 的路由处理函数已对齐为 `HandleStartOneKeyXuanttaCommand`
+- 本轮 one-key 活动命名收口已再次通过 `cmake --build build_new --config Release --target WebView2Demo` 验证
+- `daily_tasks` / `task_zone` / `query_lingyu` / `query_monsters` / `refresh_pack_items` / `buy_dice` / `query_shuangtai` / `battlesix_auto_match` / `battlesix_set_auto_battle` / `dungeon_jump_start` / `dungeon_jump_stop` 的路由 helper 已继续对齐为 `HandleStartDailyTasksCommand` / `HandleStartTaskZoneCommand` / `HandleQueryLingyuCommand` / `HandleQueryMonstersCommand` / `HandleRefreshPackItemsCommand` / `HandleBuyDiceCommand` / `HandleQueryShuangTaiMonstersCommand` / `HandleStartBattleSixAutoMatchCommand` / `HandleSetBattleSixAutoBattleEnabledCommand` / `HandleStartDungeonJumpCommand` / `HandleStopDungeonJumpCommand`
+- `send_packet` / `send_all_packets` 的路由 helper 已继续对齐为 `HandleSendRawPacketCommand` / `HandleStartSendAllPacketsCommand`
+- `battlesix_auto_match` / `dungeon_jump_start` / `one_key_horse_competition` 的内部 worker 命名已继续对齐为 `HandleBattleSixAutoMatchWorker` / `HandleDungeonJumpWorker` / `HandleOneKeyHorseCompetitionWorker`
+- 本轮消息层路由命名收口已再次通过 `cmake --build build_new --config Release --target WebView2Demo` 验证
+- 本轮 `query` / `start` / `set` 路由别名继续收口已再次通过 `cmake --build build_new --config Release --target WebView2Demo` 验证
+- 本轮内部 worker 命名收口已再次通过 `cmake --build build_new --config Release --target WebView2Demo` 验证
+- 本轮 `send_packet` / `send_all_packets` / `query_shuangtai` 以及 worker 收口已再次通过 `cmake --build build_new --config Release --target WebView2Demo` 验证
 - `send_packet` / `battlesix_auto_match` / `dungeon_jump_start` 的线程入口已收口为命名 helper
 - `one_key_act793` / `one_key_act791` / `one_key_act782` / `one_key_act803` / `spiritCollect open_ui` / `spiritCollect getSpirits` 已优先使用直接函数指针
-- `one_key_act624` / `one_key_sea_battle` 已共用 `InvokeOneKeyActSend` 调用重载
+- `one_key_act624` / `one_key_sea_battle` 已共用 `InvokeOneKeyActStart` 调用重载
 - `send_packet` 已改为 helper 自己解析 `msg`
 - `toggle_auto_heal` / `set_block_battle` / `set_auto_go_home` 已共用布尔写入 helper
 - `send_packet` / `battlesix_auto_match` / `dungeon_jump_start` 已共用线程启动 helper
@@ -75,6 +87,7 @@
 - 一批 bool 结果命令已共用 `HandleBoolResultCommand`
 - `stop_task_zone` / `stop_shuangtai` / `stop_heaven_furui` / `stop_send` 已收口为 `HandleActionWithTextCommand`
 - `update-dialog` / `key-login-dialog` / `spirit-confirm-dialog` 的 show/hide 分支已收口为 `HandleSetBrowserWindowVisibleCommand` wrapper
+- `open-url` / `refresh-game` / `refresh-no-login` / `mute-game` / `clear-ie-cache` / `copy-login-key` / `key-login` 已拆成薄 wrapper，内部继续复用 `HandleActionCommand`
 - 一批纯动作命令已收口为 `HandleActionCommand`
 - `toggle_auto_heal` / `set_block_battle` / `set_auto_go_home` 已收口为 `HandleSetBoolFlagCommand`
 - `buy_item` / `use_item` / `enter_boss_battle` 已共用动态结果 helper
@@ -126,6 +139,7 @@
 
 - 只负责构造和发送封包
 - 允许做轻量参数校验
+- 当函数承担整套业务流程的启动、重试或状态切换时，应升格为 `Start*` / `Cancel*`，不要继续保留为 `Send*`
 
 禁止：
 
@@ -158,6 +172,7 @@
 
 - `Start*` 只启动一次业务周期
 - `Stop*` 只停止、取消或清理状态
+- 如属于撤销、取消匹配或停止流程的显式入口，可单独使用 `Cancel*`
 
 禁止：
 
@@ -251,6 +266,10 @@
 - `clear-ie-cache`
 - `refresh-game`
 
+补充说明：
+- 浏览器相关入口先进入薄 wrapper，再在 wrapper 内部复用 `HandleActionCommand`
+- 对应 helper 目前包括 `HandleOpenUrlCommand`、`HandleRefreshGameCommand`、`HandleRefreshNoLoginCommand`、`HandleMuteGameCommand`、`HandleClearIeCacheCommand`、`HandleCopyLoginKeyCommand`、`HandleKeyLoginCommand`、`HandleHideBrowserWindowCommand`、`HandleShowBrowserWindowCommand`、`HandleSetBrowserWindowVisibleCommand`
+
 ### 5.10 `HandleSetBoolFlagCommand`
 
 职责：
@@ -270,6 +289,7 @@
 - `Send*`
 - `Start*`
 - `Stop*`
+- `Cancel*`
 - `Set*`
 
 避免使用与实际动作不一致的命名，例如把纯写入开关的逻辑写成 `Toggle*`。
@@ -317,10 +337,11 @@
 - `spiritCollect` 的结果提示由共享 helper 负责
 - `send_all_packets` 的进度文本由共享 helper 负责
 - `one_key_horse_competition` 的进度文本和启动 worker 由共享 helper 负责
+- `one_key_xuantta` / `start_shuangtai` / `start_heaven_furui` / `battlesix_auto_match` / `dungeon_jump_start` / `one_key_horse_competition` 的启动入口已对齐为 `StartOneKeyTowerPacket` / `StartOneKeyShuangTaiPacket` / `StartOneKeyHeavenFuruiPacket` / `StartOneKeyBattleSixPacket` / `StartOneKeyDungeonJumpPacket` / `StartOneKeyHorseCompetitionPacket`，战斗六取消入口已对齐为 `CancelBattleSixMatch`
 - `send_packet` / `battlesix_auto_match` / `dungeon_jump_start` 的线程入口由共享 helper 负责
 - `one_key_act793` / `one_key_act791` / `one_key_act782` / `one_key_act803` / `spiritCollect open_ui` / `spiritCollect getSpirits` 由直接函数指针负责
 - `one_key_act624` / `one_key_sea_battle` 由共享调用重载负责
-- `one_key_act*` / `one_key_sea_battle` 的内部发送 helper 已对齐为 `HandleSendOneKeyActCommand` / `HandleStartOneKeySeaBattleCommand`
+- `one_key_act*` / `one_key_sea_battle` 的内部启动 helper 已对齐为 `HandleStartOneKeyActCommand` / `HandleStartOneKeySeaBattleCommand`
 - `send_packet` 的参数解析由 helper 负责
 - `toggle_auto_heal` / `set_block_battle` / `set_auto_go_home` 的布尔写入由共享 helper 负责
 - `send_packet` / `battlesix_auto_match` / `dungeon_jump_start` 的线程启动与失败清理由共享 helper 负责
@@ -333,9 +354,59 @@
 - `buy_item` / `use_item` / `enter_boss_battle` 由动态结果 helper 负责
 - `buy_item` / `use_item` 的包数据刷新由共享 helper 负责
 
+### 6.4 兼容封装点
+
+当前外部消息名仍然保留，便于前端和历史调用保持兼容：
+
+- `toggle_auto_heal`
+- `set_block_battle`
+- `set_auto_go_home`
+- `query_*`
+- `refresh_*`
+- `one_key_*`
+- `open-url`
+- `key-login`
+- `refresh-game`
+- `refresh-no-login`
+- `mute-game`
+- `clear-ie-cache`
+- `copy-login-key`
+- `window-drag`
+- `window-minimize`
+- `window-close`
+- `update-dialog-show/hide`
+- `key-login-dialog-show/hide`
+- `spirit-confirm-dialog-show/hide`
+- `StartDailyTasksAsync`
+- `StartEightTrigramsTaskAsync`
+- `StartOneKeyCollectPacket`
+
+内部实现可以继续向 `Set*` / `Send*` / `Start*` / `Stop*` / `Cancel*` 对齐，但不要直接改外部消息名。
+
 ## 7. 状态管理规范
 
 ### 7.1 单一 owner
+
+当前已确认的 owner 目录：
+
+- `ActivityStateManager` 统一持有活动状态对象：`StrawberryState`、`TrialState`、`Act778State`、`Act793State`、`Act791State`、`SeaBattleState`、`HorseCompetitionState`
+- `g_battleSixAuto` 统一持有战斗六自动战斗对象，配套的 `g_battleSixMatching` / `g_battleSixMatchSuccess` / `g_battleSixSwitchTargetId` / `g_battleSixSwitchRetryCount` / `g_battleSixBattleSession` 仍归属同一业务模块
+- `g_battleSixFlowStage` / `g_battleSixFlowToken` / `g_battleSixPostSettlementEndSent` / `g_battleSixReadySupplementSent` / `g_battleSixRoundToken` / `g_battleSixRoundResultToken` / `g_battleSixPlayOverToken` 统一归属万妖盛会流程模块
+- `g_shuangtaiAuto` 统一持有双台谷自动战斗对象
+- `g_spiritCollectState` 统一持有精魄收集状态
+- `g_dungeonJumpState` 统一持有地宫跳层状态
+- `g_horseGameThread` / `g_horseGameRunning` / `g_horseProgressCallback` 统一归属坐骑大赛模块
+- `g_danceState` 统一归属跳舞大赛模块
+- `g_deepDigState` 统一归属深度挖宝模块
+- `g_taskZoneRunning` / `g_taskZoneSession` / `g_taskZoneMapEntered` / `g_eightTrigramsProgress` / `g_eightTrigramsResumeStepIndex` 统一归属八卦灵盘任务区模块
+- `g_heavenFuruiRunning` / `g_heavenFuruiQuerySuccess` / `g_heavenFuruiBoxCount` / `g_heavenFuruiEnteredMap` / `g_heavenFuruiMaxBoxes` / `g_heavenFuruiOpenedBoxes` 以及局部宝箱缓存统一归属福瑞宝箱模块
+- `g_itemPositionMap` / `g_packItems` 统一归属背包缓存模块
+- `g_loginKey` / `g_loginKeyCaptured` 统一归属登录 key 捕获模块
+- `g_autoHeal` / `g_blockBattle` / `g_autoGoHome` / `g_battleCounter` / `g_battleStarted` 统一归属基础战斗开关模块
+- `g_md5CheckIndex` 统一归属 MD5 自动回复模块
+- `g_collectFinished` / `g_collectAutoMode` / `g_collectStatus` 统一归属一键采集模块
+- `g_audioSessionState` 统一持有静音前的音频会话快照，`g_isGameMuted` 只做当前静音标记
+- `wpe_hook.cpp` 里的少量局部 helper、一次性参数和运行时临时变量仍会保留在原文件中，后续仅继续收束有明确 owner 的业务状态
 
 每个业务状态只允许有一个明确 owner：
 
@@ -444,6 +515,9 @@
 
 - 只放入口、响应入口和公开常量
 - 不堆实现细节
+- 文件名优先与业务名保持一致，使用 `snake_case`
+- 状态类型优先使用 `*State`，自动化对象优先使用 `*AutoBattle` / `*StateManager` 这类明确 owner 命名
+- 例如 `battle_six.h`、`spirit_collect.h`、`dungeon_jump.h`、`horse_competition.h`
 
 ### 9.5 `include/internal/*.h`
 
@@ -455,6 +529,8 @@
 
 - 业务状态优先放这里
 - 不向公共头文件外泄内部细节
+- 内部状态命名尽量与所属模块保持一致，例如 `activity_states_internal.h`、`shuangtai_internal.h`
+- 这类文件可以承接 owner 注释和重置入口，但不要引入对外协议或 UI 逻辑
 
 ## 10. 设计原则
 
@@ -474,7 +550,7 @@
 
 ### 第二顺序
 
-- 统一 `Send*` / `Process*Response` / `Start*` / `Stop*` 的职责
+- 统一 `Send*` / `Process*Response` / `Start*` / `Stop*` / `Cancel*` 的职责
 - 标记每个业务状态的唯一 owner
 - 清理重复的布尔状态
 

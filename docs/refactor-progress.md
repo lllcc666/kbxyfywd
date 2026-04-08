@@ -31,7 +31,20 @@
 - 已将 `one_key_act793` / `one_key_act791` / `one_key_act782` / `one_key_act803` / `spiritCollect open_ui` / `spiritCollect getSpirits` 改为直接函数指针调用
 - 已将 `one_key_act624` / `one_key_sea_battle` 改为共享调用重载调用
 - 已将 `query_lingyu` / `query_monsters` / `refresh_pack_items` / `buy_dice` / `clear_packets` / `query_shuangtai` / `battlesix_auto_match` / `battlesix_cancel_match` / `battlesix_set_auto_battle` / `one_key_collect` / `one_key_xuantta` / `one_key_horse_competition` 的内部 wrapper 命名对齐
-- 已将 `one_key_act*` / `one_key_sea_battle` 的内部发送 helper 命名对齐为 `HandleSendOneKeyActCommand` / `HandleStartOneKeySeaBattleCommand`
+- 已将 `one_key_act*` / `one_key_sea_battle` 的内部启动 helper 命名对齐为 `HandleStartOneKeyActCommand` / `HandleStartOneKeySeaBattleCommand`
+- 已将 `one_key_act*` / `one_key_sea_battle` 的一键入口对齐为 `StartOneKeyAct*` / `StartOneKeySeaBattlePacket`
+- 已将 `one_key_act793` / `one_key_act791` / `one_key_act782` / `one_key_act803` / `one_key_act624` 的路由处理函数对齐为 `HandleStartOneKeyAct793Command` / `HandleStartOneKeyAct791Command` / `HandleStartOneKeyAct782Command` / `HandleStartOneKeyAct803Command` / `HandleStartOneKeyAct624Command`
+- 已将 `one_key_xuantta` 的路由处理函数对齐为 `HandleStartOneKeyXuanttaCommand`
+- 已将 `send_packet` / `send_all_packets` 的路由处理函数对齐为 `HandleSendRawPacketCommand` / `HandleStartSendAllPacketsCommand`
+- 已将 `query_shuangtai` 的路由处理函数对齐为 `HandleQueryShuangTaiMonstersCommand`
+- 已将 `query_lingyu` / `query_monsters` / `refresh_pack_items` / `buy_dice` / `query_shuangtai` / `battlesix_auto_match` / `battlesix_set_auto_battle` / `dungeon_jump_start` / `dungeon_jump_stop` 的路由处理函数继续对齐为 `HandleQuery*` / `HandleRefresh*` / `HandleBuy*` / `HandleStart*` / `HandleStop*` / `HandleSet*`
+- 已将 `battlesix_auto_match` / `dungeon_jump_start` / `one_key_horse_competition` 的内部 worker 命名继续对齐为 `HandleBattleSixAutoMatchWorker` / `HandleDungeonJumpWorker` / `HandleOneKeyHorseCompetitionWorker`
+- 已再次通过 `cmake --build build_new --config Release --target WebView2Demo` 验证本轮 one-key 活动命名收口
+- 已再次通过 `cmake --build build_new --config Release --target WebView2Demo` 验证本轮消息层路由命名收口
+- 已再次通过 `cmake --build build_new --config Release --target WebView2Demo` 验证本轮 query / start / set 路由别名继续收口
+- 已再次通过 `cmake --build build_new --config Release --target WebView2Demo` 验证本轮内部 worker 命名收口
+- 已再次通过 `cmake --build build_new --config Release --target WebView2Demo` 验证本轮 `send_packet` / `send_all_packets` / `query_shuangtai` 以及 worker 收口
+- 已记录外部消息名的兼容封装点，当前仍保留原有 `toggle_*` / `query_*` / `refresh_*` 以及浏览器相关路由名
 - 已将 `send_packet` 改为 helper 自己解析 `msg`
 - 已将 `toggle_auto_heal` / `set_block_battle` / `set_auto_go_home` 改为共享布尔写入 helper
 - 已将 `send_packet` / `battlesix_auto_match` / `dungeon_jump_start` 的线程启动与失败清理收口为共享 helper
@@ -42,18 +55,26 @@
 - 已将一批纯动作命令收口为 `HandleActionCommand`
 - 已将 `toggle_auto_heal` / `set_block_battle` / `set_auto_go_home` 的布尔写入 helper 命名对齐为 `HandleSetBoolFlagCommand`
 - 已将 `toggle_auto_heal` / `set_block_battle` / `set_auto_go_home` 的路由 wrapper 命名对齐为 `HandleSetAutoHealEnabledCommand` / `HandleSetBlockBattleEnabledCommand` / `HandleSetAutoGoHomeEnabledCommand`
-- 已将 `daily_tasks` / `task_zone` 的路由 wrapper 命名对齐为 `HandleSendDailyTasksCommand` / `HandleStartTaskZoneCommand`
+- 已将 `daily_tasks` / `task_zone` 的路由 wrapper 命名对齐为 `HandleStartDailyTasksCommand` / `HandleStartTaskZoneCommand`
 - 已将 `daily_tasks` / `stop_horse_competition` 收口为 `HandleActionCommand`
 - 已将 `set_speed` / `set_intercept_type` / `set_hijack_enabled` 收口为 `HandleActionCommand`
-- 已将 `open-url` / `key-login` / 浏览器可见性 wrapper 收口为 `HandleActionCommand`
+- 已将 `open-url` / `refresh-game` / `refresh-no-login` / `mute-game` / `clear-ie-cache` / `copy-login-key` / `key-login` / 浏览器可见性 wrapper 收口为命名 helper，内部继续复用 `HandleActionCommand`
+- 已整理剩余浏览器 wrapper 命名（`HandleRefresh*` / `HandleOpen*` / `HandleMute*`）
+- 已将 `SendDailyTasksAsync` / `SendEightTrigramsTaskAsync` / `SendOneKeyCollectPacket` 对齐为 `StartDailyTasksAsync` / `StartEightTrigramsTaskAsync` / `StartOneKeyCollectPacket`
+- 已将剩余一批真正承担“启动整套流程”的入口对齐为 `StartOneKeyTowerPacket` / `StartOneKeyBattleSixPacket` / `StartOneKeyDungeonJumpPacket` / `StartOneKeyShuangTaiPacket` / `StartOneKeyHorseCompetitionPacket` / `StartOneKeyHeavenFuruiPacket`，并将战斗六取消入口对齐为 `CancelBattleSixMatch`
+- 已再次通过 `cmake --build build_new --config Release --target WebView2Demo` 验证本轮命名收口
+- 已完成业务状态 owner 目录梳理，并补充了关键 owner 注释，明确了 `ActivityStateManager` / `g_battleSixAuto` / `g_battleSixFlow*` / `g_shuangtaiAuto` / `g_spiritCollectState` / `g_dungeonJumpState` / `g_horseGameThread` / `g_danceState` / `g_deepDigState` / `g_taskZone*` / `g_eightTrigramsProgress` / `g_heavenFurui*` / `g_itemPositionMap` / `g_loginKey` / `g_loginKeyCaptured` / `g_autoHeal` / `g_md5CheckIndex` / `g_collect*` / `g_audioSessionState` 的归属
+- 已通过 `cmake --build build_new --config Release --target WebView2Demo`
+- 已开始梳理活动模块命名风格，并补充了 `include/activities` / `include/internal` 的边界说明
 - 已将 `buy_item` / `use_item` / `enter_boss_battle` 收口为动态结果 helper
 - 已将 `buy_item` / `use_item` 的包数据刷新收口为共享 helper
 
 ## 进行中
 
-- 继续只在 `src/core/web_message_handler.cpp` 做低风险命令整理
 - 继续保持命令路由、参数解析、业务调用三层分离
+- 继续把剩余业务状态 owner 注释同步到对应模块
 - 继续同步更新文档与清单，避免进度漂移
+- 继续观察剩余 `Send*` packet helper 是否需要升格为 `Start*` / `Cancel*`
 
 ## 下一步
 

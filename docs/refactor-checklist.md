@@ -63,21 +63,39 @@
 - [x] 将一批纯动作命令收口为 `HandleActionCommand`
 - [x] 将 `toggle_auto_heal` / `set_block_battle` / `set_auto_go_home` 的布尔写入 helper 命名对齐为 `HandleSetBoolFlagCommand`
 - [x] 将 `toggle_auto_heal` / `set_block_battle` / `set_auto_go_home` 的路由 wrapper 命名对齐为 `HandleSetAutoHealEnabledCommand` / `HandleSetBlockBattleEnabledCommand` / `HandleSetAutoGoHomeEnabledCommand`
-- [x] 将 `daily_tasks` / `task_zone` 的路由 wrapper 命名对齐为 `HandleSendDailyTasksCommand` / `HandleStartTaskZoneCommand`
+- [x] 将 `daily_tasks` / `task_zone` 的路由 wrapper 命名对齐为 `HandleStartDailyTasksCommand` / `HandleStartTaskZoneCommand`
 - [x] 将 `daily_tasks` / `stop_horse_competition` 收口为 `HandleActionCommand`
 - [x] 将 `set_speed` / `set_intercept_type` / `set_hijack_enabled` 收口为 `HandleActionCommand`
-- [x] 将 `open-url` / `key-login` / 浏览器可见性 wrapper 收口为 `HandleActionCommand`
+- [x] 将 `open-url` / `refresh-game` / `refresh-no-login` / `mute-game` / `clear-ie-cache` / `copy-login-key` / `key-login` / 浏览器可见性 wrapper 收口为命名 helper，内部继续复用 `HandleActionCommand`
 - [x] 将 `buy_item` / `use_item` / `enter_boss_battle` 收口为动态结果 helper
 - [x] 将 `buy_item` / `use_item` 的包数据刷新收口为共享 helper
 
 ## 阶段 2：函数命名对齐
 
 - [x] 将 `query_lingyu` / `query_monsters` / `refresh_pack_items` / `buy_dice` / `clear_packets` / `query_shuangtai` / `battlesix_auto_match` / `battlesix_cancel_match` / `battlesix_set_auto_battle` / `one_key_collect` / `one_key_xuantta` / `one_key_horse_competition` 的内部 wrapper 命名对齐
-- [x] 将 `one_key_act*` / `one_key_sea_battle` 的内部发送 helper 命名对齐为 `HandleSendOneKeyActCommand` / `HandleStartOneKeySeaBattleCommand`
-- [ ] 统一 `Send*` / `Process*Response` / `Start*` / `Stop*` 的职责边界
+- [x] 将 `one_key_act*` / `one_key_sea_battle` 的内部启动 helper 命名对齐为 `HandleStartOneKeyActCommand` / `HandleStartOneKeySeaBattleCommand`
+- [x] 将 `one_key_act*` / `one_key_sea_battle` 的一键入口命名对齐为 `StartOneKeyAct*` / `StartOneKeySeaBattlePacket`
+- [x] 将 `one_key_act793` / `one_key_act791` / `one_key_act782` / `one_key_act803` / `one_key_act624` 的路由处理函数命名对齐为 `HandleStartOneKeyAct793Command` / `HandleStartOneKeyAct791Command` / `HandleStartOneKeyAct782Command` / `HandleStartOneKeyAct803Command` / `HandleStartOneKeyAct624Command`
+- [x] 将 `one_key_xuantta` 的路由处理函数命名对齐为 `HandleStartOneKeyXuanttaCommand`
+- [x] 将 `send_packet` / `send_all_packets` 的路由处理函数命名对齐为 `HandleSendRawPacketCommand` / `HandleStartSendAllPacketsCommand`
+- [x] 将 `query_shuangtai` 的路由处理函数命名对齐为 `HandleQueryShuangTaiMonstersCommand`
+- [x] 将 `query_lingyu` / `query_monsters` / `refresh_pack_items` / `buy_dice` / `query_shuangtai` / `battlesix_auto_match` / `battlesix_set_auto_battle` / `dungeon_jump_start` / `dungeon_jump_stop` 的路由处理函数继续对齐为 `HandleQuery*` / `HandleRefresh*` / `HandleBuy*` / `HandleStart*` / `HandleStop*` / `HandleSet*`
+- [x] 将 `battlesix_auto_match` / `dungeon_jump_start` / `one_key_horse_competition` 的内部 worker 命名继续对齐为 `HandleBattleSixAutoMatchWorker` / `HandleDungeonJumpWorker` / `HandleOneKeyHorseCompetitionWorker`
+- [x] 通过 `cmake --build build_new --config Release --target WebView2Demo` 验证本轮 one-key 活动命名收口
+- [x] 通过 `cmake --build build_new --config Release --target WebView2Demo` 验证本轮消息层路由命名收口
+- [x] 通过 `cmake --build build_new --config Release --target WebView2Demo` 验证本轮 query / start / set 路由别名继续收口
+- [x] 通过 `cmake --build build_new --config Release --target WebView2Demo` 验证本轮内部 worker 命名收口
+- [x] 通过 `cmake --build build_new --config Release --target WebView2Demo` 验证本轮 `send_packet` / `send_all_packets` / `query_shuangtai` 以及 worker 收口
+- [x] 记录外部消息名的兼容封装点，保留原有 `toggle_*` / `query_*` / `refresh_*` 以及浏览器相关路由名
+- [ ] 统一 `Send*` / `Process*Response` / `Start*` / `Stop*` / `Cancel*` 的职责边界
 - [ ] 统一活动模块的命名风格
-- [ ] 标记每个业务状态的唯一 owner
-- [ ] 记录兼容封装点
+- [x] 标记每个业务状态的唯一 owner
+- [x] 整理剩余浏览器 wrapper 命名（`HandleRefresh*` / `HandleOpen*` / `HandleMute*`）
+- [x] 将 `SendDailyTasksAsync` / `SendEightTrigramsTaskAsync` / `SendOneKeyCollectPacket` 对齐为 `Start*` 启动入口
+- [x] 将剩余一批真正承担“启动整套流程”的入口对齐为 `StartOneKeyTowerPacket` / `StartOneKeyBattleSixPacket` / `StartOneKeyDungeonJumpPacket` / `StartOneKeyShuangTaiPacket` / `StartOneKeyHorseCompetitionPacket` / `StartOneKeyHeavenFuruiPacket`，并将战斗六取消入口对齐为 `CancelBattleSixMatch`
+- [x] 补充坐骑大赛 / 八卦灵盘任务区 / 福瑞宝箱的 owner 注释
+- [x] 补充基础战斗 / MD5 / 一键采集 / 背包缓存 / 登录 key 捕获 / 万妖盛会流程 / 跳舞大赛 / 深度挖宝的 owner 注释
+- [x] 通过 `cmake --build build_new --config Release --target WebView2Demo` 验证本轮改动
 
 ## 阶段 3：模块归档
 

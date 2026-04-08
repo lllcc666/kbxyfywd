@@ -36,7 +36,7 @@ constexpr uint32_t BATTLE_END_BACK = 1317125;
 
 BOOL QueryShuangTaiMonsters();
 void UpdateShuangTaiUIFromMonsterData();
-BOOL SendOneKeyShuangTaiPacket(bool blockBattle = false);
+BOOL StartOneKeyShuangTaiPacket(bool blockBattle = false);
 void StopShuangTai();
 
 void ProcessShuangTaiBattleStartResponse(const GamePacket& packet);

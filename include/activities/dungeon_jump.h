@@ -47,6 +47,7 @@ struct DungeonJumpState {
     }
 };
 
+// 地宫跳层状态唯一 owner。
 extern DungeonJumpState g_dungeonJumpState;
 
 BOOL SendDungeonJumpLayerPacket(int layer);
@@ -56,5 +57,5 @@ BOOL SendDungeonActivityPacket(int activityId);
 BOOL SendCompleteJumpPacket();
 BOOL SendPutSpiritStorePacket(int monsterUniqueId);
 BOOL SendSetFirstSpiritPacket(int monsterUniqueId);
-BOOL SendOneKeyDungeonJumpPacket(int targetLayer);
+BOOL StartOneKeyDungeonJumpPacket(int targetLayer);
 void StopDungeonJump();

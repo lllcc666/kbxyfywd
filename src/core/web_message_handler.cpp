@@ -191,7 +191,7 @@ void ClearPacketListView() {
 
 void ParseIndicesArray(const std::wstring& msg, std::vector<DWORD>& indices);
 
-struct SendPacketThreadData {
+struct SendRawPacketThreadData {
     std::vector<BYTE> data;
 };
 
@@ -211,8 +211,8 @@ void LaunchDetachedStdThread(Func func, Args... args) {
     std::thread(func, args...).detach();
 }
 
-DWORD WINAPI HandleSendPacketWorker(LPVOID lpParam) {
-    SendPacketThreadData* pD = static_cast<SendPacketThreadData*>(lpParam);
+DWORD WINAPI HandleSendRawPacketWorker(LPVOID lpParam) {
+    SendRawPacketThreadData* pD = static_cast<SendRawPacketThreadData*>(lpParam);
     BOOL result = SendPacket(0, pD->data.data(), static_cast<DWORD>(pD->data.size()));
     if (!result) {
         SetHelperText(L"封包发送失败：未连接到游戏服务器");
@@ -221,15 +221,15 @@ DWORD WINAPI HandleSendPacketWorker(LPVOID lpParam) {
     return 0;
 }
 
-void HandleSendPacketCommand(const std::wstring& msg) {
+void HandleSendRawPacketCommand(const std::wstring& msg) {
     const std::wstring hexW = GetJsonValue(msg, L"hex");
     if (hexW.empty()) {
         SetHelperText(L"封包数据格式错误");
         return;
     }
 
-    SendPacketThreadData* pData = new SendPacketThreadData{StringToHex(WideToUtf8(hexW))};
-    LaunchDetachedWorkerThread(pData, HandleSendPacketWorker);
+    SendRawPacketThreadData* pData = new SendRawPacketThreadData{StringToHex(WideToUtf8(hexW))};
+    LaunchDetachedWorkerThread(pData, HandleSendRawPacketWorker);
 }
 
 void HandlePacketWindowVisibilityChanged(const std::wstring& msg) {
@@ -326,21 +326,21 @@ void HandleSetAutoGoHomeEnabledCommand(const std::wstring& msg) {
     HandleSetBoolFlagCommand(msg, L"enabled", g_autoGoHome);
 }
 
-void HandleSendLingyuQueryCommand() {
+void HandleQueryLingyuCommand() {
     HandleActionCommand(SendQueryLingyuPacket);
 }
 
-void HandleSendMonsterQueryCommand() {
+void HandleQueryMonstersCommand() {
     HandleActionCommand(SendQueryMonsterPacket);
 }
 
-void HandleSendPackItemsRequestCommand() {
+void HandleRefreshPackItemsCommand() {
     HandleActionCommand([]() {
         SendReqPackageDataPacket(0xFFFFFFFF);
     });
 }
 
-void HandleSendBuyDiceCommand() {
+void HandleBuyDiceCommand() {
     HandleActionCommand(SendBuyDicePacket);
 }
 
@@ -368,10 +368,10 @@ void HandleSetInterceptTypeCommand(const std::wstring& msg) {
     });
 }
 
-void HandleSendDailyTasksCommand(const std::wstring& msg) {
+void HandleStartDailyTasksCommand(const std::wstring& msg) {
     const DWORD flags = GetJsonDWORDValue(msg, L"flags");
     HandleActionCommand([flags]() {
-        SendDailyTasksAsync(flags);
+        StartDailyTasksAsync(flags);
     });
 }
 
@@ -380,10 +380,10 @@ void HandleStopTaskZoneCommand() {
 }
 
 void HandleStartTaskZoneCommand() {
-    HandleActionCommand(SendEightTrigramsTaskAsync);
+    HandleActionCommand(StartEightTrigramsTaskAsync);
 }
 
-void HandleSendShuangTaiQueryCommand() {
+void HandleQueryShuangTaiMonstersCommand() {
     HandleActionCommand(QueryShuangTaiMonsters);
 }
 
@@ -391,7 +391,7 @@ void HandleStartShuangTaiCommand(const std::wstring& msg) {
     const bool blockBattle = GetJsonBoolValue(msg, L"blockBattle");
     HandleBoolResultCommand(
         [blockBattle]() {
-            return SendOneKeyShuangTaiPacket(blockBattle);
+            return StartOneKeyShuangTaiPacket(blockBattle);
         },
         L"双台谷刷级已开始，请查看辅助日志",
         L"双台谷刷级启动失败，请先点击查询按钮获取妖怪数据");
@@ -406,7 +406,7 @@ void HandleCancelBattlesixMatchCommand() {
         []() {
             g_battleSixAuto.SetAutoMatching(false);
             g_battleSixAuto.SetMatchCount(0);
-            return SendCancelBattleSixPacket();
+            return CancelBattleSixMatch();
         },
         L"万妖盛会：已取消匹配",
         L"万妖盛会：取消匹配失败");
@@ -424,7 +424,7 @@ void HandleStartHeavenFuruiCommand(const std::wstring& msg) {
     }
     HandleBoolResultCommand(
         [maxBoxes]() {
-            return SendOneKeyHeavenFuruiPacket(maxBoxes);
+            return StartOneKeyHeavenFuruiPacket(maxBoxes);
         },
         L"福瑞宝箱：开始遍历地图查找宝箱...",
         L"福瑞宝箱启动失败");
@@ -497,7 +497,7 @@ void HandleStartOneKeyCollectCommand(const std::wstring& msg) {
     const DWORD flags = GetJsonDWORDValue(msg, L"flags");
     HandleBoolResultCommand(
         [flags]() {
-            return SendOneKeyCollectPacket(flags);
+            return StartOneKeyCollectPacket(flags);
         },
         L"一键采集已开始，请查看辅助日志",
         L"一键采集启动失败，可能已经在运行或未进入游戏");
@@ -505,14 +505,14 @@ void HandleStartOneKeyCollectCommand(const std::wstring& msg) {
 
 void HandleStartOneKeyXuanttaCommand() {
     HandleBoolResultCommand(
-        SendOneKeyTowerPacket,
+        StartOneKeyTowerPacket,
         L"一键玄塔已开始，请查看辅助日志",
         L"一键玄塔启动失败，可能已经在运行或未进入游戏");
 }
 
-DWORD WINAPI HandleBattlesixAutoMatchWorker(LPVOID param);
+DWORD WINAPI HandleBattleSixAutoMatchWorker(LPVOID param);
 
-void HandleStartBattlesixAutoMatchCommand(const std::wstring& msg) {
+void HandleStartBattleSixAutoMatchCommand(const std::wstring& msg) {
     const std::wstring matchCountStr = GetTrimmedJsonValue(msg, L"matchCount");
     int matchCount = 1;
     TryParseIntInRangeLocal(matchCountStr, 1, 999, 1, matchCount);
@@ -520,10 +520,10 @@ void HandleStartBattlesixAutoMatchCommand(const std::wstring& msg) {
     swprintf_s(startMsg, L"万妖盛会：开始匹配（共%d次）...", matchCount);
     SetHelperText(startMsg);
     int* pMatchCount = new int(matchCount);
-    LaunchDetachedWorkerThread(pMatchCount, HandleBattlesixAutoMatchWorker);
+    LaunchDetachedWorkerThread(pMatchCount, HandleBattleSixAutoMatchWorker);
 }
 
-void HandleSetBattlesixAutoBattleCommand(const std::wstring& msg) {
+void HandleSetBattleSixAutoBattleEnabledCommand(const std::wstring& msg) {
     const std::wstring enabledStr = GetTrimmedJsonValue(msg, L"enabled");
     const bool enabled = (enabledStr == L"true");
     g_battleSixAuto.SetAutoBattle(enabled);
@@ -531,17 +531,17 @@ void HandleSetBattlesixAutoBattleCommand(const std::wstring& msg) {
     SetHelperText(enabled ? L"万妖盛会：自动战斗已启用" : L"万妖盛会：自动战斗已禁用");
 }
 
-DWORD WINAPI HandleBattlesixAutoMatchWorker(LPVOID param) {
+DWORD WINAPI HandleBattleSixAutoMatchWorker(LPVOID param) {
     int* matchCount = static_cast<int*>(param);
     int count = *matchCount;
     delete matchCount;
-    SendOneKeyBattleSixPacket(count);
+    StartOneKeyBattleSixPacket(count);
     return 0;
 }
 
 DWORD WINAPI HandleDungeonJumpWorker(LPVOID param);
 
-void HandleDungeonJumpStartCommand(const std::wstring& msg) {
+void HandleStartDungeonJumpCommand(const std::wstring& msg) {
     const std::wstring layerStr = GetTrimmedJsonValue(msg, L"targetLayer");
     int targetLayer = 1;
     TryParseIntInRangeLocal(layerStr, 1, 9999, 1, targetLayer);
@@ -550,7 +550,7 @@ void HandleDungeonJumpStartCommand(const std::wstring& msg) {
     LaunchDetachedWorkerThread(pTargetLayer, HandleDungeonJumpWorker);
 }
 
-void HandleDungeonJumpStopCommand() {
+void HandleStopDungeonJumpCommand() {
     StopDungeonJump();
     UpdateDungeonJumpStatus(L"副本跳层：已停止");
 }
@@ -559,7 +559,7 @@ DWORD WINAPI HandleDungeonJumpWorker(LPVOID param) {
     int* targetLayer = static_cast<int*>(param);
     int layer = *targetLayer;
     delete targetLayer;
-    SendOneKeyDungeonJumpPacket(layer);
+    StartOneKeyDungeonJumpPacket(layer);
     return 0;
 }
 
@@ -568,7 +568,7 @@ void HandleHorseCompetitionProgressCommand(const std::wstring& progress) {
 }
 
 void HandleOneKeyHorseCompetitionWorker() {
-    SendOneKeyHorseCompetitionPacket(true);
+    StartOneKeyHorseCompetitionPacket(true);
 }
 
 void HandleStartOneKeyHorseCompetitionCommand() {
@@ -618,7 +618,7 @@ void HandleUseItemCommand(const std::wstring& msg) {
     }
 }
 
-void HandleSendAllPacketsProgressCommand(DWORD currentLoop, DWORD packetIndex, const std::string& label) {
+void HandleStartSendAllPacketsProgressCommand(DWORD currentLoop, DWORD packetIndex, const std::string& label) {
     std::wstring message = L"正在发送第" + std::to_wstring(currentLoop) + L"次，第" + std::to_wstring(packetIndex) + L"个封包";
     if (!label.empty()) {
         message += L"，标签：" + Utf8ToWide(label);
@@ -626,21 +626,21 @@ void HandleSendAllPacketsProgressCommand(DWORD currentLoop, DWORD packetIndex, c
     SetHelperText(message);
 }
 
-void HandleSendAllPacketsWorker(DWORD sendCount, DWORD sendDelay) {
-    SendAllPackets(sendDelay, sendCount, HandleSendAllPacketsProgressCommand);
+void HandleStartSendAllPacketsWorker(DWORD sendCount, DWORD sendDelay) {
+    SendAllPackets(sendDelay, sendCount, HandleStartSendAllPacketsProgressCommand);
     SetHelperText(L"封包发送完成");
 }
 
-template <typename SendFunc>
-BOOL InvokeOneKeyActSend(SendFunc sendFunc, bool useSweep, int targetValue) {
-    return sendFunc(useSweep, targetValue);
+template <typename StartFunc>
+BOOL InvokeOneKeyActStart(StartFunc startFunc, bool useSweep, int targetValue) {
+    return startFunc(useSweep, targetValue);
 }
 
-inline BOOL InvokeOneKeyActSend(BOOL (*sendFunc)(bool), bool useSweep, int) {
-    return sendFunc(useSweep);
+inline BOOL InvokeOneKeyActStart(BOOL (*startFunc)(bool), bool useSweep, int) {
+    return startFunc(useSweep);
 }
 
-void HandleSendAllPacketsCommand(const std::wstring& msg) {
+void HandleStartSendAllPacketsCommand(const std::wstring& msg) {
     DWORD sendCount = 1;
     DWORD sendDelay = 300;
     const std::wstring sendCountStr = GetJsonValue(msg, L"sendCount");
@@ -652,19 +652,19 @@ void HandleSendAllPacketsCommand(const std::wstring& msg) {
     if (!sendDelayStr.empty()) {
         sendDelay = static_cast<DWORD>(_wtoi(sendDelayStr.c_str()));
     }
-    LaunchDetachedStdThread(HandleSendAllPacketsWorker, sendCount, sendDelay);
+    LaunchDetachedStdThread(HandleStartSendAllPacketsWorker, sendCount, sendDelay);
 }
 
-template <typename SendFunc>
-void HandleSendOneKeyActCommand(const std::wstring& msg,
-                                const wchar_t* paramKey,
-                                int defaultValue,
-                                int minValue,
-                                int maxValue,
-                                const wchar_t* sweepText,
-                                const wchar_t* gameText,
-                                const wchar_t* failureText,
-                                SendFunc sendFunc) {
+template <typename StartFunc>
+void HandleStartOneKeyActCommand(const std::wstring& msg,
+                                 const wchar_t* paramKey,
+                                 int defaultValue,
+                                 int minValue,
+                                 int maxValue,
+                                 const wchar_t* sweepText,
+                                 const wchar_t* gameText,
+                                 const wchar_t* failureText,
+                                 StartFunc startFunc) {
     const bool useSweep = GetJsonBoolValue(msg, L"sweep");
     int targetValue = defaultValue;
     if (paramKey && *paramKey) {
@@ -673,15 +673,15 @@ void HandleSendOneKeyActCommand(const std::wstring& msg,
             TryParseIntInRangeLocal(valueStr, minValue, maxValue, defaultValue, targetValue);
         }
     }
-    if (InvokeOneKeyActSend(sendFunc, useSweep, targetValue)) {
+    if (InvokeOneKeyActStart(startFunc, useSweep, targetValue)) {
         SetHelperText(useSweep ? sweepText : gameText);
     } else {
         SetHelperText(failureText);
     }
 }
 
-void HandleOneKeyAct793Command(const std::wstring& msg) {
-    HandleSendOneKeyActCommand(
+void HandleStartOneKeyAct793Command(const std::wstring& msg) {
+    HandleStartOneKeyActCommand(
         msg,
         L"medals",
         Act793::TARGET_MEDALS,
@@ -690,11 +690,11 @@ void HandleOneKeyAct793Command(const std::wstring& msg) {
         L"磐石御天火已开始（扫荡模式），请查看辅助日志",
         L"磐石御天火已开始（游戏模式），请查看辅助日志",
         L"磐石御天火启动失败",
-        SendOneKeyAct793Packet);
+        StartOneKeyAct793Packet);
 }
 
-void HandleOneKeyAct791Command(const std::wstring& msg) {
-    HandleSendOneKeyActCommand(
+void HandleStartOneKeyAct791Command(const std::wstring& msg) {
+    HandleStartOneKeyActCommand(
         msg,
         L"score",
         Act791::TARGET_SCORE,
@@ -703,11 +703,11 @@ void HandleOneKeyAct791Command(const std::wstring& msg) {
         L"五行镜破封印已开始（扫荡模式），请查看辅助日志",
         L"五行镜破封印已开始（游戏模式），请查看辅助日志",
         L"五行镜破封印启动失败",
-        SendOneKeyAct791Packet);
+        StartOneKeyAct791Packet);
 }
 
-void HandleOneKeyAct782Command(const std::wstring& msg) {
-    HandleSendOneKeyActCommand(
+void HandleStartOneKeyAct782Command(const std::wstring& msg) {
+    HandleStartOneKeyActCommand(
         msg,
         nullptr,
         Act782::TARGET_SCORE,
@@ -716,11 +716,11 @@ void HandleOneKeyAct782Command(const std::wstring& msg) {
         L"摘取大力果实已开始（扫荡模式），请查看辅助日志",
         L"摘取大力果实已开始（400分模式），请查看辅助日志",
         L"摘取大力果实启动失败",
-        SendOneKeyAct782Packet);
+        StartOneKeyAct782Packet);
 }
 
-void HandleOneKeyAct803Command(const std::wstring& msg) {
-    HandleSendOneKeyActCommand(
+void HandleStartOneKeyAct803Command(const std::wstring& msg) {
+    HandleStartOneKeyActCommand(
         msg,
         nullptr,
         Act803::MAX_NUM,
@@ -729,11 +729,11 @@ void HandleOneKeyAct803Command(const std::wstring& msg) {
         L"清明赏河景已开始（扫荡模式）",
         L"清明赏河景已开始（游戏模式）",
         L"清明赏河景启动失败",
-        SendOneKeyAct803Packet);
+        StartOneKeyAct803Packet);
 }
 
-void HandleOneKeyAct624Command(const std::wstring& msg) {
-    HandleSendOneKeyActCommand(
+void HandleStartOneKeyAct624Command(const std::wstring& msg) {
+    HandleStartOneKeyActCommand(
         msg,
         nullptr,
         0,
@@ -742,11 +742,11 @@ void HandleOneKeyAct624Command(const std::wstring& msg) {
         L"采蘑菇的好伙伴已开始（扫荡模式）",
         L"采蘑菇的好伙伴已开始（三轮模式）",
         L"采蘑菇的好伙伴启动失败",
-        SendOneKeyAct624Packet);
+        StartOneKeyAct624Packet);
 }
 
 void HandleStartOneKeySeaBattleCommand(const std::wstring& msg) {
-    HandleSendOneKeyActCommand(
+    HandleStartOneKeyActCommand(
         msg,
         nullptr,
         0,
@@ -755,7 +755,7 @@ void HandleStartOneKeySeaBattleCommand(const std::wstring& msg) {
         L"海底激战已开始（扫荡模式），请查看辅助日志",
         L"海底激战已开始（默认分数模式），请查看辅助日志",
         L"海底激战启动失败",
-        SendOneKeySeaBattlePacket);
+        StartOneKeySeaBattlePacket);
 }
 
 void HandleDecomposeLingyuIndicesCommand(const std::wstring& msg, const wchar_t* indicesKey) {
@@ -1085,7 +1085,7 @@ public:
         } else if (msg.find(L"set_intercept_type") != std::wstring::npos) {
             HandleSetInterceptTypeCommand(msg);
         } else if (msg.find(L"send_packet") != std::wstring::npos) {
-            HandleSendPacketCommand(msg);
+            HandleSendRawPacketCommand(msg);
         } else if (msg.find(L"set_speed") != std::wstring::npos) {
             HandleSetSpeedCommand(msg);
         } else if (msg.find(L"toggle_auto_heal") != std::wstring::npos) {
@@ -1095,17 +1095,17 @@ public:
         } else if (msg.find(L"set_auto_go_home") != std::wstring::npos) {
             HandleSetAutoGoHomeEnabledCommand(msg);
         } else if (msg.find(L"query_lingyu") != std::wstring::npos) {
-            HandleSendLingyuQueryCommand();
+            HandleQueryLingyuCommand();
         } else if (msg.find(L"query_monsters") != std::wstring::npos) {
-            HandleSendMonsterQueryCommand();
+            HandleQueryMonstersCommand();
         } else if (msg.find(L"refresh_pack_items") != std::wstring::npos) {
-            HandleSendPackItemsRequestCommand();
+            HandleRefreshPackItemsCommand();
         } else if (msg.find(L"buy_item") != std::wstring::npos) {
             HandleBuyItemCommand(msg);
         } else if (msg.find(L"use_item") != std::wstring::npos) {
             HandleUseItemCommand(msg);
         } else if (msg.find(L"daily_tasks") != std::wstring::npos) {
-            HandleSendDailyTasksCommand(msg);
+            HandleStartDailyTasksCommand(msg);
         } else if (msg.find(L"stop_task_zone") != std::wstring::npos) {
             HandleStopTaskZoneCommand();
         } else if (msg.find(L"task_zone") != std::wstring::npos) {
@@ -1115,35 +1115,35 @@ public:
         } else if (msg.find(L"buy_dice_18") != std::wstring::npos) {
             HandleBuyDice18Command();
         } else if (msg.find(L"buy_dice") != std::wstring::npos) {
-            HandleSendBuyDiceCommand();
+            HandleBuyDiceCommand();
         } else if (msg.find(L"one_key_xuantta") != std::wstring::npos) {
             HandleStartOneKeyXuanttaCommand();
         } else if (msg.find(L"query_shuangtai") != std::wstring::npos) {
-            HandleSendShuangTaiQueryCommand();
+            HandleQueryShuangTaiMonstersCommand();
         } else if (msg.find(L"start_shuangtai") != std::wstring::npos) {
             HandleStartShuangTaiCommand(msg);
         } else if (msg.find(L"stop_shuangtai") != std::wstring::npos) {
             HandleStopShuangTaiCommand();
         } else if (msg.find(L"battlesix_auto_match") != std::wstring::npos) {
-            HandleStartBattlesixAutoMatchCommand(msg);
+            HandleStartBattleSixAutoMatchCommand(msg);
         } else if (msg.find(L"battlesix_cancel_match") != std::wstring::npos) {
             HandleCancelBattlesixMatchCommand();
         } else if (msg.find(L"battlesix_set_auto_battle") != std::wstring::npos) {
-            HandleSetBattlesixAutoBattleCommand(msg);
+            HandleSetBattleSixAutoBattleEnabledCommand(msg);
         } else if (msg.find(L"dungeon_jump_start") != std::wstring::npos) {
-            HandleDungeonJumpStartCommand(msg);
+            HandleStartDungeonJumpCommand(msg);
         } else if (msg.find(L"dungeon_jump_stop") != std::wstring::npos) {
-            HandleDungeonJumpStopCommand();
+            HandleStopDungeonJumpCommand();
         } else if (msg.find(L"one_key_act793") != std::wstring::npos) {
-            HandleOneKeyAct793Command(msg);
+            HandleStartOneKeyAct793Command(msg);
         } else if (msg.find(L"one_key_act791") != std::wstring::npos) {
-            HandleOneKeyAct791Command(msg);
+            HandleStartOneKeyAct791Command(msg);
         } else if (msg.find(L"one_key_act782") != std::wstring::npos) {
-            HandleOneKeyAct782Command(msg);
+            HandleStartOneKeyAct782Command(msg);
         } else if (msg.find(L"one_key_act803") != std::wstring::npos) {
-            HandleOneKeyAct803Command(msg);
+            HandleStartOneKeyAct803Command(msg);
         } else if (msg.find(L"one_key_act624") != std::wstring::npos) {
-            HandleOneKeyAct624Command(msg);
+            HandleStartOneKeyAct624Command(msg);
         } else if (msg.find(L"one_key_sea_battle") != std::wstring::npos) {
             HandleStartOneKeySeaBattleCommand(msg);
         } else if (msg.find(L"one_key_horse_competition") != std::wstring::npos) {
@@ -1167,7 +1167,7 @@ public:
         } else if (msg.find(L"load_packet_list") != std::wstring::npos) {
             HandleLoadPacketListCommand();
         } else if (msg.find(L"send_all_packets") != std::wstring::npos) {
-            HandleSendAllPacketsCommand(msg);
+            HandleStartSendAllPacketsCommand(msg);
         } else if (msg.find(L"stop_send") != std::wstring::npos) {
             HandleStopSendCommand();
         } else if (msg.find(L"enter_boss_battle") != std::wstring::npos) {

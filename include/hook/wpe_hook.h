@@ -220,17 +220,17 @@ BOOL SendExitScenePacket(uint32_t userId);
 
 BOOL SendReenterTowerMapPacket();
 
-BOOL SendOneKeyTowerPacket();
+BOOL StartOneKeyTowerPacket();
 
 void ProcessTowerActivityResponse(const GamePacket& packet);
 
-void SendDailyTasksAsync(DWORD flags);
+void StartDailyTasksAsync(DWORD flags);
 
-BOOL SendEightTrigramsTaskAsync();
+BOOL StartEightTrigramsTaskAsync();
 
 VOID StopEightTrigramsTask();
 
-BOOL SendOneKeyCollectPacket(DWORD flags);
+BOOL StartOneKeyCollectPacket(DWORD flags);
 
 void ProcessCollectResponse(const GamePacket& packet);
 

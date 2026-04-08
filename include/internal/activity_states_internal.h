@@ -297,6 +297,7 @@ struct HorseCompetitionState : ActivityState {
     }
 };
 
+// 活动业务状态唯一 owner：统一持有并重置各活动状态，避免分散维护。
 class ActivityStateManager {
 public:
     static ActivityStateManager& Instance();

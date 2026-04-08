@@ -64,6 +64,7 @@ private:
     std::atomic<int> m_totalRounds{0};
 };
 
+// 双台谷自动战斗状态唯一 owner。
 extern ShuangTaiAutoBattle g_shuangtaiAuto;
 
 uint32_t GetLastSpiritId();

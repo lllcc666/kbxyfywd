@@ -16,6 +16,7 @@ extern bool PostScriptToUI(const std::wstring& jsCode);
 
 namespace {
 
+// 坐骑大赛模块 owner：运行线程、运行标记和进度回调统一由这里维护。
 std::thread g_horseGameThread;
 std::atomic<bool> g_horseGameRunning{false};
 HorseProgressCallback g_horseProgressCallback = nullptr;
@@ -786,7 +787,7 @@ void ProcessHorseCompetitionResponse(const GamePacket& packet) {
     state.waitingResponse = false;
 }
 
-BOOL SendOneKeyHorseCompetitionPacket(bool useTempMount) {
+BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount) {
     auto& state = ActivityStateManager::Instance().GetHorseCompetitionState();
 
     if (state.isRunning) {

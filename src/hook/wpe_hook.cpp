@@ -395,20 +395,22 @@ std::atomic<uint32_t> g_userId{0};  ///< 卡布号（从进入世界封包获取
 
 // 注意：g_hWnd 在 demo.cpp 中定义，这里通过 wpe_hook.h 的 extern 声明使用
 
+// 基础战斗开关 owner：回血、屏蔽战斗、自动回家和战斗校验标记统一由这一组维护。
 std::atomic<bool> g_autoHeal{false};  ///< 自动回血
-
 std::atomic<bool> g_blockBattle{false};  ///< 屏蔽战斗
 std::atomic<bool> g_autoGoHome{false};   ///< 自动回家（玄塔）
 std::atomic<int32_t> g_battleCounter{0};  ///< 战斗counter（用于战斗校验）
 std::atomic<bool> g_battleStarted{false};  ///< 是否已进入战斗
 
+// MD5 验证自动回复 owner：索引仅用于该自动回复流程。
 std::atomic<int> g_md5CheckIndex{0};  ///< MD5验证自动回复索引（-1=禁用，0-3=有效，99=测试）
 
+// 一键采集 owner：完成标志、自动模式和流程状态统一由这一组维护。
 std::atomic<bool> g_collectFinished{false};  ///< 采集完成标志
 std::atomic<bool> g_collectAutoMode{false};  ///< 一键采集模式
 std::atomic<int> g_collectStatus{0};  ///< 采集状态
 
-// 福瑞宝箱状态变量
+// 福瑞宝箱 owner：运行态和统计状态统一由这一组维护。
 std::atomic<bool> g_heavenFuruiRunning{false};
 std::atomic<bool> g_heavenFuruiQuerySuccess{false};
 std::atomic<int> g_heavenFuruiBoxCount{0};
@@ -416,11 +418,12 @@ std::atomic<bool> g_heavenFuruiEnteredMap{false};
 std::atomic<int> g_heavenFuruiMaxBoxes{30};  ///< 最大开启宝箱数量
 std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
 
-// 八卦灵盘任务区状态变量
+// 八卦灵盘任务区 owner：运行标记、会话号和地图进入状态统一由这里维护。
 std::atomic<bool> g_taskZoneRunning{false};
 std::atomic<unsigned long long> g_taskZoneSession{0};
 std::atomic<bool> g_taskZoneMapEntered{false};
 
+// 八卦灵盘任务区进度 owner：用户任务缓存与对话进度统一由这里维护。
 struct EightTrigramsProgressState {
     std::mutex mutex;
     bool userTaskListLoaded = false;
@@ -442,13 +445,13 @@ struct EightTrigramsProgressState {
 EightTrigramsProgressState g_eightTrigramsProgress;
 std::atomic<int> g_eightTrigramsResumeStepIndex{-1};
 
-// 背包物品位置映射（物品ID -> 位置索引）
+// 背包缓存 owner：位置映射和物品列表统一由这一组维护。
 std::map<uint32_t, uint32_t> g_itemPositionMap;
-// 背包物品列表
 std::vector<PackItemInfo> g_packItems;
 
 // 万妖盛会状态变量
 BattleSixAutoBattle g_battleSixAuto;
+// 万妖盛会流程 owner：阶段、token 和结算标记统一由该流程维护。
 std::atomic<bool> g_battleSixMatching{false};  ///< 是否正在匹配
 std::atomic<bool> g_battleSixMatchSuccess{false};  ///< 匹配是否成功
 std::atomic<int> g_battleSixSwitchTargetId{-1};  ///< 切换目标精灵uniqueId
@@ -591,15 +594,14 @@ void ArmBattleSixFlowWatchdog(
     }
 }
 
-// 登录 Key 提取变量（从 OP_CLIENT_CHECK_ACCOUNT 封包）
+// 登录 key 捕获 owner：原始 key 字符串和捕获标记统一由这里维护。
 std::wstring g_loginKey;                     ///< 整个封包的十六进制字符串（大写）
+// 登录 key 捕获 owner：仅记录当前是否已捕获登录 key。
 std::atomic<bool> g_loginKeyCaptured{false}; ///< 是否已捕获登录 key
 
 namespace {
 
-// -------------------------
-// 跳舞大赛状态
-// -------------------------
+// 跳舞大赛 owner：进程、响应状态和进度统一由该状态对象维护。
 
 struct DanceGameState {
     int processId = 0;           ///< 当前跳舞进程ID
@@ -618,9 +620,7 @@ struct DanceGameState {
 
 static DanceGameState g_danceState;
 
-// -------------------------
-// 深度挖宝状态
-// -------------------------
+// 深度挖宝 owner：会话、剩余次数和自动循环状态统一由该状态对象维护。
 
 struct DeepDigState {
     int sessionId = 0;           ///< 会话ID
@@ -1182,7 +1182,7 @@ uint32_t GetItemPosition(uint32_t itemId) {
         return 0;
     }
     
-    BOOL SendOneKeyAct793Packet(bool useSweep, int targetMedals) {
+    BOOL StartOneKeyAct793Packet(bool useSweep, int targetMedals) {
         ACT793_STATE.useSweep = useSweep;
         ACT793_STATE.targetMedals = targetMedals;
         HANDLE hThread = CreateThread(nullptr, 0, Act793ThreadProc, nullptr, 0, nullptr);
@@ -1363,7 +1363,7 @@ uint32_t GetItemPosition(uint32_t itemId) {
         return 0;
     }
     
-    BOOL SendOneKeyAct791Packet(bool useSweep, int targetScore) {
+    BOOL StartOneKeyAct791Packet(bool useSweep, int targetScore) {
         ACT791_STATE.useSweep = useSweep;
         ACT791_STATE.targetScore = targetScore;
         HANDLE hThread = CreateThread(nullptr, 0, Act791ThreadProc, nullptr, 0, nullptr);
@@ -1565,7 +1565,7 @@ uint32_t GetItemPosition(uint32_t itemId) {
         return 0;
     }
 
-    BOOL SendOneKeyAct782Packet(bool useSweep, int targetScore) {
+    BOOL StartOneKeyAct782Packet(bool useSweep, int targetScore) {
         g_act782UseSweep = useSweep;
         int* pTargetScore = new int(targetScore);
         HANDLE hThread = CreateThread(nullptr, 0, Act782ThreadProc, pTargetScore, 0, nullptr);
@@ -1812,7 +1812,7 @@ uint32_t GetItemPosition(uint32_t itemId) {
         return 0;
     }
 
-    BOOL SendOneKeyAct803Packet(bool useSweep, int targetScore) {
+    BOOL StartOneKeyAct803Packet(bool useSweep, int targetScore) {
         g_act803UseSweep = useSweep;
         int* pTargetScore = new int(targetScore);
         HANDLE hThread = CreateThread(nullptr, 0, Act803ThreadProc, pTargetScore, 0, nullptr);
@@ -2056,7 +2056,7 @@ uint32_t GetItemPosition(uint32_t itemId) {
         return 0;
     }
 
-    BOOL SendOneKeyAct624Packet(bool useSweep) {
+    BOOL StartOneKeyAct624Packet(bool useSweep) {
         g_act624UseSweep = useSweep;
         HANDLE hThread = CreateThread(nullptr, 0, Act624ThreadProc, nullptr, 0, nullptr);
         if (hThread) {
@@ -2319,7 +2319,7 @@ uint32_t GetItemPosition(uint32_t itemId) {
         return 0;
     }
 
-    BOOL SendOneKeySeaBattlePacket(bool useSweep) {
+    BOOL StartOneKeySeaBattlePacket(bool useSweep) {
         SEA_BATTLE_STATE.useSweep = useSweep;
         HANDLE hThread = CreateThread(nullptr, 0, SeaBattleThreadProc, nullptr, 0, nullptr);
         if (hThread) {
@@ -2601,7 +2601,7 @@ uint32_t GetItemPosition(uint32_t itemId) {
         return 0;
     }
     
-    BOOL SendOneKeyAct778Packet(bool useSweep) {
+    BOOL StartOneKeyAct778Packet(bool useSweep) {
         ACT778_STATE.useSweep = useSweep;  // 设置扫荡选项
         HANDLE hThread = CreateThread(nullptr, 0, Act778ThreadProc, nullptr, 0, nullptr);
         if (hThread) { CloseHandle(hThread); return TRUE; }
@@ -5387,7 +5387,7 @@ cleanup:
 }
 
 // 一键玄塔完整流程
-BOOL SendOneKeyTowerPacket() {
+BOOL StartOneKeyTowerPacket() {
     bool autoMode = false;
     {
         CriticalSectionLock lock(g_towerCS);
@@ -6367,7 +6367,7 @@ BOOL LoadPacketListFromFile(const std::wstring& filePath) {
 }
 
 // 一键完成所有选中的日常活动
-void SendDailyTasksAsync(DWORD flags) {
+void StartDailyTasksAsync(DWORD flags) {
     if (flags == 0) return;
     
     DailyTaskData* taskData = new DailyTaskData();
@@ -7297,7 +7297,7 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
     return 0;
 }
 
-BOOL SendEightTrigramsTaskAsync() {
+BOOL StartEightTrigramsTaskAsync() {
     if (g_taskZoneRunning.load()) {
         UpdateTaskZoneUi(L"任务区：八卦灵盘已在运行中", true);
         return FALSE;
@@ -7757,7 +7757,7 @@ static DWORD WINAPI CollectThreadProc(LPVOID lpParam) {
 }
 
 /** 一键采集所有选中的材料 */
-BOOL SendOneKeyCollectPacket(DWORD flags) {
+BOOL StartOneKeyCollectPacket(DWORD flags) {
     if (flags == 0) {
         UIBridge::Instance().UpdateHelperText(L"请先选择要采集的材料");
         return FALSE;
@@ -8083,7 +8083,7 @@ void ProcessCollectResponse(const GamePacket& packet) {
 }
 
     // ============================================================================
-    // 福瑞宝箱功能 (HeavenFurui)
+    // 福瑞宝箱功能 (HeavenFurui) owner：局部静态状态统一跟随该功能块维护。
     // ============================================================================
     
     // 福瑞宝箱局部静态变量
@@ -8378,7 +8378,7 @@ void ProcessCollectResponse(const GamePacket& packet) {
     /**
      * @brief 福瑞宝箱 - 一键完成
      */
-    BOOL SendOneKeyHeavenFuruiPacket(int maxBoxes) {
+    BOOL StartOneKeyHeavenFuruiPacket(int maxBoxes) {
         if (g_heavenFuruiRunning) {
             // 如果正在运行，则停止
             g_heavenFuruiRunning = false;
@@ -9304,7 +9304,7 @@ void ProcessBattleSixBattleEndResponse(const GamePacket& packet) {
 }
 
 // 万妖盛会一键功能实现
-BOOL SendOneKeyBattleSixPacket(int matchCount) {
+BOOL StartOneKeyBattleSixPacket(int matchCount) {
     // 启用自动战斗
     g_battleSixAuto.SetAutoBattle(true);
     
@@ -9317,7 +9317,7 @@ BOOL SendOneKeyBattleSixPacket(int matchCount) {
     return SendBattleSixCombatInfoPacket();
 }
 
-BOOL SendCancelBattleSixPacket() {
+BOOL CancelBattleSixMatch() {
     // 取消匹配
     return SendBattleSixCancelMatchPacket();
 }
@@ -9651,7 +9651,7 @@ CLEANUP:
     return 0;
 }
 
-BOOL SendOneKeyDungeonJumpPacket(int targetLayer) {
+BOOL StartOneKeyDungeonJumpPacket(int targetLayer) {
     if (g_dungeonJumpState.isRunning) {
         return FALSE;
     }
@@ -10231,7 +10231,7 @@ void ShuangTaiAutoBattle::OnBattleEndResponse(const GamePacket& packet) {
 
 // ========== 外部接口函数 ==========
 
-BOOL SendOneKeyShuangTaiPacket(bool blockBattle) {
+BOOL StartOneKeyShuangTaiPacket(bool blockBattle) {
     return g_shuangtaiAuto.Start(blockBattle) ? TRUE : FALSE;
 }
 

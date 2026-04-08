@@ -20,7 +20,7 @@ BOOL SendAct778GameHitPacket(int below);
 BOOL SendAct778EndGamePacket(int monsterCount, int endType);
 BOOL SendAct778SweepInfoPacket();
 BOOL SendAct778SweepPacket();
-BOOL SendOneKeyAct778Packet(bool useSweep = false);
+BOOL StartOneKeyAct778Packet(bool useSweep = false);
 void ProcessAct778Response(const GamePacket& packet);
 
 namespace Act793 {
@@ -37,7 +37,7 @@ BOOL SendAct793GameHitPacket(int hitCount);
 BOOL SendAct793EndGamePacket(int medalCount);
 BOOL SendAct793SweepInfoPacket();
 BOOL SendAct793SweepPacket();
-BOOL SendOneKeyAct793Packet(bool useSweep = false, int targetMedals = Act793::TARGET_MEDALS);
+BOOL StartOneKeyAct793Packet(bool useSweep = false, int targetMedals = Act793::TARGET_MEDALS);
 void ProcessAct793Response(const GamePacket& packet);
 
 namespace Act791 {
@@ -54,7 +54,7 @@ BOOL SendAct791StartGamePacket();
 BOOL SendAct791EndGamePacket(int score);
 BOOL SendAct791SweepInfoPacket();
 BOOL SendAct791SweepPacket();
-BOOL SendOneKeyAct791Packet(bool useSweep = false, int targetScore = Act791::TARGET_SCORE);
+BOOL StartOneKeyAct791Packet(bool useSweep = false, int targetScore = Act791::TARGET_SCORE);
 void ProcessAct791Response(const GamePacket& packet);
 
 namespace Act782 {
@@ -69,7 +69,7 @@ BOOL SendAct782StartGamePacket(int ruleFlag);
 BOOL SendAct782EndGamePacket(int score);
 BOOL SendAct782SweepInfoPacket();
 BOOL SendAct782SweepPacket();
-BOOL SendOneKeyAct782Packet(bool useSweep = false, int targetScore = Act782::TARGET_SCORE);
+BOOL StartOneKeyAct782Packet(bool useSweep = false, int targetScore = Act782::TARGET_SCORE);
 void ProcessAct782Response(const GamePacket& packet);
 
 namespace Act803 {
@@ -83,7 +83,7 @@ BOOL SendAct803StartGamePacket(int startFlag = 1);
 BOOL SendAct803EndGamePacket(int score, bool isWin = true);
 BOOL SendAct803SweepInfoPacket();
 BOOL SendAct803SweepPacket();
-BOOL SendOneKeyAct803Packet(bool useSweep = false, int targetScore = Act803::MAX_NUM);
+BOOL StartOneKeyAct803Packet(bool useSweep = false, int targetScore = Act803::MAX_NUM);
 void ProcessAct803Response(const GamePacket& packet);
 
 namespace Act624 {
@@ -97,7 +97,7 @@ BOOL SendAct624EndRoundPacket(int round, int gameTime, int mushroomNum);
 BOOL SendAct624NextRoundPacket();
 BOOL SendAct624SweepInfoPacket();
 BOOL SendAct624SweepPacket();
-BOOL SendOneKeyAct624Packet(bool useSweep = false);
+BOOL StartOneKeyAct624Packet(bool useSweep = false);
 void ProcessAct624Response(const GamePacket& packet);
 
 namespace SeaBattle {
@@ -115,7 +115,7 @@ BOOL SendSeaBattleStartGamePacket(int promptFlag = 0);
 BOOL SendSeaBattleEndGamePacket(int score);
 BOOL SendSeaBattleSweepInfoPacket();
 BOOL SendSeaBattleSweepPacket();
-BOOL SendOneKeySeaBattlePacket(bool useSweep = false);
+BOOL StartOneKeySeaBattlePacket(bool useSweep = false);
 void ProcessSeaBattleResponse(const GamePacket& packet);
 
 namespace HeavenFurui {
@@ -130,7 +130,7 @@ BOOL SendHeavenFuruiPacket(int opType, const std::vector<int32_t>& bodyValues = 
 BOOL SendHeavenFuruiQueryPacket(int mapId);
 BOOL SendHeavenFuruiPickupPacket(int mapId, int boxId);
 BOOL SendHeavenFuruiConfirmPacket();
-BOOL SendOneKeyHeavenFuruiPacket(int maxBoxes = 30);
+BOOL StartOneKeyHeavenFuruiPacket(int maxBoxes = 30);
 void StopHeavenFurui();
 void SetHeavenFuruiMaxBoxes(int maxBoxes);
 void ProcessHeavenFuruiResponse(const GamePacket& packet);
