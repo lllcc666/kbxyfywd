@@ -61,7 +61,7 @@ void ProcessSpiritPresuresResponse(const GamePacket& packet);
 void ProcessSpiritCollectResponse(const GamePacket& packet);
 void ProcessSpiritSendSpiritResponse(const GamePacket& packet);
 void ProcessSpiritPlayerInfoResponse(const GamePacket& packet);
-static void ProcessEightTrigramsUserTaskListResponse(const GamePacket& packet);
+static void ProcessTaskZoneUserTaskListResponse(const GamePacket& packet);
 static void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet);
 
 extern bool PostScriptToUI(const std::wstring& jsCode);
@@ -344,6 +344,21 @@ static std::atomic<bool> g_act803UseSweep{false};
 static std::atomic<bool> g_act803SweepAvailable{false};
 static std::vector<int> g_act803HasAwardArr;
 
+// 逆流的试炼状态 (Act804)
+static std::atomic<int> g_act804PlayCount{0};
+static std::atomic<int> g_act804RestTime{0};
+static std::atomic<int> g_act804MoonPowerNum{0};
+static std::atomic<int> g_act804MooncakeNum{0};
+static std::atomic<int> g_act804EvolveFlag1{0};
+static std::atomic<int> g_act804PromptFlag{1};
+static std::atomic<int> g_act804BuyNum{0};
+static std::atomic<int> g_act804LastResult{-1};
+static std::atomic<bool> g_act804WaitingResponse{false};
+static std::atomic<bool> g_act804UseSweep{false};
+static std::atomic<bool> g_act804SweepAvailable{false};
+static std::mutex g_act804Mutex;
+static std::vector<int> g_act804StartAwardList;
+
 // 采蘑菇的好伙伴状态 (Act624)
 static std::atomic<int> g_act624PlayCount{0};
 static std::atomic<int> g_act624RestTime{0};
@@ -443,6 +458,7 @@ struct EightTrigramsProgressState {
 };
 
 EightTrigramsProgressState g_eightTrigramsProgress;
+std::atomic<uint32_t> g_taskZoneProgressTaskId{0};
 std::atomic<int> g_eightTrigramsResumeStepIndex{-1};
 
 // 背包缓存 owner：位置映射和物品列表统一由这一组维护。
@@ -1060,6 +1076,263 @@ uint32_t GetItemPosition(uint32_t itemId) {
         return it->second;
     }
     return 0;
+}
+
+// ============ 天之骄子的特训功能实现 (Act666) ============
+
+#define ACT666_STATE ActivityStateManager::Instance().GetAct666State()
+
+BOOL SendAct666Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
+    return SendActivityPacket(Act666::ACTIVITY_ID, operation, bodyValues);
+}
+
+BOOL SendAct666OpenUIPacket() {
+    ACT666_STATE.waitingResponse = true;
+    return SendAct666Packet("open_ui", {});
+}
+
+BOOL SendAct666StartGamePacket(int isPropt, int type) {
+    ACT666_STATE.waitingResponse = true;
+    return SendAct666Packet("start_game", {isPropt, type});
+}
+
+BOOL SendAct666EndGamePacket(int medalCount, bool isPass) {
+    int clientCheckCode = 0;
+    const int checkCode = ACT666_STATE.checkCode.load();
+    if (checkCode != 0) {
+        clientCheckCode = checkCode & static_cast<int>(g_userId.load() % static_cast<uint32_t>(checkCode));
+    }
+    ACT666_STATE.waitingResponse = true;
+    return SendAct666Packet("end_game", {medalCount, clientCheckCode, isPass ? 1 : 0});
+}
+
+BOOL SendAct666SweepInfoPacket() {
+    ACT666_STATE.waitingResponse = true;
+    return SendAct666Packet("sweep_info", {});
+}
+
+BOOL SendAct666SweepPacket() {
+    ACT666_STATE.waitingResponse = true;
+    return SendAct666Packet("sweep", {});
+}
+
+DWORD WINAPI Act666ThreadProc(LPVOID lpParam) {
+    (void)lpParam;
+
+    const bool useSweep = ACT666_STATE.useSweep.load();
+    ACT666_STATE.Reset();
+    ACT666_STATE.useSweep = useSweep;
+
+    auto waitForResponse = []() -> bool {
+        for (int i = 0; i < 30 && ACT666_STATE.waitingResponse; ++i) {
+            Sleep(100);
+        }
+        const bool received = !ACT666_STATE.waitingResponse.load();
+        ACT666_STATE.waitingResponse = false;
+        return received;
+    };
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：正在获取活动信息...");
+
+    SendAct666OpenUIPacket();
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：获取活动信息失败");
+        return 0;
+    }
+
+    if (ACT666_STATE.playCount.load() <= 0) {
+        UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：今日次数已用完");
+        return 0;
+    }
+
+    if (ACT666_STATE.restTime.load() > 0) {
+        UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：冷却中，请稍后再试");
+        return 0;
+    }
+
+    if (useSweep && ACT666_STATE.bestFlag.load() > 0) {
+        UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：正在获取扫荡信息...");
+
+        Sleep(300);
+        SendAct666SweepInfoPacket();
+        if (waitForResponse()) {
+            Sleep(300);
+            SendAct666SweepPacket();
+            if (waitForResponse()) {
+                Sleep(300);
+                SendAct666OpenUIPacket();
+                waitForResponse();
+                UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：扫荡完成");
+                return 0;
+            }
+        }
+
+        UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：扫荡失败，改为直接完成");
+    }
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：开始游戏...");
+    SendAct666StartGamePacket(0, 0);
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：开始游戏失败");
+        return 0;
+    }
+
+    const int startResult = ACT666_STATE.startResult.load();
+    if (startResult != 0) {
+        if (startResult != 10 && startResult != 11 && startResult != 12 && startResult != 13) {
+            UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：开始游戏失败");
+        }
+        return 0;
+    }
+
+    if (ACT666_STATE.checkCode.load() == 0) {
+        UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：获取校验码失败");
+        return 0;
+    }
+
+    Sleep(500);
+    UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：直接提交结算...");
+    SendAct666EndGamePacket(1, true);
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：结算失败");
+        return 0;
+    }
+
+    Sleep(300);
+    SendAct666OpenUIPacket();
+    waitForResponse();
+    UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：结算完成");
+    return 0;
+}
+
+BOOL StartOneKeyAct666Packet(bool useSweep) {
+    ACT666_STATE.useSweep = useSweep;
+    HANDLE hThread = CreateThread(nullptr, 0, Act666ThreadProc, nullptr, 0, nullptr);
+    if (hThread) {
+        CloseHandle(hThread);
+        return TRUE;
+    }
+    return FALSE;
+}
+
+void ProcessAct666Response(const GamePacket& packet) {
+    size_t offset = 0;
+    std::string operation;
+    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+        return;
+    }
+
+    const BYTE* body = packet.body.data();
+    ACT666_STATE.waitingResponse = false;
+
+    if (operation == "open_ui") {
+        if (offset + 52 <= packet.body.size()) {
+            ACT666_STATE.playCount = ReadInt32LE(body, offset);
+            ACT666_STATE.restTime = ReadInt32LE(body, offset);
+            ACT666_STATE.medalCount = ReadInt32LE(body, offset);
+            ACT666_STATE.passCount = ReadInt32LE(body, offset);
+            ACT666_STATE.getAwardFlag = ReadInt32LE(body, offset);
+            ACT666_STATE.bestFlag = ReadInt32LE(body, offset);
+            if (ACT666_STATE.rewardList.size() < 4) {
+                ACT666_STATE.rewardList.assign(4, 0);
+            }
+            for (size_t i = 0; i < 4; ++i) {
+                ACT666_STATE.rewardList[i] = ReadInt32LE(body, offset);
+            }
+            ACT666_STATE.catchId = ReadInt32LE(body, offset);
+            if (ACT666_STATE.catchList.size() < 2) {
+                ACT666_STATE.catchList.assign(2, 0);
+            }
+            ACT666_STATE.catchList[0] = ReadInt32LE(body, offset);
+            ACT666_STATE.catchList[1] = ReadInt32LE(body, offset);
+            ACT666_STATE.sweepAvailable = (ACT666_STATE.bestFlag.load() > 0);
+
+            wchar_t msg[256];
+            swprintf_s(
+                msg,
+                L"天之骄子的特训：次数=%d 冷却=%d秒 勋章=%d",
+                ACT666_STATE.playCount.load(),
+                ACT666_STATE.restTime.load(),
+                ACT666_STATE.medalCount.load());
+            UIBridge::Instance().UpdateHelperText(msg);
+        }
+    } else if (operation == "start_game") {
+        if (offset + 4 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT666_STATE.startResult = result;
+            if (result == 0 && offset + 8 <= packet.body.size()) {
+                ACT666_STATE.playCount = ReadInt32LE(body, offset);
+                ACT666_STATE.checkCode = ReadInt32LE(body, offset);
+            } else if (result == 10) {
+                UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：游戏中");
+            } else if (result == 11) {
+                UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：冷却中，请稍后再试");
+            } else if (result == 12) {
+                UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：今日次数已用完");
+            } else if (result == 13) {
+                UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：玩家正在支付中");
+            }
+        }
+    } else if (operation == "end_game") {
+        if (offset + 32 <= packet.body.size()) {
+            ReadInt32LE(body, offset);  // type / result marker
+            ACT666_STATE.playCount = ReadInt32LE(body, offset);
+            ACT666_STATE.restTime = ReadInt32LE(body, offset);
+            ReadInt32LE(body, offset);  // score
+            ACT666_STATE.bestFlag = ReadInt32LE(body, offset);
+            ACT666_STATE.passCount = ReadInt32LE(body, offset);
+            ACT666_STATE.rewardMedalCount = ReadInt32LE(body, offset);
+            ACT666_STATE.rewardExp = ReadInt32LE(body, offset);
+            ACT666_STATE.rewardCoin = ReadInt32LE(body, offset);
+            ACT666_STATE.sweepAvailable = (ACT666_STATE.bestFlag.load() > 0);
+
+            wchar_t msg[256];
+            swprintf_s(
+                msg,
+                L"天之骄子的特训：结算完成，勋章=%d 经验=%d 铜钱=%d",
+                ACT666_STATE.rewardMedalCount.load(),
+                ACT666_STATE.rewardExp.load(),
+                ACT666_STATE.rewardCoin.load());
+            UIBridge::Instance().UpdateHelperText(msg);
+        }
+    } else if (operation == "sweep_info") {
+        if (offset + 12 <= packet.body.size()) {
+            ACT666_STATE.rewardMedalCount = ReadInt32LE(body, offset);
+            ACT666_STATE.rewardExp = ReadInt32LE(body, offset);
+            ACT666_STATE.rewardCoin = ReadInt32LE(body, offset);
+            ACT666_STATE.sweepAvailable = true;
+
+            wchar_t msg[256];
+            swprintf_s(
+                msg,
+                L"天之骄子的特训：扫荡预览，勋章=%d 经验=%d 铜钱=%d",
+                ACT666_STATE.rewardMedalCount.load(),
+                ACT666_STATE.rewardExp.load(),
+                ACT666_STATE.rewardCoin.load());
+            UIBridge::Instance().UpdateHelperText(msg);
+        }
+    } else if (operation == "sweep") {
+        if (offset + 24 <= packet.body.size()) {
+            ReadInt32LE(body, offset);  // type / result marker
+            ACT666_STATE.playCount = ReadInt32LE(body, offset);
+            ACT666_STATE.restTime = ReadInt32LE(body, offset);
+            ACT666_STATE.rewardMedalCount = ReadInt32LE(body, offset);
+            ACT666_STATE.rewardExp = ReadInt32LE(body, offset);
+            ACT666_STATE.rewardCoin = ReadInt32LE(body, offset);
+            ACT666_STATE.sweepAvailable = (ACT666_STATE.bestFlag.load() > 0);
+
+            wchar_t msg[256];
+            swprintf_s(
+                msg,
+                L"天之骄子的特训：扫荡完成，勋章=%d 经验=%d 铜钱=%d",
+                ACT666_STATE.rewardMedalCount.load(),
+                ACT666_STATE.rewardExp.load(),
+                ACT666_STATE.rewardCoin.load());
+            UIBridge::Instance().UpdateHelperText(msg);
+        }
+    }
 }
 
 // ============ 磐石御天火功能实现 (Act793) ============
@@ -1900,6 +2173,379 @@ uint32_t GetItemPosition(uint32_t itemId) {
                     UIBridge::Instance().UpdateHelperText(operation == "sweep" ? L"清明赏河景：扫荡完成" : L"清明赏河景：结算完成");
                 } else if (result == 3) {
                     UIBridge::Instance().UpdateHelperText(operation == "sweep" ? L"清明赏河景：扫荡失败" : L"清明赏河景：结算失败");
+                }
+            }
+        }
+    }
+
+    // ============ 逆流的试炼功能实现 (Act804) ============
+
+    // 按 AS3 的 GameControl.onEndGame/getObjByAward 语义拼结算 JSON。
+    // 这里不做目标分数截断，直接按实际序列生成，避免和客户端字面行为偏离。
+    std::string BuildAct804EndGameJson(const std::vector<int>& awardList) {
+        std::vector<std::pair<int, int>> awardCount;
+        awardCount.reserve(awardList.size());
+
+        int score = 0;
+        for (size_t i = 0; i < awardList.size(); ++i) {
+            const int awardType = awardList[i];
+            if (awardType == 15) {
+                ++score;
+            } else if (awardType == 14) {
+                score = (score > 3) ? (score - 3) : 0;
+            }
+
+            if (i == 14 || i == 15 || awardType <= 0) {
+                continue;
+            }
+
+            auto it = std::find_if(
+                awardCount.begin(),
+                awardCount.end(),
+                [awardType](const std::pair<int, int>& entry) {
+                    return entry.first == awardType;
+                });
+            if (it == awardCount.end()) {
+                awardCount.emplace_back(awardType, 1);
+            } else {
+                ++it->second;
+            }
+        }
+
+        std::string jsonStr = "{\"score\":" + std::to_string(score) + ",\"awards\":{";
+        bool first = true;
+        for (const auto& entry : awardCount) {
+            if (!first) {
+                jsonStr += ",";
+            }
+            first = false;
+            jsonStr += "\"" + std::to_string(entry.first) + "\":" + std::to_string(entry.second);
+        }
+        jsonStr += "}}";
+        return jsonStr;
+    }
+
+    BOOL SendAct804Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
+        return SendActivityPacket(Act804::ACTIVITY_ID, operation, bodyValues);
+    }
+
+    BOOL SendAct804GameInfoPacket() {
+        g_act804WaitingResponse = true;
+        return SendAct804Packet("game_info", {});
+    }
+
+    BOOL SendAct804StartGamePacket(int promptFlag) {
+        g_act804WaitingResponse = true;
+        return SendAct804Packet("start_game", {promptFlag});
+    }
+
+    BOOL SendAct804EndGamePacket(const std::string& jsonStr) {
+        g_act804WaitingResponse = true;
+        std::vector<BYTE> packet = PacketBuilder()
+            .SetOpcode(Opcode::ACTIVITY_LUA_V3_SEND)
+            .SetParams(Act804::ACTIVITY_ID)
+            .WriteString("end_game")
+            .WriteString(jsonStr)
+            .Build();
+        return SendPacket(
+            0,
+            packet.data(),
+            static_cast<DWORD>(packet.size()),
+            Opcode::ACTIVITY_QUERY_BACK,
+            WpeHook::TIMEOUT_RESPONSE,
+            Act804::ACTIVITY_ID,
+            true);
+    }
+
+    BOOL SendAct804SweepInfoPacket() {
+        g_act804WaitingResponse = true;
+        return SendAct804Packet("sweep_info", {});
+    }
+
+    BOOL SendAct804SweepPacket() {
+        g_act804WaitingResponse = true;
+        return SendAct804Packet("sweep", {});
+    }
+
+    DWORD WINAPI Act804ThreadProc(LPVOID lpParam) {
+        if (lpParam) {
+            delete static_cast<int*>(lpParam);
+        }
+
+        g_act804PlayCount = 0;
+        g_act804RestTime = 0;
+        g_act804MoonPowerNum = 0;
+        g_act804MooncakeNum = 0;
+        g_act804EvolveFlag1 = 0;
+        g_act804PromptFlag = 1;
+        g_act804BuyNum = 0;
+        g_act804LastResult = -1;
+        g_act804SweepAvailable = false;
+        {
+            std::lock_guard<std::mutex> lock(g_act804Mutex);
+            g_act804StartAwardList.clear();
+        }
+
+        Sleep(300);
+        UIBridge::Instance().UpdateHelperText(L"逆流的试炼：正在获取活动信息...");
+
+        SendAct804GameInfoPacket();
+        for (int i = 0; i < 30 && g_act804WaitingResponse.load(); ++i) {
+            Sleep(100);
+        }
+
+        if (g_act804PlayCount.load() <= 0) {
+            UIBridge::Instance().UpdateHelperText(L"逆流的试炼：今日次数已用完");
+            return 0;
+        }
+
+        if (g_act804RestTime.load() > 0) {
+            UIBridge::Instance().UpdateHelperText(L"逆流的试炼：冷却中，请稍后再试");
+            return 0;
+        }
+
+        if (g_act804UseSweep.load()) {
+            UIBridge::Instance().UpdateHelperText(L"逆流的试炼：正在获取扫荡信息...");
+            SendAct804SweepInfoPacket();
+            for (int i = 0; i < 30 && g_act804WaitingResponse.load(); ++i) {
+                Sleep(100);
+            }
+
+            if (g_act804SweepAvailable.load()) {
+                Sleep(300);
+                UIBridge::Instance().UpdateHelperText(L"逆流的试炼：执行扫荡...");
+                g_act804LastResult = -1;
+                SendAct804SweepPacket();
+                for (int i = 0; i < 30 && g_act804WaitingResponse.load(); ++i) {
+                    Sleep(100);
+                }
+                if (g_act804LastResult.load() == 0) {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：扫荡完成");
+                } else {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：扫荡失败");
+                }
+                return 0;
+            }
+
+            UIBridge::Instance().UpdateHelperText(L"逆流的试炼：当前不可扫荡，改为直接结算");
+        }
+
+        Sleep(300);
+        UIBridge::Instance().UpdateHelperText(L"逆流的试炼：开始游戏...");
+        SendAct804StartGamePacket(g_act804PromptFlag.load());
+        for (int i = 0; i < 30 && g_act804WaitingResponse.load(); ++i) {
+            Sleep(100);
+        }
+
+        if (g_act804LastResult.load() != 0) {
+            if (g_act804LastResult.load() == -1) {
+                UIBridge::Instance().UpdateHelperText(L"逆流的试炼：获取开局信息失败");
+            }
+            return 0;
+        }
+
+        std::vector<int> startAwardList;
+        {
+            std::lock_guard<std::mutex> lock(g_act804Mutex);
+            startAwardList = g_act804StartAwardList;
+        }
+
+        const std::string jsonStr = BuildAct804EndGameJson(startAwardList);
+
+        Sleep(500);
+        UIBridge::Instance().UpdateHelperText(L"逆流的试炼：跳过客户端渲染，直接提交结算...");
+        g_act804LastResult = -1;
+        SendAct804EndGamePacket(jsonStr);
+        for (int i = 0; i < 30 && g_act804WaitingResponse.load(); ++i) {
+            Sleep(100);
+        }
+
+        if (g_act804LastResult.load() == 0) {
+            UIBridge::Instance().UpdateHelperText(L"逆流的试炼：结算完成");
+        } else {
+            UIBridge::Instance().UpdateHelperText(L"逆流的试炼：结算失败");
+        }
+
+        return 0;
+    }
+
+    BOOL StartOneKeyAct804Packet(bool useSweep, int targetScore) {
+        g_act804UseSweep = useSweep;
+        int* pTargetScore = new int(targetScore);
+        HANDLE hThread = CreateThread(nullptr, 0, Act804ThreadProc, pTargetScore, 0, nullptr);
+        if (hThread) {
+            CloseHandle(hThread);
+            return TRUE;
+        }
+        delete pTargetScore;
+        return FALSE;
+    }
+
+    void ProcessAct804Response(const GamePacket& packet) {
+        size_t offset = 0;
+        std::string operation;
+        if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+            return;
+        }
+
+        const BYTE* body = packet.body.data();
+        g_act804WaitingResponse = false;
+
+        if (operation == "game_info") {
+            if (offset + 32 <= packet.body.size()) {
+                const int code = ReadInt32LE(body, offset);
+                g_act804PlayCount = ReadInt32LE(body, offset);
+                g_act804RestTime = ReadInt32LE(body, offset);
+                g_act804MoonPowerNum = ReadInt32LE(body, offset);
+                g_act804MooncakeNum = ReadInt32LE(body, offset);
+                g_act804EvolveFlag1 = ReadInt32LE(body, offset);
+                g_act804PromptFlag = ReadInt32LE(body, offset);
+                g_act804BuyNum = ReadInt32LE(body, offset);
+                const int limitNum = ReadInt32LE(body, offset);
+                for (int i = 0; i < limitNum && offset + 8 <= packet.body.size(); ++i) {
+                    ReadInt32LE(body, offset);
+                    ReadInt32LE(body, offset);
+                }
+
+                if (code == 0) {
+                    wchar_t msg[256];
+                    swprintf_s(
+                        msg,
+                        L"逆流的试炼：次数=%d 冷却=%d秒 勋章=%d",
+                        g_act804PlayCount.load(),
+                        g_act804RestTime.load(),
+                        g_act804MoonPowerNum.load());
+                    UIBridge::Instance().UpdateHelperText(msg);
+                }
+            }
+        } else if (operation == "start_game") {
+            if (offset + 4 <= packet.body.size()) {
+                const int result = ReadInt32LE(body, offset);
+                g_act804LastResult = result;
+                if (result == 0 && offset + 8 <= packet.body.size()) {
+                    g_act804PlayCount = ReadInt32LE(body, offset);
+                    const int rewardLength = ReadInt32LE(body, offset);
+                    {
+                        std::lock_guard<std::mutex> lock(g_act804Mutex);
+                        g_act804StartAwardList.clear();
+                        for (int i = 0; i < rewardLength && offset + 4 <= packet.body.size(); ++i) {
+                            const int rewardIndex = ReadInt32LE(body, offset);
+                            if (rewardIndex != 0) {
+                                g_act804StartAwardList.push_back(rewardIndex);
+                            }
+                        }
+                    }
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：已获取开局奖励列表");
+                } else if (result == 1) {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：今日次数已用完");
+                } else if (result == 11) {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：冷却中，请稍后再试");
+                } else if (result == 10) {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：当前已经在游戏中");
+                } else if (result == 12) {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：游戏次数不足");
+                }
+            }
+        } else if (operation == "sweep_info") {
+            if (offset + 8 <= packet.body.size()) {
+                const int score = ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                g_act804SweepAvailable = (score > 0);
+                if (g_act804SweepAvailable.load()) {
+                    std::string jsonStr;
+                    ReadLengthPrefixedString(packet.body, offset, jsonStr);
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：扫荡预览已获取");
+                } else {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：当前不可扫荡");
+                }
+            }
+        } else if (operation == "end_game" || operation == "sweep") {
+            if (offset + 20 <= packet.body.size()) {
+                const int result = ReadInt32LE(body, offset);
+                g_act804LastResult = result;
+                const int restPlayCount = ReadInt32LE(body, offset);
+                const int restCdTime = ReadInt32LE(body, offset);
+                const int score = ReadInt32LE(body, offset);
+                const int coin = ReadInt32LE(body, offset);
+                std::string jsonStr;
+                if (ReadLengthPrefixedString(packet.body, offset, jsonStr)) {
+                    (void)jsonStr;
+                }
+                g_act804PlayCount = restPlayCount;
+                g_act804RestTime = restCdTime;
+                if (result == 0) {
+                    wchar_t msg[256];
+                    swprintf_s(
+                        msg,
+                        L"逆流的试炼：%s完成，得分=%d，收益=%d",
+                        operation == "sweep" ? L"扫荡" : L"结算",
+                        score,
+                        coin);
+                    UIBridge::Instance().UpdateHelperText(msg);
+                } else {
+                    UIBridge::Instance().UpdateHelperText(operation == "sweep" ? L"逆流的试炼：扫荡失败" : L"逆流的试炼：结算失败");
+                }
+            }
+        } else if (operation == "buy_play_game_cnt") {
+            if (offset + 4 <= packet.body.size()) {
+                const int result = ReadInt32LE(body, offset);
+                if (result == 0) {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：已购买一次游戏机会");
+                } else if (result == 10) {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：游戏中");
+                } else if (result == 11) {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：不需要购买");
+                } else if (result == 14) {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：卡布币不足");
+                } else if (result == 16) {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：购买次数已达上限");
+                }
+            }
+        } else if (operation == "exchange") {
+            if (offset + 8 <= packet.body.size()) {
+                const int result = ReadInt32LE(body, offset);
+                const int itemIndex = ReadInt32LE(body, offset);
+                if (result == 0 && offset + 8 <= packet.body.size()) {
+                    g_act804MoonPowerNum = ReadInt32LE(body, offset);
+                    const int exchNum = ReadInt32LE(body, offset);
+                    (void)itemIndex;
+                    (void)exchNum;
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：兑换成功");
+                }
+            }
+        } else if (operation == "evolution") {
+            if (offset + 4 <= packet.body.size()) {
+                const int result = ReadInt32LE(body, offset);
+                if (result == 0 && offset + 4 <= packet.body.size()) {
+                    ReadInt32LE(body, offset);
+                    g_act804EvolveFlag1 = 1;
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：超进化完成");
+                } else if (result == 1) {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：已经超进化了");
+                } else if (result == 2) {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：请先将逆空流设为首选");
+                } else if (result == 3) {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：等级不足");
+                } else if (result == 4) {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：力之月饼不足");
+                } else if (result == 5) {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：卡布币不足");
+                }
+            }
+        } else if (operation == "put_monster") {
+            if (offset + 4 <= packet.body.size()) {
+                const int result = ReadInt32LE(body, offset);
+                if (result == 0) {
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：已放入鹦鹉");
+                }
+            }
+        } else if (operation == "clear_cd_time") {
+            if (offset + 4 <= packet.body.size()) {
+                const int result = ReadInt32LE(body, offset);
+                if (result == 0 && offset + 8 <= packet.body.size()) {
+                    g_act804RestTime = ReadInt32LE(body, offset);
+                    ReadInt32LE(body, offset);
+                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：冷却已清除");
                 }
             }
         }
@@ -2959,7 +3605,7 @@ void ProcessEnterWorldPacket(const GamePacket& gp) {
     std::wstring kabuName = Utf8ToWide(nameUtf8);
     
     // 更新窗口标题
-    std::wstring newTitle = L"卡布西游浮影微端 V1.07 - " + 
+    std::wstring newTitle = L"卡布西游浮影微端 V1.08 - " + 
                            std::to_wstring(kabuId) + L" " + kabuName;
     SetWindowTextW(g_hWnd, newTitle.c_str());
 }
@@ -3732,7 +4378,7 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerOpcode(Opcode::MONSTER_LIST, processMonster);
     registerOpcode(Opcode::ENTER_WORLD, ProcessEnterWorldPacket);
     registerOpcode(Opcode::ENTER_SCENE_BACK, enterScene);
-    registerOpcode(Opcode::USER_TASK_LIST_BACK, ProcessEightTrigramsUserTaskListResponse);
+    registerOpcode(Opcode::USER_TASK_LIST_BACK, ProcessTaskZoneUserTaskListResponse);
     registerOpcode(Opcode::TASK_TALK_BACK, ProcessEightTrigramsTaskTalkResponse);
 
     registerOpcode(Opcode::DEEP_DIG_BACK, ProcessDeepDigResponse);
@@ -3748,10 +4394,13 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerOpcode(Opcode::REQ_PACKAGE_DATA_BACK, ProcessPackageDataResponse);
 
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act778::ACTIVITY_ID, ProcessAct778Response);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act666::ACTIVITY_ID, ProcessAct666Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act793::ACTIVITY_ID, ProcessAct793Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act791::ACTIVITY_ID, ProcessAct791Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act782::ACTIVITY_ID, ProcessAct782Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act803::ACTIVITY_ID, ProcessAct803Response);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act804::ACTIVITY_ID, ProcessAct804Response);
+    registerParams(Opcode::ACTIVITY_LUA_V3_BACK, Act804::ACTIVITY_ID, ProcessAct804Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act624::ACTIVITY_ID, ProcessAct624Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, SeaBattle::ACTIVITY_ID, ProcessSeaBattleResponse);
     registerParams(Opcode::HORSE_COMPETITION_BACK, HORSE_COMPETITION_ACT_ID, ProcessHorseCompetitionResponse);
@@ -3813,6 +4462,7 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
         m_strawberryState.Reset();
         m_trialState.Reset();
         m_act778State.Reset();
+        m_act666State.Reset();
         m_act793State.Reset();
         m_act791State.Reset();
         m_seaBattleState.Reset();
@@ -3821,6 +4471,10 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
 
     Act778State& ActivityStateManager::GetAct778State() {
         return m_act778State;
+    }
+
+    Act666State& ActivityStateManager::GetAct666State() {
+        return m_act666State;
     }
 
     Act793State& ActivityStateManager::GetAct793State() {
@@ -6389,6 +7043,28 @@ void StartDailyTasksAsync(DWORD flags) {
 // 任务区（八卦灵盘）
 // ============================================================================
 
+struct HuangchengWeijiTaskInfo {
+    uint32_t subtaskId;
+    uint32_t sceneId;
+    const wchar_t* name;
+    const wchar_t* sceneName;
+    const wchar_t* note;
+};
+
+static const HuangchengWeijiTaskInfo HUANGCHENG_WEIJI_TASKS[] = {
+    {2001001, 1003, L"接受使命", L"驾驶舱", L"起始报名"},
+    {2001002, 2003, L"奇怪的声音", L"双叉岭", L"第一次下沉"},
+    {2001003, 2001, L"歪打正着揭皇榜", L"长安城", L"进入大唐主线"},
+    {2001004, 2002, L"唐太宗的回忆", L"皇宫", L"皇城核心"},
+    {2001005, 2003, L"危机重重", L"双叉岭", L"含 200100504 特殊镜头"},
+    {2001006, 2003, L"传说中的唐三藏", L"双叉岭", L"救援段"},
+    {2001007, 2005, L"你逃不掉的！", L"五指山顶", L"地形互动"},
+    {2001008, 2005, L"神仙的指示", L"五指山顶", L"收尾"},
+};
+
+static const size_t HUANGCHENG_WEIJI_TASK_COUNT = sizeof(HUANGCHENG_WEIJI_TASKS) / sizeof(HuangchengWeijiTaskInfo);
+static constexpr uint32_t HUANGCHENG_WEIJI_TASK_ID = 2001000;
+
 enum class TaskZoneStepKind {
     Talk,
     Acquire,
@@ -6511,13 +7187,59 @@ static size_t FindEightTrigramsStepIndexByDialogId(uint32_t dialogId) {
     return EIGHT_TRIGRAMS_STEP_COUNT;
 }
 
+static const HuangchengWeijiTaskInfo* FindHuangchengWeijiTaskInfo(uint32_t subtaskId) {
+    for (size_t i = 0; i < HUANGCHENG_WEIJI_TASK_COUNT; ++i) {
+        if (HUANGCHENG_WEIJI_TASKS[i].subtaskId == subtaskId) {
+            return &HUANGCHENG_WEIJI_TASKS[i];
+        }
+    }
+    return nullptr;
+}
+
+static std::wstring BuildUInt32JsonArray(const std::vector<uint32_t>& values) {
+    std::wstring result = L"[";
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i > 0) {
+            result += L",";
+        }
+        result += std::to_wstring(values[i]);
+    }
+    result += L"]";
+    return result;
+}
+
+static void UpdateHuangchengWeijiUi(const std::wstring& text, bool running) {
+    UIBridge::Instance().UpdateHelperText(text);
+    std::wstring script = L"if(window.updateHuangchengWeijiStatus) { window.updateHuangchengWeijiStatus('" +
+                          UIBridge::EscapeJsonString(text) + L"', " +
+                          (running ? L"true" : L"false") + L"); }";
+    PostScriptToUI(script);
+}
+
+static void PushHuangchengWeijiProgressToUi() {
+    std::vector<uint32_t> acceptedSubtaskIds;
+    std::vector<uint32_t> finishedSubtaskIds;
+    {
+        std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+        acceptedSubtaskIds = g_eightTrigramsProgress.acceptedSubtaskIds;
+        finishedSubtaskIds = g_eightTrigramsProgress.finishedSubtaskIds;
+    }
+
+    std::wstring script = L"if(window.updateHuangchengWeijiProgress) { window.updateHuangchengWeijiProgress({taskId:" +
+                          std::to_wstring(HUANGCHENG_WEIJI_TASK_ID) +
+                          L", acceptedSubtaskIds:" + BuildUInt32JsonArray(acceptedSubtaskIds) +
+                          L", finishedSubtaskIds:" + BuildUInt32JsonArray(finishedSubtaskIds) +
+                          L"}); }";
+    PostScriptToUI(script);
+}
+
 static void UpdateEightTrigramsResumeHint(size_t nextIndex) {
     g_eightTrigramsResumeStepIndex.store(static_cast<int>(nextIndex));
 }
 
 static void UpdateEightTrigramsResumeHintByDialogId(uint32_t dialogId);
 
-static void ResetEightTrigramsUserTaskListCache() {
+static void ResetTaskZoneUserTaskListCache() {
     std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
     g_eightTrigramsProgress.userTaskListLoaded = false;
     g_eightTrigramsProgress.acceptedSubtaskIds.clear();
@@ -6658,7 +7380,7 @@ static std::wstring BuildTaskZoneStatus(const EightTrigramsStep& step, size_t in
     return status;
 }
 
-static void ProcessEightTrigramsUserTaskListResponse(const GamePacket& packet) {
+static void ProcessTaskZoneUserTaskListResponse(const GamePacket& packet) {
     if (packet.body.empty()) {
         return;
     }
@@ -6675,6 +7397,7 @@ static void ProcessEightTrigramsUserTaskListResponse(const GamePacket& packet) {
     if (offset + 4 > packet.body.size()) {
         return;
     }
+    const uint32_t progressTaskId = g_taskZoneProgressTaskId.load();
     const int acceptedCount = ReadInt32LE(packet.body.data(), offset);
     for (int i = 0; i < acceptedCount; ++i) {
         if (offset + 8 > packet.body.size()) {
@@ -6691,8 +7414,8 @@ static void ProcessEightTrigramsUserTaskListResponse(const GamePacket& packet) {
             ReadInt32LE(packet.body.data(), offset);
         }
 
-        const uint32_t taskId = subtaskId - (subtaskId % 1000);
-        if (taskId == 4006000) {
+        const uint32_t subtaskTaskId = subtaskId - (subtaskId % 1000);
+        if (subtaskTaskId == progressTaskId) {
             acceptedSubtaskIds.push_back(subtaskId);
         }
     }
@@ -6709,8 +7432,8 @@ static void ProcessEightTrigramsUserTaskListResponse(const GamePacket& packet) {
         const uint32_t subtaskId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
         ReadInt32LE(packet.body.data(), offset);  // finishTime
 
-        const uint32_t taskId = subtaskId - (subtaskId % 1000);
-        if (taskId == 4006000) {
+        const uint32_t subtaskTaskId = subtaskId - (subtaskId % 1000);
+        if (subtaskTaskId == progressTaskId) {
             finishedSubtaskIds.push_back(subtaskId);
         }
     }
@@ -6719,6 +7442,9 @@ static void ProcessEightTrigramsUserTaskListResponse(const GamePacket& packet) {
     g_eightTrigramsProgress.acceptedSubtaskIds = std::move(acceptedSubtaskIds);
     g_eightTrigramsProgress.finishedSubtaskIds = std::move(finishedSubtaskIds);
     g_eightTrigramsProgress.userTaskListLoaded = true;
+    if (progressTaskId == HUANGCHENG_WEIJI_TASK_ID) {
+        PushHuangchengWeijiProgressToUi();
+    }
 }
 
 static void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet) {
@@ -6885,14 +7611,24 @@ static void UpdateTaskZoneUi(const std::wstring& text, bool running) {
     PostScriptToUI(script);
 }
 
-static BOOL QueryEightTrigramsTaskListProgress() {
-    ResetEightTrigramsUserTaskListCache();
+BOOL QueryTaskZoneUserTaskListProgress(uint32_t taskId) {
+    if (taskId == 0) {
+        return FALSE;
+    }
+
+    g_taskZoneProgressTaskId.store(taskId);
+    ResetTaskZoneUserTaskListCache();
 
     auto packet = PacketBuilder()
         .SetOpcode(Opcode::USER_TASK_LIST_SEND)
         .Build();
 
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()), Opcode::USER_TASK_LIST_BACK, 3000);
+    const BOOL result = SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()), Opcode::USER_TASK_LIST_BACK, 3000);
+    if (!result) {
+        g_taskZoneProgressTaskId.store(0);
+        return FALSE;
+    }
+    return TRUE;
 }
 
 // 进图是全局响应事件，这里不用 ResponseWaiter，避免被其他自动流程抢走。
@@ -7042,7 +7778,7 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
         ResetEightTrigramsProgressState();
         g_taskZoneMapEntered = false;
         UpdateTaskZoneUi(L"任务区：读取当前进度...", true);
-        const bool progressLoaded = QueryEightTrigramsTaskListProgress();
+        const bool progressLoaded = QueryTaskZoneUserTaskListProgress(4006000);
         bool hasResumeIndex = TryResolveEightTrigramsResumeIndex(startIndex);
         if (!progressLoaded && !hasResumeIndex) {
             UpdateTaskZoneUi(L"任务区：读取当前进度失败", false);
@@ -7330,6 +8066,104 @@ VOID StopEightTrigramsTask() {
     g_taskZoneSession.fetch_add(1);
     ResponseWaiter::CancelWait();
     UpdateTaskZoneUi(L"任务区：已停止", false);
+}
+
+static std::vector<uint32_t> NormalizeHuangchengWeijiSelection(const std::vector<uint32_t>& subtaskIds) {
+    std::vector<uint32_t> normalized;
+    for (uint32_t subtaskId : subtaskIds) {
+        if (FindHuangchengWeijiTaskInfo(subtaskId) == nullptr) {
+            continue;
+        }
+        if (std::find(normalized.begin(), normalized.end(), subtaskId) == normalized.end()) {
+            normalized.push_back(subtaskId);
+        }
+    }
+    std::sort(normalized.begin(), normalized.end());
+    return normalized;
+}
+
+static std::wstring BuildHuangchengWeijiSelectionSummary(const std::vector<uint32_t>& subtaskIds) {
+    if (subtaskIds.empty()) {
+        return L"";
+    }
+
+    std::wstring summary;
+    for (size_t i = 0; i < subtaskIds.size(); ++i) {
+        const HuangchengWeijiTaskInfo* info = FindHuangchengWeijiTaskInfo(subtaskIds[i]);
+        if (info == nullptr) {
+            continue;
+        }
+        if (!summary.empty()) {
+            summary += L"、";
+        }
+        summary += info->name;
+    }
+    return summary;
+}
+
+BOOL StartHuangchengWeijiTaskAsync(const std::vector<uint32_t>& subtaskIds) {
+    if (g_taskZoneRunning.load()) {
+        UpdateHuangchengWeijiUi(L"任务区：已有任务区流程在运行", true);
+        return FALSE;
+    }
+
+    if (g_LastGameSocket == 0 || g_userId.load() == 0) {
+        UpdateHuangchengWeijiUi(L"任务区：请先进入游戏", false);
+        return FALSE;
+    }
+
+    const std::vector<uint32_t> normalizedSubtaskIds = NormalizeHuangchengWeijiSelection(subtaskIds);
+    if (normalizedSubtaskIds.empty()) {
+        UpdateHuangchengWeijiUi(L"任务区：请先勾选皇城危机任务", false);
+        return FALSE;
+    }
+
+    g_taskZoneRunning = true;
+    g_taskZoneMapEntered = false;
+    g_taskZoneSession.fetch_add(1);
+
+    UpdateHuangchengWeijiUi(L"任务区：读取皇城危机进度...", true);
+    if (!QueryTaskZoneUserTaskListProgress(HUANGCHENG_WEIJI_TASK_ID)) {
+        g_taskZoneRunning = false;
+        g_taskZoneMapEntered = false;
+        UpdateHuangchengWeijiUi(L"任务区：读取皇城危机进度失败", false);
+        return FALSE;
+    }
+
+    const size_t finishedCount = g_eightTrigramsProgress.finishedSubtaskIds.size();
+    const size_t acceptedCount = g_eightTrigramsProgress.acceptedSubtaskIds.size();
+    std::wstring status = L"任务区：皇城危机列表已同步，";
+    status += L"已接 ";
+    status += std::to_wstring(acceptedCount);
+    status += L" 项，已完成 ";
+    status += std::to_wstring(finishedCount);
+    status += L" 项，当前仅完成列表/进度框架。";
+
+    const std::wstring selectionSummary = BuildHuangchengWeijiSelectionSummary(normalizedSubtaskIds);
+    if (!selectionSummary.empty()) {
+        status += L" 选中：";
+        status += selectionSummary;
+    }
+
+    UpdateHuangchengWeijiUi(status, false);
+    g_taskZoneRunning = false;
+    g_taskZoneMapEntered = false;
+    return TRUE;
+}
+
+VOID StopHuangchengWeijiTask() {
+    if (!g_taskZoneRunning.load()) {
+        g_taskZoneProgressTaskId.store(0);
+        UpdateHuangchengWeijiUi(L"任务区：已停止", false);
+        return;
+    }
+
+    g_taskZoneRunning = false;
+    g_taskZoneMapEntered = false;
+    g_taskZoneSession.fetch_add(1);
+    g_taskZoneProgressTaskId.store(0);
+    ResponseWaiter::CancelWait();
+    UpdateHuangchengWeijiUi(L"任务区：已停止", false);
 }
 
 // ============================================================================

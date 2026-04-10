@@ -1411,7 +1411,7 @@
     <div class="title-bar">
         <div class="title-bar-left">
             <div class="title-bar-icon">卡</div>
-            <span class="title-bar-title">卡布西游浮影微端 V1.07</span>
+            <span class="title-bar-title">卡布西游浮影微端 V1.08</span>
         </div>
         <div class="title-bar-controls">
             <button class="title-bar-button" id="btn-minimize" title="最小化">
@@ -2061,15 +2061,50 @@
                 </div>
 
                 <div id="sub-taskzone" class="sub-tab-content">
-                    <div style="padding: 4px; display: flex; align-items: flex-start; gap: 12px;">
-                        <div style="flex: 0 0 auto; width: 220px; background: #FFFFFF; border: 1px solid var(--color-border); border-radius: 4px; padding: 8px; display: flex; flex-direction: column; gap: 4px;">
-                            <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">八卦灵盘</div>
-                            <div style="font-size: 9px; color: var(--color-text-secondary); line-height: 1.4;">按任务链顺序推进，当前先覆盖对话、采集和场景切换，最终战斗会尝试自动处理。</div>
-                            <div style="display: flex; gap: 4px;">
-                                <button id="start-task-zone" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;">开始</button>
-                                <button id="stop-task-zone" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;" disabled>停止</button>
+                    <div style="padding: 4px; display: flex; flex-direction: column; gap: 8px;">
+                        <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start;">
+                            <div style="flex: 0 0 auto; width: 220px; background: #FFFFFF; border: 1px solid var(--color-border); border-radius: 4px; padding: 8px; display: flex; flex-direction: column; gap: 4px;">
+                                <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">八卦灵盘</div>
+                                <div style="font-size: 9px; color: var(--color-text-secondary); line-height: 1.4;">按任务链顺序推进，当前先覆盖对话、采集和场景切换，最终战斗会尝试自动处理。</div>
+                                <div style="display: flex; gap: 4px;">
+                                    <button id="start-task-zone" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;">开始</button>
+                                    <button id="stop-task-zone" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;" disabled>停止</button>
+                                </div>
+                                <div id="task-zone-status" style="font-size: 9px; color: var(--color-text-secondary); background: var(--color-background-secondary); border-radius: 2px; padding: 3px 6px;">等待开始</div>
                             </div>
-                            <div id="task-zone-status" style="font-size: 9px; color: var(--color-text-secondary); background: var(--color-background-secondary); border-radius: 2px; padding: 3px 6px;">等待开始</div>
+
+                            <!-- 皇城危机功能暂未开放，先隐藏入口 -->
+                            <div id="huangcheng-weiji-panel" hidden style="flex: 1 1 560px; min-width: 560px; background: #FFFFFF; border: 1px solid var(--color-border); border-radius: 4px; padding: 8px; display: none; flex-direction: column; gap: 5px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                                    <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">皇城危机</div>
+                                    <label style="display: flex; align-items: center; gap: 4px; font-size: 9.5px; color: var(--color-text-secondary); cursor: pointer; user-select: none;">
+                                        <input type="checkbox" id="huangcheng-hide-completed" checked style="width: 12px; height: 12px; cursor: pointer;">
+                                        <span>隐藏已完成</span>
+                                    </label>
+                                </div>
+                                <div style="font-size: 9px; color: var(--color-text-secondary); line-height: 1.4;">按子任务 ID 顺序批处理，已完成任务默认不显示；任务完成状态来自运行时进度回包。</div>
+                                <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+                                    <button id="refresh-huangcheng-weiji" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 8px;">刷新进度</button>
+                                    <button id="select-all-huangcheng-weiji" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 8px;">全选未完成</button>
+                                    <button id="clear-huangcheng-weiji" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 8px;">清空选择</button>
+                                    <button id="start-huangcheng-weiji" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">完成所选</button>
+                                    <button id="stop-huangcheng-weiji" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 8px;" disabled>停止</button>
+                                </div>
+                                <div id="huangcheng-weiji-summary" style="font-size: 9.5px; color: var(--color-text-secondary); background: var(--color-background-secondary); border-radius: 2px; padding: 3px 6px;">已完成: 0 / 8，已勾选: 0</div>
+                                <div style="border: 1px solid var(--color-border); border-radius: 3px; overflow: hidden; background: var(--color-background); display: flex; flex-direction: column;">
+                                    <div style="display: grid; grid-template-columns: 30px 1.2fr 64px 120px 90px; background: var(--color-background-hover); padding: 3px 6px; border-bottom: 1px solid var(--color-border); font-size: 10px; font-weight: 600; color: var(--color-text-primary);">
+                                        <div style="text-align: center;">选</div>
+                                        <div style="text-align: center;">子任务</div>
+                                        <div style="text-align: center;">场景</div>
+                                        <div style="text-align: center;">奖励</div>
+                                        <div style="text-align: center;">状态</div>
+                                    </div>
+                                    <div id="huangcheng-weiji-list" style="overflow-y: auto; flex: 1; min-height: 214px; max-height: 214px; font-size: 9.5px;">
+                                        <div style="text-align: center; padding: 12px; color: var(--color-text-tertiary);">正在加载皇城危机列表...</div>
+                                    </div>
+                                </div>
+                                <div id="huangcheng-weiji-status" style="font-size: 9px; color: var(--color-text-secondary); background: var(--color-background-secondary); border-radius: 2px; padding: 3px 6px;">等待刷新进度</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2079,6 +2114,17 @@
                         <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 6px;">最新活动</div>
                         <!-- 活动卡片网格布局 -->
                         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                            <!-- 逆流的试炼模块 (Act804) -->
+                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <div style="font-size: 11px; font-weight: 600; color: #333;">逆流的试炼</div>
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="act804-sweep" style="width: 11px; height: 11px; cursor: pointer;">
+                                        <span>扫荡</span>
+                                    </label>
+                                    <button id="one-key-act804" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
+                                </div>
+                            </div>
                             <!-- 清明赏河景模块 (Act803) -->
                             <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -2119,6 +2165,16 @@
                                         <span>扫荡</span>
                                     </label>
                                     <button id="one-key-sea-battle" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
+                                </div>
+                            </div>
+                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 150px; flex-shrink: 0;">
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <div style="font-size: 11px; font-weight: 600; color: #333;">天之骄子的特训</div>
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="act666-sweep" style="width: 11px; height: 11px; cursor: pointer;">
+                                        <span>扫荡</span>
+                                    </label>
+                                    <button id="one-key-act666" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
                                 </div>
                             </div>
                             <!-- 磐石御天火模块 (Act793) -->
@@ -2635,6 +2691,13 @@
                         window.isTaskZoneRunning ? '正在执行任务区...' : '等待开始',
                         window.isTaskZoneRunning
                     );
+                }
+                var huangchengWeijiPanel = document.getElementById('huangcheng-weiji-panel');
+                if (huangchengWeijiPanel && !huangchengWeijiPanel.hidden && typeof window.refreshHuangchengWeijiTaskProgress === 'function') {
+                    window.refreshHuangchengWeijiTaskProgress();
+                }
+                if (huangchengWeijiPanel && !huangchengWeijiPanel.hidden && typeof window.renderHuangchengWeijiTasks === 'function') {
+                    window.renderHuangchengWeijiTasks();
                 }
             }
             if (tabName === 'sub-spiritcollect') {
@@ -3461,6 +3524,262 @@
             }
         };
 
+        window.huangchengWeijiTaskDefs = [
+            { subtaskId: 2001001, name: '接受使命', sceneId: 1003, sceneName: '驾驶舱', reward: '600铜钱 / 700历练', note: '起始报名' },
+            { subtaskId: 2001002, name: '奇怪的声音', sceneId: 2003, sceneName: '双叉岭', reward: '700铜钱 / 800历练', note: '第一次下沉' },
+            { subtaskId: 2001003, name: '歪打正着揭皇榜', sceneId: 2001, sceneName: '长安城', reward: '800铜钱 / 1000历练', note: '进入大唐主线' },
+            { subtaskId: 2001004, name: '唐太宗的回忆', sceneId: 2002, sceneName: '皇宫', reward: '800铜钱 / 800历练', note: '皇城核心' },
+            { subtaskId: 2001005, name: '危机重重', sceneId: 2003, sceneName: '双叉岭', reward: '900铜钱 / 1000历练', note: '含 200100504 特殊镜头' },
+            { subtaskId: 2001006, name: '传说中的唐三藏', sceneId: 2003, sceneName: '双叉岭', reward: '800铜钱 / 1200历练', note: '救援段' },
+            { subtaskId: 2001007, name: '你逃不掉的！', sceneId: 2005, sceneName: '五指山顶', reward: '900铜钱 / 1200历练', note: '地形互动' },
+            { subtaskId: 2001008, name: '神仙的指示', sceneId: 2005, sceneName: '五指山顶', reward: '700铜钱 / 1000历练 / 100修为 / 50感恩', note: '收尾' }
+        ];
+
+        window.huangchengWeijiState = {
+            hideCompleted: true,
+            isRunning: false,
+            selectedMap: {},
+            acceptedMap: {},
+            completedMap: {}
+        };
+
+        function buildIdMap(values) {
+            var map = {};
+            if (!values || !values.length) {
+                return map;
+            }
+            for (var i = 0; i < values.length; i++) {
+                map[String(values[i])] = true;
+            }
+            return map;
+        }
+
+        function countMapValues(map) {
+            var count = 0;
+            for (var key in map) {
+                if (Object.prototype.hasOwnProperty.call(map, key) && map[key]) {
+                    count++;
+                }
+            }
+            return count;
+        }
+
+        function escapeHtml(text) {
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function renderHuangchengWeijiTasks() {
+            var listEl = document.getElementById('huangcheng-weiji-list');
+            var summaryEl = document.getElementById('huangcheng-weiji-summary');
+            if (!listEl) {
+                return;
+            }
+
+            var state = window.huangchengWeijiState || {};
+            var hideCompleted = state.hideCompleted !== false;
+            var rows = [];
+            var completedCount = 0;
+            var acceptedCount = 0;
+            var selectedCount = 0;
+
+            for (var i = 0; i < window.huangchengWeijiTaskDefs.length; i++) {
+                var task = window.huangchengWeijiTaskDefs[i];
+                var key = String(task.subtaskId);
+                var isCompleted = !!state.completedMap[key];
+                var isAccepted = !!state.acceptedMap[key];
+                var isSelected = !!state.selectedMap[key];
+
+                if (isCompleted) {
+                    completedCount++;
+                }
+                if (isAccepted) {
+                    acceptedCount++;
+                }
+                if (isSelected) {
+                    selectedCount++;
+                }
+
+                if (hideCompleted && isCompleted) {
+                    continue;
+                }
+
+                var statusText = isCompleted ? '已完成' : (isAccepted ? '进行中' : '待执行');
+                var rowBackground = isSelected ? 'rgba(43, 125, 255, 0.06)' : 'transparent';
+                var checkboxDisabled = isCompleted ? 'disabled' : '';
+                var checkboxChecked = isSelected ? 'checked' : '';
+                rows.push(
+                    '<div style="display:grid; grid-template-columns: 30px 1.2fr 64px 120px 90px; align-items:center; padding: 4px 6px; border-bottom: 1px solid var(--color-border); background:' +
+                    rowBackground + ';">' +
+                    '<div style="display:flex; justify-content:center;"><input type="checkbox" ' + checkboxChecked + ' ' + checkboxDisabled + ' style="width: 12px; height: 12px; cursor: pointer;" onchange="window.setHuangchengWeijiSelection(' + task.subtaskId + ', this.checked)"></div>' +
+                    '<div style="display:flex; flex-direction:column; gap:1px; min-width:0;"><div style="font-size: 10px; font-weight: 600; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + escapeHtml(task.name) + '</div><div style="font-size: 8.5px; color: var(--color-text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + escapeHtml(task.note) + '</div></div>' +
+                    '<div style="font-size: 9px; color: var(--color-text-secondary); text-align: center;">' + escapeHtml(task.sceneName) + '<div style="font-size: 8.5px; color: var(--color-text-tertiary);">' + task.sceneId + '</div></div>' +
+                    '<div style="font-size: 9px; color: var(--color-text-secondary); text-align: center; line-height: 1.3;">' + escapeHtml(task.reward) + '</div>' +
+                    '<div style="font-size: 9px; color: ' + (isCompleted ? 'var(--color-primary)' : 'var(--color-text-secondary)') + '; text-align: center;">' + statusText + '</div>' +
+                    '</div>'
+                );
+            }
+
+            if (rows.length === 0) {
+                rows.push('<div style="text-align:center; padding: 12px; color: var(--color-text-tertiary);">没有可显示的任务</div>');
+            }
+
+            listEl.innerHTML = rows.join('');
+
+            if (summaryEl) {
+                summaryEl.textContent = '已完成: ' + completedCount + ' / ' + window.huangchengWeijiTaskDefs.length +
+                    '，已接: ' + acceptedCount + '，已勾选: ' + selectedCount;
+            }
+
+            var startBtn = document.getElementById('start-huangcheng-weiji');
+            if (startBtn) {
+                startBtn.disabled = selectedCount === 0;
+                startBtn.textContent = state.isRunning ? '执行中...' : '完成所选';
+            }
+
+            var stopBtn = document.getElementById('stop-huangcheng-weiji');
+            if (stopBtn) {
+                stopBtn.disabled = !state.isRunning;
+            }
+        }
+
+        window.setHuangchengWeijiSelection = function(subtaskId, checked) {
+            var state = window.huangchengWeijiState;
+            if (!state) {
+                return;
+            }
+            var key = String(subtaskId);
+            if (checked) {
+                state.selectedMap[key] = true;
+            } else {
+                delete state.selectedMap[key];
+            }
+            renderHuangchengWeijiTasks();
+        };
+
+        window.selectAllHuangchengWeiji = function() {
+            var state = window.huangchengWeijiState;
+            if (!state) {
+                return;
+            }
+            state.selectedMap = {};
+            for (var i = 0; i < window.huangchengWeijiTaskDefs.length; i++) {
+                var task = window.huangchengWeijiTaskDefs[i];
+                if (!state.completedMap[String(task.subtaskId)]) {
+                    state.selectedMap[String(task.subtaskId)] = true;
+                }
+            }
+            renderHuangchengWeijiTasks();
+        };
+
+        window.clearHuangchengWeijiSelection = function() {
+            var state = window.huangchengWeijiState;
+            if (!state) {
+                return;
+            }
+            state.selectedMap = {};
+            renderHuangchengWeijiTasks();
+        };
+
+        window.toggleHuangchengWeijiHideCompleted = function(enabled) {
+            var state = window.huangchengWeijiState;
+            if (!state) {
+                return;
+            }
+            state.hideCompleted = !!enabled;
+            renderHuangchengWeijiTasks();
+        };
+
+        window.updateHuangchengWeijiProgress = function(payload) {
+            var state = window.huangchengWeijiState;
+            if (!state || !payload) {
+                return;
+            }
+            state.acceptedMap = buildIdMap(payload.acceptedSubtaskIds || []);
+            state.completedMap = buildIdMap(payload.finishedSubtaskIds || []);
+            for (var key in state.selectedMap) {
+                if (Object.prototype.hasOwnProperty.call(state.selectedMap, key) && state.completedMap[key]) {
+                    delete state.selectedMap[key];
+                }
+            }
+            renderHuangchengWeijiTasks();
+        };
+
+        window.updateHuangchengWeijiStatus = function(text, isRunning) {
+            var state = window.huangchengWeijiState;
+            if (state) {
+                state.isRunning = !!isRunning;
+            }
+            var statusEl = document.getElementById('huangcheng-weiji-status');
+            if (statusEl) {
+                statusEl.textContent = text;
+                statusEl.style.color = isRunning ? 'var(--color-primary)' : 'var(--color-text-secondary)';
+            }
+
+            var startBtn = document.getElementById('start-huangcheng-weiji');
+            var stopBtn = document.getElementById('stop-huangcheng-weiji');
+            if (startBtn) {
+                startBtn.disabled = isRunning || countMapValues(state ? state.selectedMap : {}) === 0;
+            }
+            if (stopBtn) {
+                stopBtn.disabled = !isRunning;
+            }
+        };
+
+        window.refreshHuangchengWeijiTaskProgress = function() {
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage({
+                    type: 'query_huangcheng_weiji_task_progress',
+                    task_id: 2001000
+                });
+            }
+        };
+
+        window.startHuangchengWeijiTask = function() {
+            var state = window.huangchengWeijiState;
+            if (!state) {
+                return;
+            }
+
+            var selectedIds = [];
+            for (var key in state.selectedMap) {
+                if (Object.prototype.hasOwnProperty.call(state.selectedMap, key) && state.selectedMap[key]) {
+                    selectedIds.push(parseInt(key, 10));
+                }
+            }
+            selectedIds.sort(function(a, b) { return a - b; });
+
+            if (selectedIds.length === 0) {
+                window.updateHelperText('请先勾选皇城危机任务');
+                return;
+            }
+
+            window.updateHuangchengWeijiStatus('正在同步皇城危机进度...', true);
+            window.updateHelperText('正在同步皇城危机进度...');
+
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage({
+                    type: 'start_huangcheng_weiji_task',
+                    task_id: 2001000,
+                    subtask_ids: selectedIds
+                });
+            }
+        };
+
+        window.stopHuangchengWeijiTask = function() {
+            window.updateHuangchengWeijiStatus('正在停止皇城危机...', true);
+            window.updateHelperText('正在停止皇城危机...');
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage({
+                    type: 'stop_huangcheng_weiji_task'
+                });
+            }
+        };
+
         window.updateTaskZoneStatus = function(text, isRunning) {
             var statusEl = document.getElementById('task-zone-status');
             if (statusEl) {
@@ -3518,6 +3837,17 @@
         };
 
         // 五行镜破封印 - 一键完成
+        window.oneKeyAct666 = function() {
+            var sweepCheckbox = document.getElementById('act666-sweep');
+            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({
+                    action: 'one_key_act666',
+                    sweep: useSweep
+                }));
+            }
+        };
+
         window.oneKeyAct791 = function() {
             var sweepCheckbox = document.getElementById('act791-sweep');
             var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
@@ -3541,7 +3871,19 @@
             }
         };
 
-        // 福瑞宝箱状态
+        // 逆流的试炼 - 一键完成
+        window.oneKeyAct804 = function() {
+            var sweepCheckbox = document.getElementById('act804-sweep');
+            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({
+                    action: 'one_key_act804',
+                    sweep: useSweep,
+                    score: 450
+                }));
+            }
+        };
+
         // 清明赏河景 - 一键完成
         window.oneKeyAct803 = function() {
             var sweepCheckbox = document.getElementById('act803-sweep');
@@ -3912,6 +4254,32 @@
             if (stopTaskZoneBtn) {
                 stopTaskZoneBtn.addEventListener('click', window.stopTaskZone);
             }
+            var huangchengHideCompleted = document.getElementById('huangcheng-hide-completed');
+            if (huangchengHideCompleted) {
+                huangchengHideCompleted.addEventListener('change', function() {
+                    window.toggleHuangchengWeijiHideCompleted(this.checked);
+                });
+            }
+            var refreshHuangchengBtn = document.getElementById('refresh-huangcheng-weiji');
+            if (refreshHuangchengBtn) {
+                refreshHuangchengBtn.addEventListener('click', window.refreshHuangchengWeijiTaskProgress);
+            }
+            var selectAllHuangchengBtn = document.getElementById('select-all-huangcheng-weiji');
+            if (selectAllHuangchengBtn) {
+                selectAllHuangchengBtn.addEventListener('click', window.selectAllHuangchengWeiji);
+            }
+            var clearHuangchengBtn = document.getElementById('clear-huangcheng-weiji');
+            if (clearHuangchengBtn) {
+                clearHuangchengBtn.addEventListener('click', window.clearHuangchengWeijiSelection);
+            }
+            var startHuangchengBtn = document.getElementById('start-huangcheng-weiji');
+            if (startHuangchengBtn) {
+                startHuangchengBtn.addEventListener('click', window.startHuangchengWeijiTask);
+            }
+            var stopHuangchengBtn = document.getElementById('stop-huangcheng-weiji');
+            if (stopHuangchengBtn) {
+                stopHuangchengBtn.addEventListener('click', window.stopHuangchengWeijiTask);
+            }
             var xuanttaBtn = document.getElementById('one-key-xuantta');
             if (xuanttaBtn) {
                 xuanttaBtn.addEventListener('click', window.oneKeyXuantta);
@@ -3944,6 +4312,10 @@
             if (act793Btn) {
                 act793Btn.addEventListener('click', window.oneKeyAct793);
             }
+            var act666Btn = document.getElementById('one-key-act666');
+            if (act666Btn) {
+                act666Btn.addEventListener('click', window.oneKeyAct666);
+            }
             var act791Btn = document.getElementById('one-key-act791');
             if (act791Btn) {
                 act791Btn.addEventListener('click', window.oneKeyAct791);
@@ -3951,6 +4323,10 @@
             var act803Btn = document.getElementById('one-key-act803');
             if (act803Btn) {
                 act803Btn.addEventListener('click', window.oneKeyAct803);
+            }
+            var act804Btn = document.getElementById('one-key-act804');
+            if (act804Btn) {
+                act804Btn.addEventListener('click', window.oneKeyAct804);
             }
             var act624Btn = document.getElementById('one-key-act624');
             if (act624Btn) {
@@ -3975,6 +4351,9 @@
             var stopHorseCompetitionBtn = document.getElementById('stop-horse-competition');
             if (stopHorseCompetitionBtn) {
                 stopHorseCompetitionBtn.addEventListener('click', window.stopHorseCompetition);
+            }
+            if (typeof window.renderHuangchengWeijiTasks === 'function') {
+                window.renderHuangchengWeijiTasks();
             }
         });
 

@@ -23,6 +23,19 @@ BOOL SendAct778SweepPacket();
 BOOL StartOneKeyAct778Packet(bool useSweep = false);
 void ProcessAct778Response(const GamePacket& packet);
 
+namespace Act666 {
+constexpr int ACTIVITY_ID = 666;
+}  // namespace Act666
+
+BOOL SendAct666Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
+BOOL SendAct666OpenUIPacket();
+BOOL SendAct666StartGamePacket(int isPropt = 0, int type = 0);
+BOOL SendAct666EndGamePacket(int medalCount, bool isPass = true);
+BOOL SendAct666SweepInfoPacket();
+BOOL SendAct666SweepPacket();
+BOOL StartOneKeyAct666Packet(bool useSweep = false);
+void ProcessAct666Response(const GamePacket& packet);
+
 namespace Act793 {
 constexpr int ACTIVITY_ID = 793;
 constexpr int BLOOD_MAX = 5;
@@ -85,6 +98,20 @@ BOOL SendAct803SweepInfoPacket();
 BOOL SendAct803SweepPacket();
 BOOL StartOneKeyAct803Packet(bool useSweep = false, int targetScore = Act803::MAX_NUM);
 void ProcessAct803Response(const GamePacket& packet);
+
+namespace Act804 {
+constexpr int ACTIVITY_ID = 804;
+constexpr int TARGET_SCORE = 450;
+}  // namespace Act804
+
+BOOL SendAct804Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
+BOOL SendAct804GameInfoPacket();
+BOOL SendAct804StartGamePacket(int promptFlag = 1);
+BOOL SendAct804EndGamePacket(const std::string& jsonStr);
+BOOL SendAct804SweepInfoPacket();
+BOOL SendAct804SweepPacket();
+BOOL StartOneKeyAct804Packet(bool useSweep = false, int targetScore = Act804::TARGET_SCORE);
+void ProcessAct804Response(const GamePacket& packet);
 
 namespace Act624 {
 constexpr int ACTIVITY_ID = 624;

@@ -71,6 +71,37 @@ struct Act778State : ActivityState {
     }
 };
 
+struct Act666State : ActivityState {
+    std::atomic<int> medalCount{0};
+    std::atomic<int> passCount{0};
+    std::atomic<int> getAwardFlag{0};
+    std::atomic<int> bestFlag{0};
+    std::atomic<int> startResult{0};
+    std::atomic<int> rewardMedalCount{0};
+    std::atomic<int> rewardExp{0};
+    std::atomic<int> rewardCoin{0};
+    std::atomic<int> catchId{0};
+    std::atomic<bool> useSweep{false};
+    std::vector<int> rewardList;
+    std::vector<int> catchList;
+
+    void Reset() override {
+        ActivityState::Reset();
+        medalCount = 0;
+        passCount = 0;
+        getAwardFlag = 0;
+        bestFlag = 0;
+        startResult = 0;
+        rewardMedalCount = 0;
+        rewardExp = 0;
+        rewardCoin = 0;
+        catchId = 0;
+        useSweep = false;
+        rewardList.assign(4, 0);
+        catchList.assign(2, 0);
+    }
+};
+
 struct Act793State : ActivityState {
     std::atomic<int> bestScore{0};
     std::atomic<int> medalCount{0};
@@ -305,6 +336,7 @@ public:
     StrawberryState& GetStrawberryState();
     TrialState& GetTrialState();
     Act778State& GetAct778State();
+    Act666State& GetAct666State();
     Act793State& GetAct793State();
     Act791State& GetAct791State();
     SeaBattleState& GetSeaBattleState();
@@ -320,6 +352,7 @@ private:
     StrawberryState m_strawberryState;
     TrialState m_trialState;
     Act778State m_act778State;
+    Act666State m_act666State;
     Act793State m_act793State;
     Act791State m_act791State;
     SeaBattleState m_seaBattleState;

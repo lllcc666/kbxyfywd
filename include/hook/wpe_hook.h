@@ -230,6 +230,12 @@ BOOL StartEightTrigramsTaskAsync();
 
 VOID StopEightTrigramsTask();
 
+BOOL QueryTaskZoneUserTaskListProgress(uint32_t taskId);
+
+BOOL StartHuangchengWeijiTaskAsync(const std::vector<uint32_t>& subtaskIds);
+
+VOID StopHuangchengWeijiTask();
+
 BOOL StartOneKeyCollectPacket(DWORD flags);
 
 void ProcessCollectResponse(const GamePacket& packet);

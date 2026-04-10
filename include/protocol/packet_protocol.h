@@ -87,6 +87,8 @@ constexpr uint32_t BATTLE_MD5_SEND = 1186193;
 constexpr uint32_t BATTLE_MD5_FAIL = 1317266;
 
 constexpr uint32_t ACTIVITY_QINGYANG_NEW_SEND = 1185429;
+constexpr uint32_t ACTIVITY_LUA_V3_SEND = 1185432;
+constexpr uint32_t ACTIVITY_LUA_V3_BACK = 1316503;
 constexpr uint32_t STRAWBERRY_SEND = 1185429;
 constexpr uint32_t STRAWBERRY_BACK = 1316501;
 

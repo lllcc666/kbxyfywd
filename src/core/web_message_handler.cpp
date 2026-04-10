@@ -190,6 +190,7 @@ void ClearPacketListView() {
 }
 
 void ParseIndicesArray(const std::wstring& msg, std::vector<DWORD>& indices);
+void ParseUInt32Array(const std::wstring& msg, const std::wstring& key, std::vector<uint32_t>& values);
 
 struct SendRawPacketThreadData {
     std::vector<BYTE> data;
@@ -381,6 +382,39 @@ void HandleStopTaskZoneCommand() {
 
 void HandleStartTaskZoneCommand() {
     HandleActionCommand(StartEightTrigramsTaskAsync);
+}
+
+void HandleQueryHuangchengWeijiTaskProgressCommand(const std::wstring& msg) {
+    const DWORD taskId = GetJsonDWORDValue(msg, L"task_id", 2001000);
+    HandleBoolResultCommand(
+        [taskId]() {
+            return QueryTaskZoneUserTaskListProgress(taskId);
+        },
+        L"皇城危机：进度已刷新",
+        L"皇城危机：读取进度失败");
+}
+
+void HandleStartHuangchengWeijiTaskCommand(const std::wstring& msg) {
+    std::vector<uint32_t> subtaskIds;
+    ParseUInt32Array(msg, L"subtask_ids", subtaskIds);
+    if (subtaskIds.empty()) {
+        std::vector<DWORD> legacyIndices;
+        ParseIndicesArray(msg, legacyIndices);
+        for (DWORD index : legacyIndices) {
+            subtaskIds.push_back(static_cast<uint32_t>(index));
+        }
+    }
+
+    HandleBoolResultCommand(
+        [subtaskIds]() {
+            return StartHuangchengWeijiTaskAsync(subtaskIds);
+        },
+        L"皇城危机：任务区列表已载入",
+        L"皇城危机：请先勾选任务或先进入游戏");
+}
+
+void HandleStopHuangchengWeijiTaskCommand() {
+    HandleActionWithTextCommand(StopHuangchengWeijiTask, L"皇城危机：已停止");
 }
 
 void HandleQueryShuangTaiMonstersCommand() {
@@ -693,6 +727,19 @@ void HandleStartOneKeyAct793Command(const std::wstring& msg) {
         StartOneKeyAct793Packet);
 }
 
+void HandleStartOneKeyAct666Command(const std::wstring& msg) {
+    HandleStartOneKeyActCommand(
+        msg,
+        nullptr,
+        0,
+        0,
+        0,
+        L"天之骄子的特训：开始扫荡...",
+        L"天之骄子的特训：开始自动完成...",
+        L"天之骄子的特训启动失败",
+        StartOneKeyAct666Packet);
+}
+
 void HandleStartOneKeyAct791Command(const std::wstring& msg) {
     HandleStartOneKeyActCommand(
         msg,
@@ -730,6 +777,19 @@ void HandleStartOneKeyAct803Command(const std::wstring& msg) {
         L"清明赏河景已开始（游戏模式）",
         L"清明赏河景启动失败",
         StartOneKeyAct803Packet);
+}
+
+void HandleStartOneKeyAct804Command(const std::wstring& msg) {
+    HandleStartOneKeyActCommand(
+        msg,
+        L"score",
+        Act804::TARGET_SCORE,
+        1,
+        9999,
+        L"逆流的试炼已开始（扫荡模式）",
+        L"逆流的试炼已开始（游戏模式）",
+        L"逆流的试炼启动失败",
+        StartOneKeyAct804Packet);
 }
 
 void HandleStartOneKeyAct624Command(const std::wstring& msg) {
@@ -963,8 +1023,8 @@ void HandleAddHijackRuleCommand(const std::wstring& msg) {
                   WideToUtf8(GetJsonValue(msg, L"replace")));
 }
 
-void ParseIndicesArray(const std::wstring& msg, std::vector<DWORD>& indices) {
-    const size_t keyPos = msg.find(L"\"indices\"");
+void ParseUInt32Array(const std::wstring& msg, const std::wstring& key, std::vector<uint32_t>& values) {
+    const size_t keyPos = msg.find(L"\"" + key + L"\"");
     if (keyPos == std::wstring::npos) {
         return;
     }
@@ -992,8 +1052,16 @@ void ParseIndicesArray(const std::wstring& msg, std::vector<DWORD>& indices) {
         const size_t end = num.find_last_not_of(L" \t\r\n");
         const int value = _wtoi(num.substr(start, end - start + 1).c_str());
         if (value >= 0) {
-            indices.push_back(static_cast<DWORD>(value));
+            values.push_back(static_cast<uint32_t>(value));
         }
+    }
+}
+
+void ParseIndicesArray(const std::wstring& msg, std::vector<DWORD>& indices) {
+    std::vector<uint32_t> values;
+    ParseUInt32Array(msg, L"indices", values);
+    for (uint32_t value : values) {
+        indices.push_back(static_cast<DWORD>(value));
     }
 }
 
@@ -1106,6 +1174,12 @@ public:
             HandleUseItemCommand(msg);
         } else if (msg.find(L"daily_tasks") != std::wstring::npos) {
             HandleStartDailyTasksCommand(msg);
+        } else if (msg.find(L"query_huangcheng_weiji_task_progress") != std::wstring::npos) {
+            HandleQueryHuangchengWeijiTaskProgressCommand(msg);
+        } else if (msg.find(L"start_huangcheng_weiji_task") != std::wstring::npos) {
+            HandleStartHuangchengWeijiTaskCommand(msg);
+        } else if (msg.find(L"stop_huangcheng_weiji_task") != std::wstring::npos) {
+            HandleStopHuangchengWeijiTaskCommand();
         } else if (msg.find(L"stop_task_zone") != std::wstring::npos) {
             HandleStopTaskZoneCommand();
         } else if (msg.find(L"task_zone") != std::wstring::npos) {
@@ -1134,6 +1208,8 @@ public:
             HandleStartDungeonJumpCommand(msg);
         } else if (msg.find(L"dungeon_jump_stop") != std::wstring::npos) {
             HandleStopDungeonJumpCommand();
+        } else if (msg.find(L"one_key_act666") != std::wstring::npos) {
+            HandleStartOneKeyAct666Command(msg);
         } else if (msg.find(L"one_key_act793") != std::wstring::npos) {
             HandleStartOneKeyAct793Command(msg);
         } else if (msg.find(L"one_key_act791") != std::wstring::npos) {
@@ -1142,6 +1218,8 @@ public:
             HandleStartOneKeyAct782Command(msg);
         } else if (msg.find(L"one_key_act803") != std::wstring::npos) {
             HandleStartOneKeyAct803Command(msg);
+        } else if (msg.find(L"one_key_act804") != std::wstring::npos) {
+            HandleStartOneKeyAct804Command(msg);
         } else if (msg.find(L"one_key_act624") != std::wstring::npos) {
             HandleStartOneKeyAct624Command(msg);
         } else if (msg.find(L"one_key_sea_battle") != std::wstring::npos) {
