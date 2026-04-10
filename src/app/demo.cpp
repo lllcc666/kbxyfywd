@@ -83,11 +83,11 @@ typedef MH_STATUS(WINAPI* PFN_MH_ENABLEHOOK)(LPVOID pTarget);
 typedef MH_STATUS(WINAPI* PFN_MH_DISABLEHOOK)(LPVOID pTarget);
 
 // MinHook库函数指针声明
-PFN_MH_INITIALIZE g_pfnMH_Initialize = nullptr;
-PFN_MH_UNINITIALIZE g_pfnMH_Uninitialize = nullptr;
-PFN_MH_CREATEHOOK g_pfnMH_CreateHook = nullptr;
-PFN_MH_ENABLEHOOK g_pfnMH_EnableHook = nullptr;
-PFN_MH_DISABLEHOOK g_pfnMH_DisableHook = nullptr;
+extern PFN_MH_INITIALIZE g_pfnMH_Initialize;
+extern PFN_MH_UNINITIALIZE g_pfnMH_Uninitialize;
+extern PFN_MH_CREATEHOOK g_pfnMH_CreateHook;
+extern PFN_MH_ENABLEHOOK g_pfnMH_EnableHook;
+extern PFN_MH_DISABLEHOOK g_pfnMH_DisableHook;
 
 // 远程DLL下载地址
 // 加载变速器DLL
