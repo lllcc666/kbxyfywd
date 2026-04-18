@@ -102,6 +102,35 @@ struct Act666State : ActivityState {
     }
 };
 
+struct Act805State : ActivityState {
+    std::atomic<int> medalNum{0};
+    std::atomic<int> historyBestScore{0};
+    std::atomic<int> lastScore{0};
+    std::atomic<int> isPop{0};
+    std::atomic<int> targetScore{0};
+    std::atomic<int> startResult{0};
+    std::atomic<int> rewardMedalCount{0};
+    std::atomic<int> rewardExp{0};
+    std::atomic<int> rewardCoin{0};
+    std::atomic<bool> useSweep{false};
+    std::atomic<bool> sweepSuccess{false};
+
+    void Reset() override {
+        ActivityState::Reset();
+        medalNum = 0;
+        historyBestScore = 0;
+        lastScore = 0;
+        isPop = 0;
+        targetScore = 0;
+        startResult = 0;
+        rewardMedalCount = 0;
+        rewardExp = 0;
+        rewardCoin = 0;
+        useSweep = false;
+        sweepSuccess = false;
+    }
+};
+
 struct Act793State : ActivityState {
     std::atomic<int> bestScore{0};
     std::atomic<int> medalCount{0};
@@ -337,6 +366,7 @@ public:
     TrialState& GetTrialState();
     Act778State& GetAct778State();
     Act666State& GetAct666State();
+    Act805State& GetAct805State();
     Act793State& GetAct793State();
     Act791State& GetAct791State();
     SeaBattleState& GetSeaBattleState();
@@ -353,6 +383,7 @@ private:
     TrialState m_trialState;
     Act778State m_act778State;
     Act666State m_act666State;
+    Act805State m_act805State;
     Act793State m_act793State;
     Act791State m_act791State;
     SeaBattleState m_seaBattleState;

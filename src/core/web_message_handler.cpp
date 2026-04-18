@@ -740,6 +740,19 @@ void HandleStartOneKeyAct666Command(const std::wstring& msg) {
         StartOneKeyAct666Packet);
 }
 
+void HandleStartOneKeyAct805Command(const std::wstring& msg) {
+    HandleStartOneKeyActCommand(
+        msg,
+        L"score",
+        Act805::TARGET_SCORE,
+        1,
+        Act805::TARGET_SCORE,
+        L"守护梦境已开始（扫荡模式）",
+        L"守护梦境已开始（350分模式）",
+        L"守护梦境启动失败",
+        StartOneKeyAct805Packet);
+}
+
 void HandleStartOneKeyAct791Command(const std::wstring& msg) {
     HandleStartOneKeyActCommand(
         msg,
@@ -1210,6 +1223,8 @@ public:
             HandleStopDungeonJumpCommand();
         } else if (msg.find(L"one_key_act666") != std::wstring::npos) {
             HandleStartOneKeyAct666Command(msg);
+        } else if (msg.find(L"one_key_act805") != std::wstring::npos) {
+            HandleStartOneKeyAct805Command(msg);
         } else if (msg.find(L"one_key_act793") != std::wstring::npos) {
             HandleStartOneKeyAct793Command(msg);
         } else if (msg.find(L"one_key_act791") != std::wstring::npos) {

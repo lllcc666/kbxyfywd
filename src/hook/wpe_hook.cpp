@@ -1335,6 +1335,285 @@ void ProcessAct666Response(const GamePacket& packet) {
     }
 }
 
+// ============ 守护梦境功能实现 (Act805) ============
+
+#define ACT805_STATE ActivityStateManager::Instance().GetAct805State()
+
+static BOOL SendAct805DailyTaskPacket() {
+    std::vector<BYTE> packet = PacketBuilder()
+                                   .SetOpcode(Opcode::TASK_DAILY_SEND)
+                                   .SetParams(3)
+                                   .WriteInt32(3)
+                                   .WriteInt32(Act805::DAILY_TASK_ID)
+                                   .WriteInt32(0)
+                                   .Build();
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+}
+
+BOOL SendAct805Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
+    return SendActivityPacket(Act805::ACTIVITY_ID, operation, bodyValues);
+}
+
+BOOL SendAct805GameInfoPacket() {
+    ACT805_STATE.waitingResponse = true;
+    return SendAct805Packet("game_info", {});
+}
+
+BOOL SendAct805StartGamePacket() {
+    ACT805_STATE.waitingResponse = true;
+    return SendAct805Packet("start_game", {});
+}
+
+BOOL SendAct805EndGamePacket(int score) {
+    const int checkCode = ACT805_STATE.checkCode.load();
+    const int clientCheckCode = static_cast<int>(g_userId.load() % 1000) + checkCode + score;
+    ACT805_STATE.waitingResponse = true;
+    const BOOL sent = SendAct805Packet("end_game", {clientCheckCode, score});
+    if (sent) {
+        SendAct805DailyTaskPacket();
+    }
+    return sent;
+}
+
+BOOL SendAct805SweepInfoPacket() {
+    ACT805_STATE.waitingResponse = true;
+    return SendAct805Packet("sweep_info", {});
+}
+
+BOOL SendAct805SweepPacket() {
+    ACT805_STATE.waitingResponse = true;
+    return SendAct805Packet("sweep", {});
+}
+
+DWORD WINAPI Act805ThreadProc(LPVOID lpParam) {
+    const int targetScore = lpParam ? *static_cast<int*>(lpParam) : Act805::TARGET_SCORE;
+    delete static_cast<int*>(lpParam);
+
+    const bool useSweep = ACT805_STATE.useSweep.load();
+    ACT805_STATE.Reset();
+    ACT805_STATE.useSweep = useSweep;
+    ACT805_STATE.targetScore = targetScore;
+
+    auto waitForResponse = []() -> bool {
+        for (int i = 0; i < 30 && ACT805_STATE.waitingResponse; ++i) {
+            Sleep(100);
+        }
+        const bool received = !ACT805_STATE.waitingResponse.load();
+        ACT805_STATE.waitingResponse = false;
+        return received;
+    };
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"守护梦境：正在获取活动信息...");
+
+    SendAct805GameInfoPacket();
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"守护梦境：获取活动信息失败");
+        return 0;
+    }
+
+    if (ACT805_STATE.playCount.load() <= 0) {
+        UIBridge::Instance().UpdateHelperText(L"守护梦境：今日次数已用完");
+        return 0;
+    }
+
+    if (ACT805_STATE.restTime.load() > 0) {
+        UIBridge::Instance().UpdateHelperText(L"守护梦境：冷却中，请稍后再试");
+        return 0;
+    }
+
+    if (useSweep && ACT805_STATE.historyBestScore.load() > 0) {
+        UIBridge::Instance().UpdateHelperText(L"守护梦境：正在获取扫荡信息...");
+        ACT805_STATE.sweepSuccess = false;
+
+        Sleep(300);
+        SendAct805SweepInfoPacket();
+        if (waitForResponse()) {
+            Sleep(300);
+            SendAct805SweepPacket();
+            if (waitForResponse() && ACT805_STATE.sweepSuccess.load()) {
+                Sleep(300);
+                SendAct805GameInfoPacket();
+                waitForResponse();
+                UIBridge::Instance().UpdateHelperText(L"守护梦境：扫荡完成");
+                return 0;
+            }
+        }
+
+        UIBridge::Instance().UpdateHelperText(L"守护梦境：扫荡失败，改为直接结算");
+    }
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"守护梦境：开始游戏...");
+    SendAct805StartGamePacket();
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"守护梦境：开始游戏失败");
+        return 0;
+    }
+
+    if (ACT805_STATE.startResult.load() != 0) {
+        return 0;
+    }
+
+    if (ACT805_STATE.checkCode.load() == 0) {
+        UIBridge::Instance().UpdateHelperText(L"守护梦境：获取校验码失败");
+        return 0;
+    }
+
+    const int finalScore = std::clamp(targetScore, 1, Act805::TARGET_SCORE);
+    Sleep(500);
+    UIBridge::Instance().UpdateHelperText(L"守护梦境：直接提交结算...");
+    SendAct805EndGamePacket(finalScore);
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"守护梦境：结算失败");
+        return 0;
+    }
+
+    Sleep(300);
+    SendAct805GameInfoPacket();
+    waitForResponse();
+
+    wchar_t msg[256];
+    swprintf_s(
+        msg,
+        L"守护梦境：结算完成，分数=%d 勋章=%d 经验=%d 铜钱=%d",
+        finalScore,
+        ACT805_STATE.rewardMedalCount.load(),
+        ACT805_STATE.rewardExp.load(),
+        ACT805_STATE.rewardCoin.load());
+    UIBridge::Instance().UpdateHelperText(msg);
+    return 0;
+}
+
+BOOL StartOneKeyAct805Packet(bool useSweep, int targetScore) {
+    ACT805_STATE.useSweep = useSweep;
+    int* pTargetScore = new int(targetScore);
+    HANDLE hThread = CreateThread(nullptr, 0, Act805ThreadProc, pTargetScore, 0, nullptr);
+    if (hThread) {
+        CloseHandle(hThread);
+        return TRUE;
+    }
+    delete pTargetScore;
+    return FALSE;
+}
+
+void ProcessAct805Response(const GamePacket& packet) {
+    size_t offset = 0;
+    std::string operation;
+    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+        return;
+    }
+
+    const BYTE* body = packet.body.data();
+    ACT805_STATE.waitingResponse = false;
+
+    if (operation == "game_info") {
+        if (offset + 28 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            if (result == 0) {
+                ACT805_STATE.playCount = ReadInt32LE(body, offset);
+                ACT805_STATE.restTime = ReadInt32LE(body, offset);
+                ACT805_STATE.isPop = ReadInt32LE(body, offset);
+                ACT805_STATE.medalNum = ReadInt32LE(body, offset);
+                ACT805_STATE.historyBestScore = ReadInt32LE(body, offset);
+                ACT805_STATE.lastScore = ReadInt32LE(body, offset);
+                ACT805_STATE.sweepAvailable = (ACT805_STATE.historyBestScore.load() > 0);
+
+                wchar_t msg[256];
+                swprintf_s(
+                    msg,
+                    L"守护梦境：次数=%d 冷却=%d秒 勋章=%d 历史最高=%d",
+                    ACT805_STATE.playCount.load(),
+                    ACT805_STATE.restTime.load(),
+                    ACT805_STATE.medalNum.load(),
+                    ACT805_STATE.historyBestScore.load());
+                UIBridge::Instance().UpdateHelperText(msg);
+            }
+        }
+    } else if (operation == "start_game") {
+        if (offset + 4 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT805_STATE.startResult = result;
+            if (result == 0 && offset + 8 <= packet.body.size()) {
+                ACT805_STATE.playCount = ReadInt32LE(body, offset);
+                ACT805_STATE.checkCode = ReadInt32LE(body, offset);
+            } else if (result == 10) {
+                UIBridge::Instance().UpdateHelperText(L"守护梦境：游戏中");
+            } else if (result == 11) {
+                UIBridge::Instance().UpdateHelperText(L"守护梦境：冷却中，请稍后再试");
+            } else if (result == 12) {
+                UIBridge::Instance().UpdateHelperText(L"守护梦境：今日次数已用完");
+            } else if (result == 13) {
+                UIBridge::Instance().UpdateHelperText(L"守护梦境：玩家正在支付中");
+            }
+        }
+    } else if (operation == "end_game") {
+        if (offset + 24 <= packet.body.size()) {
+            ReadInt32LE(body, offset);  // result
+            ACT805_STATE.playCount = ReadInt32LE(body, offset);
+            ACT805_STATE.restTime = ReadInt32LE(body, offset);
+            ACT805_STATE.rewardMedalCount = ReadInt32LE(body, offset);
+            ACT805_STATE.rewardExp = ReadInt32LE(body, offset);
+            ACT805_STATE.rewardCoin = ReadInt32LE(body, offset);
+            ACT805_STATE.lastScore = ACT805_STATE.targetScore.load();
+            const int historyBestScore = ACT805_STATE.historyBestScore.load();
+            const int lastScore = ACT805_STATE.lastScore.load();
+            ACT805_STATE.historyBestScore = historyBestScore > lastScore ? historyBestScore : lastScore;
+            ACT805_STATE.sweepAvailable = (ACT805_STATE.historyBestScore.load() > 0);
+
+            wchar_t msg[256];
+            swprintf_s(
+                msg,
+                L"守护梦境：结算完成，勋章=%d 经验=%d 铜钱=%d",
+                ACT805_STATE.rewardMedalCount.load(),
+                ACT805_STATE.rewardExp.load(),
+                ACT805_STATE.rewardCoin.load());
+            UIBridge::Instance().UpdateHelperText(msg);
+        }
+    } else if (operation == "sweep_info") {
+        if (offset + 20 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            if (result == 0) {
+                ReadInt32LE(body, offset);  // endType
+                ACT805_STATE.rewardMedalCount = ReadInt32LE(body, offset);
+                ACT805_STATE.rewardExp = ReadInt32LE(body, offset);
+                ACT805_STATE.rewardCoin = ReadInt32LE(body, offset);
+                ACT805_STATE.sweepAvailable = true;
+
+                wchar_t msg[256];
+                swprintf_s(
+                    msg,
+                    L"守护梦境：扫荡预览，勋章=%d 经验=%d 铜钱=%d",
+                    ACT805_STATE.rewardMedalCount.load(),
+                    ACT805_STATE.rewardExp.load(),
+                    ACT805_STATE.rewardCoin.load());
+                UIBridge::Instance().UpdateHelperText(msg);
+            }
+        }
+    } else if (operation == "sweep") {
+        if (offset + 24 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT805_STATE.sweepSuccess = (result == 0);
+            if (result == 0) {
+                ACT805_STATE.playCount = ReadInt32LE(body, offset);
+                ACT805_STATE.restTime = ReadInt32LE(body, offset);
+                ACT805_STATE.rewardMedalCount = ReadInt32LE(body, offset);
+                ACT805_STATE.rewardExp = ReadInt32LE(body, offset);
+                ACT805_STATE.rewardCoin = ReadInt32LE(body, offset);
+
+                wchar_t msg[256];
+                swprintf_s(
+                    msg,
+                    L"守护梦境：扫荡完成，勋章=%d 经验=%d 铜钱=%d",
+                    ACT805_STATE.rewardMedalCount.load(),
+                    ACT805_STATE.rewardExp.load(),
+                    ACT805_STATE.rewardCoin.load());
+                UIBridge::Instance().UpdateHelperText(msg);
+            }
+        }
+    }
+}
+
 // ============ 磐石御天火功能实现 (Act793) ============
     
     // 使用新的状态管理器
@@ -3605,7 +3884,7 @@ void ProcessEnterWorldPacket(const GamePacket& gp) {
     std::wstring kabuName = Utf8ToWide(nameUtf8);
     
     // 更新窗口标题
-    std::wstring newTitle = L"卡布西游浮影微端 V1.08 - " + 
+    std::wstring newTitle = L"卡布西游浮影微端 V1.09 - " + 
                            std::to_wstring(kabuId) + L" " + kabuName;
     SetWindowTextW(g_hWnd, newTitle.c_str());
 }
@@ -4395,6 +4674,7 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
 
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act778::ACTIVITY_ID, ProcessAct778Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act666::ACTIVITY_ID, ProcessAct666Response);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act805::ACTIVITY_ID, ProcessAct805Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act793::ACTIVITY_ID, ProcessAct793Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act791::ACTIVITY_ID, ProcessAct791Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act782::ACTIVITY_ID, ProcessAct782Response);
@@ -4463,6 +4743,7 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
         m_trialState.Reset();
         m_act778State.Reset();
         m_act666State.Reset();
+        m_act805State.Reset();
         m_act793State.Reset();
         m_act791State.Reset();
         m_seaBattleState.Reset();
@@ -4475,6 +4756,10 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
 
     Act666State& ActivityStateManager::GetAct666State() {
         return m_act666State;
+    }
+
+    Act805State& ActivityStateManager::GetAct805State() {
+        return m_act805State;
     }
 
     Act793State& ActivityStateManager::GetAct793State() {
