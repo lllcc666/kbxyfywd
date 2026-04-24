@@ -1347,6 +1347,345 @@ void ProcessAct666Response(const GamePacket& packet) {
     }
 }
 
+// ============ 疾速特训功能实现 (Act810) ============
+
+static std::atomic<int> g_act810PlayCount{0};
+static std::atomic<int> g_act810RestTime{0};
+static std::atomic<int> g_act810MedalCount{0};
+static std::atomic<int> g_act810RuleFlag{1};
+static std::atomic<int> g_act810CheckCode{0};
+static std::atomic<int> g_act810StartResult{0};
+static std::atomic<int> g_act810RewardMedalCount{0};
+static std::atomic<int> g_act810RewardExp{0};
+static std::atomic<int> g_act810RewardCoin{0};
+static std::atomic<bool> g_act810WaitingResponse{false};
+static std::atomic<bool> g_act810UseSweep{false};
+static std::atomic<bool> g_act810SweepAvailable{false};
+static std::vector<int32_t> g_act810AwardCounts;
+static std::mutex g_act810Mutex;
+
+BOOL SendAct810Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
+    return SendActivityPacket(Act810::ACTIVITY_ID, operation, bodyValues);
+}
+
+BOOL SendAct810OpenUIPacket() {
+    g_act810WaitingResponse = true;
+    return SendAct810Packet("open_ui", {});
+}
+
+BOOL SendAct810StartGamePacket(int ruleFlag) {
+    g_act810WaitingResponse = true;
+    return SendAct810Packet("start_game", {ruleFlag});
+}
+
+BOOL SendAct810EndGamePacket(int medalCount) {
+    const int checkCode = g_act810CheckCode.load();
+    const uint32_t userId = g_userId.load();
+    if (checkCode == 0) {
+        return FALSE;
+    }
+
+    const int clientCheckCode = checkCode & static_cast<int>(userId % static_cast<uint32_t>(checkCode));
+    std::vector<int32_t> bodyValues;
+    bodyValues.reserve(16);
+    bodyValues.push_back(clientCheckCode);
+    bodyValues.push_back(medalCount);
+
+    {
+        std::lock_guard<std::mutex> lock(g_act810Mutex);
+        if (g_act810AwardCounts.size() < 14) {
+            bodyValues.insert(bodyValues.end(), 14, 0);
+        } else {
+            bodyValues.insert(bodyValues.end(), g_act810AwardCounts.begin(), g_act810AwardCounts.begin() + 14);
+        }
+    }
+
+    g_act810WaitingResponse = true;
+    return SendAct810Packet("end_game", bodyValues);
+}
+
+BOOL SendAct810SweepInfoPacket() {
+    g_act810WaitingResponse = true;
+    return SendAct810Packet("sweep_info", {});
+}
+
+BOOL SendAct810SweepPacket() {
+    g_act810WaitingResponse = true;
+    return SendAct810Packet("sweep", {});
+}
+
+DWORD WINAPI Act810ThreadProc(LPVOID lpParam) {
+    (void)lpParam;
+
+    const bool useSweep = g_act810UseSweep.load();
+    g_act810PlayCount = 0;
+    g_act810RestTime = 0;
+    g_act810MedalCount = 0;
+    g_act810RuleFlag = 1;
+    g_act810CheckCode = 0;
+    g_act810StartResult = 0;
+    g_act810RewardMedalCount = 0;
+    g_act810RewardExp = 0;
+    g_act810RewardCoin = 0;
+    g_act810SweepAvailable = false;
+    {
+        std::lock_guard<std::mutex> lock(g_act810Mutex);
+        g_act810AwardCounts.clear();
+    }
+
+    auto waitForResponse = []() -> bool {
+        for (int i = 0; i < 30 && g_act810WaitingResponse.load(); ++i) {
+            Sleep(100);
+        }
+        const bool received = !g_act810WaitingResponse.load();
+        g_act810WaitingResponse = false;
+        return received;
+    };
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"疾速特训：正在获取活动信息...");
+
+    SendAct810OpenUIPacket();
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"疾速特训：获取活动信息失败");
+        return 0;
+    }
+
+    if (g_act810PlayCount.load() <= 0) {
+        UIBridge::Instance().UpdateHelperText(L"疾速特训：今日次数已用完");
+        return 0;
+    }
+
+    if (g_act810RestTime.load() > 0) {
+        UIBridge::Instance().UpdateHelperText(L"疾速特训：冷却中，请稍后再试");
+        return 0;
+    }
+
+    if (useSweep) {
+        UIBridge::Instance().UpdateHelperText(L"疾速特训：正在获取扫荡信息...");
+        Sleep(300);
+        SendAct810SweepInfoPacket();
+        if (waitForResponse() && g_act810SweepAvailable.load()) {
+            Sleep(300);
+            UIBridge::Instance().UpdateHelperText(L"疾速特训：执行扫荡...");
+            g_act810RewardMedalCount = 0;
+            g_act810RewardExp = 0;
+            g_act810RewardCoin = 0;
+            SendAct810SweepPacket();
+            if (waitForResponse()) {
+                Sleep(300);
+                SendAct810OpenUIPacket();
+                waitForResponse();
+                UIBridge::Instance().UpdateHelperText(L"疾速特训：扫荡完成");
+                return 0;
+            }
+        }
+
+        UIBridge::Instance().UpdateHelperText(L"疾速特训：扫荡失败，改为直接完成");
+    }
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"疾速特训：开始游戏...");
+    SendAct810StartGamePacket(g_act810RuleFlag.load());
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"疾速特训：开始游戏失败");
+        return 0;
+    }
+
+    const int startResult = g_act810StartResult.load();
+    if (startResult != 0) {
+        if (startResult == 10) {
+            UIBridge::Instance().UpdateHelperText(L"疾速特训：当前已经在游戏中");
+        } else if (startResult == 11) {
+            UIBridge::Instance().UpdateHelperText(L"疾速特训：冷却中，请稍后再试");
+        } else if (startResult == 12) {
+            UIBridge::Instance().UpdateHelperText(L"疾速特训：今日次数已用完");
+        } else if (startResult == 13) {
+            UIBridge::Instance().UpdateHelperText(L"疾速特训：玩家正在支付中");
+        } else {
+            UIBridge::Instance().UpdateHelperText(L"疾速特训：开始游戏失败");
+        }
+        return 0;
+    }
+
+    if (g_act810CheckCode.load() == 0) {
+        UIBridge::Instance().UpdateHelperText(L"疾速特训：获取校验码失败");
+        return 0;
+    }
+
+    int awardTotal = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_act810Mutex);
+        for (int32_t count : g_act810AwardCounts) {
+            if (count > 0) {
+                awardTotal += count;
+            }
+        }
+    }
+
+    const int progressSteps = std::clamp(awardTotal / 2, 3, 8);
+    for (int i = 0; i < progressSteps; ++i) {
+        Sleep(250);
+        if (i == 0) {
+            UIBridge::Instance().UpdateHelperText(L"疾速特训：游戏进行中...");
+        } else if (i == progressSteps - 1) {
+            UIBridge::Instance().UpdateHelperText(L"疾速特训：准备结算...");
+        }
+    }
+
+    Sleep(500);
+    UIBridge::Instance().UpdateHelperText(L"疾速特训：直接提交结算...");
+    SendAct810EndGamePacket(50);
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"疾速特训：结算失败");
+        return 0;
+    }
+
+    Sleep(300);
+    SendAct810OpenUIPacket();
+    waitForResponse();
+
+    if (g_act810RewardMedalCount.load() > 0 || g_act810RewardExp.load() > 0 || g_act810RewardCoin.load() > 0) {
+        wchar_t msg[256];
+        swprintf_s(
+            msg,
+            L"疾速特训：结算完成，勋章=%d 经验=%d 铜钱=%d",
+            g_act810RewardMedalCount.load(),
+            g_act810RewardExp.load(),
+            g_act810RewardCoin.load());
+        UIBridge::Instance().UpdateHelperText(msg);
+    } else {
+        UIBridge::Instance().UpdateHelperText(L"疾速特训：结算完成");
+    }
+
+    return 0;
+}
+
+BOOL StartOneKeyAct810Packet(bool useSweep) {
+    g_act810UseSweep = useSweep;
+    HANDLE hThread = CreateThread(nullptr, 0, Act810ThreadProc, nullptr, 0, nullptr);
+    if (hThread) {
+        CloseHandle(hThread);
+        return TRUE;
+    }
+    return FALSE;
+}
+
+void ProcessAct810Response(const GamePacket& packet) {
+    size_t offset = 0;
+    std::string operation;
+    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+        return;
+    }
+
+    const BYTE* body = packet.body.data();
+    g_act810WaitingResponse = false;
+
+    if (operation == "open_ui") {
+        if (offset + 24 <= packet.body.size()) {
+            g_act810PlayCount = ReadInt32LE(body, offset);
+            g_act810RestTime = ReadInt32LE(body, offset);
+            ReadInt32LE(body, offset);
+            g_act810MedalCount = ReadInt32LE(body, offset);
+            ReadInt32LE(body, offset);
+            g_act810RuleFlag = ReadInt32LE(body, offset);
+
+            wchar_t msg[256];
+            swprintf_s(
+                msg,
+                L"疾速特训：次数=%d 冷却=%d秒 勋章=%d",
+                g_act810PlayCount.load(),
+                g_act810RestTime.load(),
+                g_act810MedalCount.load());
+            UIBridge::Instance().UpdateHelperText(msg);
+        }
+    } else if (operation == "start_game") {
+        if (offset + 4 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            g_act810StartResult = result;
+            if (result == 0 && offset + 64 <= packet.body.size()) {
+                g_act810PlayCount = ReadInt32LE(body, offset);
+                g_act810CheckCode = ReadInt32LE(body, offset);
+                std::lock_guard<std::mutex> lock(g_act810Mutex);
+                g_act810AwardCounts.clear();
+                g_act810AwardCounts.reserve(14);
+                for (int i = 0; i < 14 && offset + 4 <= packet.body.size(); ++i) {
+                    g_act810AwardCounts.push_back(ReadInt32LE(body, offset));
+                }
+                while (g_act810AwardCounts.size() < 14) {
+                    g_act810AwardCounts.push_back(0);
+                }
+                UIBridge::Instance().UpdateHelperText(L"疾速特训：已获取开局信息");
+            } else if (result == 10) {
+                UIBridge::Instance().UpdateHelperText(L"疾速特训：当前已经在游戏中");
+            } else if (result == 11) {
+                UIBridge::Instance().UpdateHelperText(L"疾速特训：冷却中，请稍后再试");
+            } else if (result == 12) {
+                UIBridge::Instance().UpdateHelperText(L"疾速特训：今日次数已用完");
+            } else if (result == 13) {
+                UIBridge::Instance().UpdateHelperText(L"疾速特训：玩家正在支付中");
+            }
+        }
+    } else if (operation == "sweep_info") {
+        if (offset + 36 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            if (result == 0) {
+                g_act810RewardMedalCount = ReadInt32LE(body, offset);
+                g_act810RewardExp = ReadInt32LE(body, offset);
+                g_act810RewardCoin = ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                g_act810SweepAvailable = true;
+
+                wchar_t msg[256];
+                swprintf_s(
+                    msg,
+                    L"疾速特训：扫荡预览，勋章=%d 经验=%d 铜钱=%d",
+                    g_act810RewardMedalCount.load(),
+                    g_act810RewardExp.load(),
+                    g_act810RewardCoin.load());
+                UIBridge::Instance().UpdateHelperText(msg);
+            } else {
+                g_act810SweepAvailable = false;
+                UIBridge::Instance().UpdateHelperText(L"疾速特训：当前不可扫荡");
+            }
+        }
+    } else if (operation == "end_game" || operation == "sweep") {
+        if (offset + 44 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            if (result != 3) {
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                g_act810RewardMedalCount = ReadInt32LE(body, offset);
+                g_act810RewardExp = ReadInt32LE(body, offset);
+                g_act810RewardCoin = ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                if (operation == "sweep") {
+                    UIBridge::Instance().UpdateHelperText(L"疾速特训：扫荡完成");
+                } else {
+                    wchar_t msg[256];
+                    swprintf_s(
+                        msg,
+                        L"疾速特训：结算完成，勋章=%d 经验=%d 铜钱=%d",
+                        g_act810RewardMedalCount.load(),
+                        g_act810RewardExp.load(),
+                        g_act810RewardCoin.load());
+                    UIBridge::Instance().UpdateHelperText(msg);
+                }
+            } else {
+                UIBridge::Instance().UpdateHelperText(operation == "sweep" ? L"疾速特训：扫荡失败" : L"疾速特训：结算失败");
+            }
+        }
+    }
+}
+
 // ============ 守护梦境功能实现 (Act805) ============
 
 #define ACT805_STATE ActivityStateManager::Instance().GetAct805State()
@@ -2672,13 +3011,6 @@ void ProcessAct805Response(const GamePacket& packet) {
         return FALSE;
     }
 
-    BOOL StartOneKeyAct806Packet(bool useSweep, int targetValue) {
-        (void)useSweep;
-        (void)targetValue;
-        UIBridge::Instance().UpdateHelperText(L"疾速特训：当前版本未启用");
-        return FALSE;
-    }
-
     void ProcessAct804Response(const GamePacket& packet) {
         size_t offset = 0;
         std::string operation;
@@ -3924,7 +4256,7 @@ void ProcessEnterWorldPacket(const GamePacket& gp) {
     std::wstring kabuName = Utf8ToWide(nameUtf8);
     
     // 更新窗口标题
-    std::wstring newTitle = L"卡布西游浮影微端 V1.09 - " + 
+    std::wstring newTitle = L"卡布西游浮影微端 V1.10 - " + 
                            std::to_wstring(kabuId) + L" " + kabuName;
     SetWindowTextW(g_hWnd, newTitle.c_str());
 }
@@ -4721,6 +5053,7 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act803::ACTIVITY_ID, ProcessAct803Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act804::ACTIVITY_ID, ProcessAct804Response);
     registerParams(Opcode::ACTIVITY_LUA_V3_BACK, Act804::ACTIVITY_ID, ProcessAct804Response);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act810::ACTIVITY_ID, ProcessAct810Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act811::ACTIVITY_ID, ProcessAct811Response);
     registerParams(Opcode::ACTIVITY_LUA_V3_BACK, Act811::ACTIVITY_ID, ProcessAct811Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act624::ACTIVITY_ID, ProcessAct624Response);

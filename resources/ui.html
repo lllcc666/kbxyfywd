@@ -1411,7 +1411,7 @@
     <div class="title-bar">
         <div class="title-bar-left">
             <div class="title-bar-icon">卡</div>
-            <span class="title-bar-title">卡布西游浮影微端 V1.09</span>
+            <span class="title-bar-title">卡布西游浮影微端 V1.10</span>
         </div>
         <div class="title-bar-controls">
             <button class="title-bar-button" id="btn-minimize" title="最小化">
@@ -2123,6 +2123,16 @@
                                         <span>扫荡</span>
                                     </label>
                                     <button id="one-key-act804" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
+                                </div>
+                            </div>
+                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <div style="font-size: 11px; font-weight: 600; color: #333;">疾速特训</div>
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="act810-sweep" style="width: 11px; height: 11px; cursor: pointer;">
+                                        <span>扫荡</span>
+                                    </label>
+                                    <button id="one-key-act810" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
                                 </div>
                             </div>
                             <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
@@ -3905,6 +3915,18 @@
             }
         };
 
+        // 疾速特训 - 一键完成
+        window.oneKeyAct810 = function() {
+            var sweepCheckbox = document.getElementById('act810-sweep');
+            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({
+                    action: 'one_key_act810',
+                    sweep: useSweep
+                }));
+            }
+        };
+
         // 清明赏河景 - 一键完成
         window.oneKeyAct803 = function() {
             var sweepCheckbox = document.getElementById('act803-sweep');
@@ -4348,6 +4370,10 @@
             var act804Btn = document.getElementById('one-key-act804');
             if (act804Btn) {
                 act804Btn.addEventListener('click', window.oneKeyAct804);
+            }
+            var act810Btn = document.getElementById('one-key-act810');
+            if (act810Btn) {
+                act810Btn.addEventListener('click', window.oneKeyAct810);
             }
             var act811Btn = document.getElementById('one-key-act811');
             if (act811Btn) {

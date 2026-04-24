@@ -805,6 +805,19 @@ void HandleStartOneKeyAct804Command(const std::wstring& msg) {
         StartOneKeyAct804Packet);
 }
 
+void HandleStartOneKeyAct810Command(const std::wstring& msg) {
+    HandleStartOneKeyActCommand(
+        msg,
+        nullptr,
+        0,
+        0,
+        0,
+        L"疾速特训：开始扫荡...",
+        L"疾速特训：开始游戏...",
+        L"疾速特训启动失败",
+        StartOneKeyAct810Packet);
+}
+
 void HandleStartOneKeyAct811Command(const std::wstring& msg) {
     HandleStartOneKeyActCommand(
         msg,
@@ -829,19 +842,6 @@ void HandleStartOneKeyAct624Command(const std::wstring& msg) {
         L"采蘑菇的好伙伴已开始（三轮模式）",
         L"采蘑菇的好伙伴启动失败",
         StartOneKeyAct624Packet);
-}
-
-void HandleStartOneKeyAct806Command(const std::wstring& msg) {
-    HandleStartOneKeyActCommand(
-        msg,
-        nullptr,
-        0,
-        0,
-        0,
-        L"疾速特训已开始（扫荡模式）",
-        L"疾速特训已开始（游戏模式）",
-        L"疾速特训启动失败",
-        StartOneKeyAct806Packet);
 }
 
 void HandleDecomposeLingyuIndicesCommand(const std::wstring& msg, const wchar_t* indicesKey) {
@@ -1248,10 +1248,10 @@ public:
             HandleStartOneKeyAct803Command(msg);
         } else if (msg.find(L"one_key_act804") != std::wstring::npos) {
             HandleStartOneKeyAct804Command(msg);
+        } else if (msg.find(L"one_key_act810") != std::wstring::npos) {
+            HandleStartOneKeyAct810Command(msg);
         } else if (msg.find(L"one_key_act811") != std::wstring::npos) {
             HandleStartOneKeyAct811Command(msg);
-        } else if (msg.find(L"one_key_act806") != std::wstring::npos) {
-            HandleStartOneKeyAct806Command(msg);
         } else if (msg.find(L"one_key_act624") != std::wstring::npos) {
             HandleStartOneKeyAct624Command(msg);
         } else if (msg.find(L"one_key_horse_competition") != std::wstring::npos) {

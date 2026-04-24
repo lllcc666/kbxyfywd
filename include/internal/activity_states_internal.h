@@ -169,37 +169,6 @@ struct Act791State : ActivityState {
     }
 };
 
-struct Act806State : ActivityState {
-    std::atomic<int> buyCnt{0};
-    std::atomic<int> medalNum{0};
-    std::atomic<int> maxHurt{0};
-    std::atomic<int> sweepEndTime{0};
-    std::atomic<int> hasMonster{0};
-    std::atomic<int> hurt{0};
-    std::atomic<int> sweepTime{0};
-    std::atomic<int> lastResult{0};
-    std::atomic<int> lastExp{0};
-    std::atomic<int> lastCoin{0};
-    std::atomic<bool> useSweep{false};
-    std::atomic<bool> battleFinished{false};
-
-    void Reset() override {
-        ActivityState::Reset();
-        buyCnt = 0;
-        medalNum = 0;
-        maxHurt = 0;
-        sweepEndTime = 0;
-        hasMonster = 0;
-        hurt = 0;
-        sweepTime = 0;
-        lastResult = 0;
-        lastExp = 0;
-        lastCoin = 0;
-        useSweep = false;
-        battleFinished = false;
-    }
-};
-
 enum HorseRoomStatus {
     HORSE_ROOM_FREE = 0,
     HORSE_ROOM_READY = 1,
@@ -369,7 +338,6 @@ public:
     Act805State& GetAct805State();
     Act793State& GetAct793State();
     Act791State& GetAct791State();
-    Act806State& GetAct806State();
     HorseCompetitionState& GetHorseCompetitionState();
     void ResetAll();
 
@@ -386,6 +354,5 @@ private:
     Act805State m_act805State;
     Act793State m_act793State;
     Act791State m_act791State;
-    Act806State m_act806State;
     HorseCompetitionState m_horseCompetitionState;
 };

@@ -122,15 +122,19 @@ set_target_properties(WebView2Demo PROPERTIES
 
 # Release 浣跨敤鏍囧噯浼樺寲锛岄伩鍏嶈繃搴︽縺杩涚殑浣撶Н鍘嬬缉褰卞搷鍏煎鎬?
 if(MSVC)
+    # Release 侧更偏向体积压缩，减少可执行文件和装载后的常驻体积。
     target_compile_options(WebView2Demo PRIVATE
-        $<$<CONFIG:Release>:/O2>
+        $<$<CONFIG:Release>:/O1>
+        $<$<CONFIG:Release>:/GL>
         $<$<CONFIG:Release>:/GF>
         $<$<CONFIG:Release>:/Gy>
+        $<$<CONFIG:Release>:/Gw>
         $<$<CONFIG:Release>:/Ob2>
         $<$<CONFIG:Release>:/EHsc>
     )
 
     target_link_options(WebView2Demo PRIVATE
+        $<$<CONFIG:Release>:/LTCG>
         $<$<CONFIG:Release>:/OPT:REF>
         $<$<CONFIG:Release>:/OPT:ICF>
         $<$<CONFIG:Release>:/INCREMENTAL:NO>

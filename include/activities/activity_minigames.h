@@ -128,6 +128,19 @@ BOOL SendAct804SweepPacket();
 BOOL StartOneKeyAct804Packet(bool useSweep = false, int targetScore = Act804::TARGET_SCORE);
 void ProcessAct804Response(const GamePacket& packet);
 
+namespace Act810 {
+constexpr int ACTIVITY_ID = 810;
+}  // namespace Act810
+
+BOOL SendAct810Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
+BOOL SendAct810OpenUIPacket();
+BOOL SendAct810StartGamePacket(int ruleFlag = 1);
+BOOL SendAct810EndGamePacket(int medalCount);
+BOOL SendAct810SweepInfoPacket();
+BOOL SendAct810SweepPacket();
+BOOL StartOneKeyAct810Packet(bool useSweep = false);
+void ProcessAct810Response(const GamePacket& packet);
+
 namespace Act811 {
 constexpr int ACTIVITY_ID = 811;
 }  // namespace Act811
@@ -154,19 +167,6 @@ BOOL SendAct624SweepInfoPacket();
 BOOL SendAct624SweepPacket();
 BOOL StartOneKeyAct624Packet(bool useSweep = false);
 void ProcessAct624Response(const GamePacket& packet);
-
-namespace Act806 {
-constexpr int ACTIVITY_ID = 806;
-}  // namespace Act806
-
-BOOL SendAct806Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-BOOL SendAct806OpenUIPacket();
-BOOL SendAct806CombatPacket();
-BOOL SendAct806SweepInfoPacket();
-BOOL SendAct806CombatSweepPacket();
-BOOL SendAct806SweepPacket();
-BOOL StartOneKeyAct806Packet(bool useSweep = false, int targetValue = 0);
-void ProcessAct806Response(const GamePacket& packet);
 
 namespace HeavenFurui {
 constexpr int ACTIVITY_ID = 900;
