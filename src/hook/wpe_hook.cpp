@@ -9,6 +9,7 @@
 #include <winhttp.h>
 #include <wincrypt.h>
 #include <string>
+#include <array>
 #include <vector>
 #include <memory>
 #include <tuple>
@@ -358,6 +359,17 @@ static std::atomic<bool> g_act804UseSweep{false};
 static std::atomic<bool> g_act804SweepAvailable{false};
 static std::mutex g_act804Mutex;
 static std::vector<int> g_act804StartAwardList;
+
+// 我是神射手状态 (Act811)
+static std::atomic<int> g_act811PlayCount{0};
+static std::atomic<int> g_act811RestTime{0};
+static std::atomic<int> g_act811PropNum{0};
+static std::atomic<int> g_act811HintFlag{0};
+static std::atomic<int> g_act811LastResult{-1};
+static std::atomic<bool> g_act811WaitingResponse{false};
+static std::atomic<bool> g_act811UseSweep{false};
+static std::atomic<bool> g_act811SweepAvailable{false};
+static std::vector<int> g_act811AwardList;
 
 // 采蘑菇的好伙伴状态 (Act624)
 static std::atomic<int> g_act624PlayCount{0};
@@ -2618,7 +2630,7 @@ void ProcessAct805Response(const GamePacket& packet) {
 
         if (g_act804LastResult.load() != 0) {
             if (g_act804LastResult.load() == -1) {
-                UIBridge::Instance().UpdateHelperText(L"逆流的试炼：获取开局信息失败");
+            UIBridge::Instance().UpdateHelperText(L"逆流的试炼：获取开局信息失败");
             }
             return 0;
         }
@@ -2657,6 +2669,13 @@ void ProcessAct805Response(const GamePacket& packet) {
             return TRUE;
         }
         delete pTargetScore;
+        return FALSE;
+    }
+
+    BOOL StartOneKeyAct806Packet(bool useSweep, int targetValue) {
+        (void)useSweep;
+        (void)targetValue;
+        UIBridge::Instance().UpdateHelperText(L"疾速特训：当前版本未启用");
         return FALSE;
     }
 
@@ -2824,7 +2843,320 @@ void ProcessAct805Response(const GamePacket& packet) {
                 if (result == 0 && offset + 8 <= packet.body.size()) {
                     g_act804RestTime = ReadInt32LE(body, offset);
                     ReadInt32LE(body, offset);
-                    UIBridge::Instance().UpdateHelperText(L"逆流的试炼：冷却已清除");
+                UIBridge::Instance().UpdateHelperText(L"逆流的试炼：冷却已清除");
+                }
+            }
+        }
+    }
+
+    // ============ 我是神射手功能实现 (Act811) ============
+
+    BOOL SendAct811Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
+        return SendActivityPacket(Act811::ACTIVITY_ID, operation, bodyValues);
+    }
+
+    static constexpr std::array<int, 28> kAct811PropPerSection = {
+        0, 5, 8, 10, 5, 8, 10, 5, 8, 10, 5, 8, 10, 5, 8, 10, 5, 8, 10, 5, 8, 10, 5, 8, 10, 5, 8, 10
+    };
+
+    static std::vector<int32_t> BuildAct811GameEventBody(const std::array<int32_t, 23>& awardCounts) {
+        std::vector<int32_t> bodyValues;
+        bodyValues.reserve(15);
+
+        for (int i = 1; i <= 12; ++i) {
+            bodyValues.push_back(awardCounts[i]);
+        }
+
+        int specialIds[3] = {0, 0, 0};
+        int specialIndex = 0;
+        for (int i = 13; i <= 22 && specialIndex < 3; ++i) {
+            if (awardCounts[i] > 0) {
+                specialIds[specialIndex++] = i;
+            }
+        }
+
+        bodyValues.push_back(specialIds[0]);
+        bodyValues.push_back(specialIds[1]);
+        bodyValues.push_back(specialIds[2]);
+        return bodyValues;
+    }
+
+    BOOL SendAct811GameEventPacket(const std::array<int32_t, 23>& awardCounts) {
+        std::vector<BYTE> packet = BuildActivityPacket(
+            Opcode::ACTIVITY_QINGYANG_NEW_SEND,
+            Act811::ACTIVITY_ID,
+            "game_event",
+            BuildAct811GameEventBody(awardCounts));
+        return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    }
+
+    BOOL SendAct811OpenUIPacket() {
+        g_act811WaitingResponse = true;
+        return SendAct811Packet("open_ui", {});
+    }
+
+    BOOL SendAct811StartGamePacket(int hintFlag) {
+        g_act811WaitingResponse = true;
+        if (hintFlag != 0) {
+            return SendAct811Packet("start_game", {hintFlag});
+        }
+        return SendAct811Packet("start_game", {});
+    }
+
+    BOOL SendAct811SweepInfoPacket() {
+        g_act811WaitingResponse = true;
+        return SendAct811Packet("sweep_info", {});
+    }
+
+    BOOL SendAct811SweepPacket() {
+        g_act811WaitingResponse = true;
+        return SendAct811Packet("sweep", {});
+    }
+
+    BOOL SendAct811EndGamePacket() {
+        g_act811WaitingResponse = true;
+        return SendAct811Packet("end_game", {});
+    }
+
+    static void SubmitAct811GameEventsFromAwardList(const std::vector<int>& awardList) {
+        std::array<int32_t, 23> awardCounts{};
+        size_t awardIndex = 0;
+
+        auto consumeBatch = [&]() {
+            for (int lane = 0; lane < 5 && awardIndex < awardList.size(); ++lane) {
+                const int awardId = awardList[awardIndex++];
+                if (awardId >= 1 && awardId <= 22) {
+                    ++awardCounts[awardId];
+                }
+            }
+        };
+
+        for (size_t sectionIndex = 1; sectionIndex < kAct811PropPerSection.size(); ++sectionIndex) {
+            for (int batch = 0; batch < kAct811PropPerSection[sectionIndex] && awardIndex < awardList.size(); ++batch) {
+                consumeBatch();
+            }
+            SendAct811GameEventPacket(awardCounts);
+        }
+
+        while (awardIndex < awardList.size()) {
+            consumeBatch();
+            SendAct811GameEventPacket(awardCounts);
+        }
+
+        // 按 AS3 的 wingame() 语义，最终结算前再补一次累计结果。
+        SendAct811GameEventPacket(awardCounts);
+    }
+
+    DWORD WINAPI Act811ThreadProc(LPVOID lpParam) {
+        (void)lpParam;
+
+        const bool useSweep = g_act811UseSweep.load();
+        g_act811PlayCount = 0;
+        g_act811RestTime = 0;
+        g_act811PropNum = 0;
+        g_act811HintFlag = 0;
+        g_act811LastResult = -1;
+        g_act811SweepAvailable = false;
+        g_act811AwardList.clear();
+
+        auto waitForResponse = []() -> bool {
+            for (int i = 0; i < 30 && g_act811WaitingResponse.load(); ++i) {
+                Sleep(100);
+            }
+            const bool received = !g_act811WaitingResponse.load();
+            g_act811WaitingResponse = false;
+            return received;
+        };
+
+        Sleep(300);
+        UIBridge::Instance().UpdateHelperText(L"我是神射手：正在获取活动信息...");
+
+        SendAct811OpenUIPacket();
+        if (!waitForResponse()) {
+            UIBridge::Instance().UpdateHelperText(L"我是神射手：获取活动信息失败");
+            return 0;
+        }
+
+        if (g_act811PlayCount.load() <= 0) {
+            UIBridge::Instance().UpdateHelperText(L"我是神射手：今日次数已用完");
+            return 0;
+        }
+
+        if (g_act811RestTime.load() > 0) {
+            UIBridge::Instance().UpdateHelperText(L"我是神射手：冷却中，请稍后再试");
+            return 0;
+        }
+
+        if (useSweep) {
+            UIBridge::Instance().UpdateHelperText(L"我是神射手：正在获取扫荡信息...");
+            SendAct811SweepInfoPacket();
+            if (waitForResponse() && g_act811SweepAvailable.load()) {
+                Sleep(300);
+                UIBridge::Instance().UpdateHelperText(L"我是神射手：执行扫荡...");
+                g_act811LastResult = -1;
+                SendAct811SweepPacket();
+                if (waitForResponse() && g_act811LastResult.load() == 0) {
+                    UIBridge::Instance().UpdateHelperText(L"我是神射手：扫荡完成");
+                } else {
+                    UIBridge::Instance().UpdateHelperText(L"我是神射手：扫荡失败");
+                }
+                return 0;
+            }
+
+            UIBridge::Instance().UpdateHelperText(L"我是神射手：当前不可扫荡，改为直接完成");
+        }
+
+        Sleep(300);
+        UIBridge::Instance().UpdateHelperText(L"我是神射手：开始游戏...");
+        SendAct811StartGamePacket(g_act811HintFlag.load());
+        if (!waitForResponse()) {
+            UIBridge::Instance().UpdateHelperText(L"我是神射手：获取开局信息失败");
+            return 0;
+        }
+
+        if (g_act811LastResult.load() != 0) {
+            if (g_act811LastResult.load() == 10) {
+                UIBridge::Instance().UpdateHelperText(L"我是神射手：当前已经在游戏中");
+            } else if (g_act811LastResult.load() == 11) {
+                UIBridge::Instance().UpdateHelperText(L"我是神射手：冷却中，请稍后再试");
+            } else if (g_act811LastResult.load() == 12) {
+                UIBridge::Instance().UpdateHelperText(L"我是神射手：今日次数已用完");
+            } else if (g_act811LastResult.load() == 13) {
+                UIBridge::Instance().UpdateHelperText(L"我是神射手：玩家正在支付中");
+            } else {
+                UIBridge::Instance().UpdateHelperText(L"我是神射手：开始游戏失败");
+            }
+            return 0;
+        }
+
+        SubmitAct811GameEventsFromAwardList(g_act811AwardList);
+
+        Sleep(500);
+        UIBridge::Instance().UpdateHelperText(L"我是神射手：直接提交结算...");
+        g_act811LastResult = -1;
+        SendAct811EndGamePacket();
+        if (!waitForResponse()) {
+            UIBridge::Instance().UpdateHelperText(L"我是神射手：结算失败");
+            return 0;
+        }
+
+        if (g_act811LastResult.load() == 0) {
+            UIBridge::Instance().UpdateHelperText(L"我是神射手：结算完成");
+        } else {
+            UIBridge::Instance().UpdateHelperText(L"我是神射手：结算失败");
+        }
+
+        return 0;
+    }
+
+    BOOL StartOneKeyAct811Packet(bool useSweep) {
+        g_act811UseSweep = useSweep;
+        HANDLE hThread = CreateThread(nullptr, 0, Act811ThreadProc, nullptr, 0, nullptr);
+        if (hThread) {
+            CloseHandle(hThread);
+            return TRUE;
+        }
+        return FALSE;
+    }
+
+    void ProcessAct811Response(const GamePacket& packet) {
+        size_t offset = 0;
+        std::string operation;
+        if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+            return;
+        }
+
+        const BYTE* body = packet.body.data();
+        g_act811WaitingResponse = false;
+
+        auto parseRewardList = [&](size_t& currentOffset) -> std::vector<std::pair<int, int>> {
+            std::vector<std::pair<int, int>> rewardList;
+            if (currentOffset + 16 > packet.body.size()) {
+                return rewardList;
+            }
+
+            rewardList.reserve(3);
+            rewardList.emplace_back(0, ReadInt32LE(body, currentOffset));
+            rewardList.emplace_back(201, ReadInt32LE(body, currentOffset));
+            rewardList.emplace_back(202, ReadInt32LE(body, currentOffset));
+            const int len = ReadInt32LE(body, currentOffset);
+            for (int i = 0; i < len && currentOffset + 8 <= packet.body.size(); ++i) {
+                const int id = ReadInt32LE(body, currentOffset);
+                const int num = ReadInt32LE(body, currentOffset);
+                rewardList.emplace_back(id, num);
+            }
+            return rewardList;
+        };
+
+        if (operation == "open_ui") {
+            if (offset + 28 <= packet.body.size()) {
+                g_act811PlayCount = ReadInt32LE(body, offset);
+                g_act811RestTime = ReadInt32LE(body, offset);
+                g_act811PropNum = ReadInt32LE(body, offset);
+                g_act811HintFlag = ReadInt32LE(body, offset);
+                const int isSweep = ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                g_act811SweepAvailable = (isSweep != 0);
+
+                wchar_t msg[256];
+                swprintf_s(
+                    msg,
+                    L"我是神射手：次数=%d 冷却=%d秒 蛋糕=%d",
+                    g_act811PlayCount.load(),
+                    g_act811RestTime.load(),
+                    g_act811PropNum.load());
+                UIBridge::Instance().UpdateHelperText(msg);
+            }
+        } else if (operation == "start_game") {
+            if (offset + 4 <= packet.body.size()) {
+                const int result = ReadInt32LE(body, offset);
+                g_act811LastResult = result;
+                if (result == 0 && offset + 4 <= packet.body.size()) {
+                    g_act811PlayCount = ReadInt32LE(body, offset);
+                    g_act811AwardList.clear();
+                    for (int i = 0; i < 294 && offset + 4 <= packet.body.size(); ++i) {
+                        g_act811AwardList.push_back(ReadInt32LE(body, offset));
+                    }
+                    UIBridge::Instance().UpdateHelperText(L"我是神射手：已获取开局信息");
+                } else if (result == 10) {
+                    UIBridge::Instance().UpdateHelperText(L"我是神射手：当前已经在游戏中");
+                } else if (result == 11) {
+                    UIBridge::Instance().UpdateHelperText(L"我是神射手：冷却中，请稍后再试");
+                } else if (result == 12) {
+                    UIBridge::Instance().UpdateHelperText(L"我是神射手：今日次数已用完");
+                } else if (result == 13) {
+                    UIBridge::Instance().UpdateHelperText(L"我是神射手：玩家正在支付中");
+                }
+            }
+        } else if (operation == "sweep_info") {
+            if (offset + 4 <= packet.body.size()) {
+                const int result = ReadInt32LE(body, offset);
+                g_act811SweepAvailable = (result == 0);
+                if (result == 0) {
+                    std::vector<std::pair<int, int>> rewardList = parseRewardList(offset);
+                    (void)rewardList;
+                    UIBridge::Instance().UpdateHelperText(L"我是神射手：扫荡预览已获取");
+                } else {
+                    UIBridge::Instance().UpdateHelperText(L"我是神射手：当前不可扫荡");
+                }
+            }
+        } else if (operation == "end_game" || operation == "sweep") {
+            if (offset + 4 <= packet.body.size()) {
+                const int result = ReadInt32LE(body, offset);
+                g_act811LastResult = result;
+                if (result != 3) {
+                    if (offset + 8 <= packet.body.size()) {
+                        ReadInt32LE(body, offset);
+                        ReadInt32LE(body, offset);
+                    }
+                    std::vector<std::pair<int, int>> rewardList = parseRewardList(offset);
+                    (void)rewardList;
+                    UIBridge::Instance().UpdateHelperText(
+                        operation == "sweep" ? L"我是神射手：扫荡完成" : L"我是神射手：结算完成");
+                } else {
+                    UIBridge::Instance().UpdateHelperText(
+                        operation == "sweep" ? L"我是神射手：扫荡失败" : L"我是神射手：结算失败");
                 }
             }
         }
@@ -3089,298 +3421,6 @@ void ProcessAct805Response(const GamePacket& packet) {
                     }
                 } else {
                     UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：扫荡失败");
-                }
-            }
-        }
-    }
-
-    // ============ 海底激战功能实现 (SeaBattle / Act653) ============
-
-    #define SEA_BATTLE_STATE ActivityStateManager::Instance().GetSeaBattleState()
-
-    static bool g_seaBattleSweepSuccess = false;
-
-    BOOL SendSeaBattlePacket(const std::string& operation, const std::vector<int32_t>& bodyValues) {
-        return SendActivityPacket(SeaBattle::ACTIVITY_ID, operation, bodyValues);
-    }
-
-    BOOL SendSeaBattleUIInfoPacket() {
-        SEA_BATTLE_STATE.waitingResponse = true;
-        return SendSeaBattlePacket("ui_info", {});
-    }
-
-    BOOL SendSeaBattleStartGamePacket(int promptFlag) {
-        SEA_BATTLE_STATE.waitingResponse = true;
-        return SendSeaBattlePacket("start_game", {promptFlag});
-    }
-
-    BOOL SendSeaBattleEndGamePacket(int score) {
-        std::vector<BYTE> extraPacket = PacketBuilder()
-            .SetOpcode(SeaBattle::EXTRA_OPCODE)
-            .SetParams(SeaBattle::EXTRA_PARAMS)
-            .WriteInt32(3)
-            .WriteInt32(SeaBattle::EXTRA_TASK_ID)
-            .WriteInt32(0)
-            .Build();
-        SendPacket(0, extraPacket.data(), static_cast<DWORD>(extraPacket.size()));
-        Sleep(100);
-
-        const int passFlag = score >= SeaBattle::PASS_SCORE ? 0 : 1;
-        const int clientCheckCode = SEA_BATTLE_STATE.checkCode.load()
-            + static_cast<int>(g_userId.load() % 100)
-            + passFlag
-            + score;
-
-        SEA_BATTLE_STATE.waitingResponse = true;
-        return SendSeaBattlePacket("end_game", {passFlag, clientCheckCode, score});
-    }
-
-    BOOL SendSeaBattleSweepInfoPacket() {
-        SEA_BATTLE_STATE.waitingResponse = true;
-        return SendSeaBattlePacket("sweep_info", {});
-    }
-
-    BOOL SendSeaBattleSweepPacket() {
-        SEA_BATTLE_STATE.waitingResponse = true;
-        return SendSeaBattlePacket("sweep", {});
-    }
-
-    DWORD WINAPI SeaBattleThreadProc(LPVOID lpParam) {
-        (void)lpParam;
-
-        SEA_BATTLE_STATE.checkCode = 0;
-        SEA_BATTLE_STATE.lastResult = -1;
-        SEA_BATTLE_STATE.lastServerScore = 0;
-        SEA_BATTLE_STATE.lastScoreMax = 0;
-        SEA_BATTLE_STATE.sweepSuccess = false;
-        g_seaBattleSweepSuccess = false;
-
-        Sleep(300);
-        UIBridge::Instance().UpdateHelperText(L"海底激战：正在获取活动信息...");
-
-        SendSeaBattleUIInfoPacket();
-        for (int i = 0; i < 30 && SEA_BATTLE_STATE.waitingResponse; ++i) {
-            Sleep(100);
-        }
-
-        if (SEA_BATTLE_STATE.playCount <= 0) {
-            UIBridge::Instance().UpdateHelperText(L"海底激战：今日次数已用完");
-            return 0;
-        }
-
-        if (SEA_BATTLE_STATE.restTime > 0) {
-            UIBridge::Instance().UpdateHelperText(L"海底激战：冷却中，请稍后再试");
-            return 0;
-        }
-
-        if (SEA_BATTLE_STATE.useSweep) {
-            UIBridge::Instance().UpdateHelperText(L"海底激战：正在获取扫荡信息...");
-
-            Sleep(300);
-            g_seaBattleSweepSuccess = false;
-            SEA_BATTLE_STATE.sweepSuccess = false;
-            SendSeaBattleSweepInfoPacket();
-            for (int i = 0; i < 30 && SEA_BATTLE_STATE.waitingResponse; ++i) {
-                Sleep(100);
-            }
-
-            if (!g_seaBattleSweepSuccess) {
-                UIBridge::Instance().UpdateHelperText(L"海底激战：当前不可扫荡");
-                return 0;
-            }
-
-            Sleep(300);
-            g_seaBattleSweepSuccess = false;
-            SEA_BATTLE_STATE.sweepSuccess = false;
-            SendSeaBattleSweepPacket();
-            for (int i = 0; i < 30 && SEA_BATTLE_STATE.waitingResponse; ++i) {
-                Sleep(100);
-            }
-
-            if (SEA_BATTLE_STATE.sweepSuccess) {
-                UIBridge::Instance().UpdateHelperText(L"海底激战：扫荡完成");
-            } else {
-                UIBridge::Instance().UpdateHelperText(L"海底激战：扫荡失败");
-            }
-            return 0;
-        }
-
-        const int targetScore = SeaBattle::TARGET_SCORE;
-
-        Sleep(300);
-        UIBridge::Instance().UpdateHelperText(L"海底激战：开始游戏...");
-
-        SendSeaBattleStartGamePacket(SEA_BATTLE_STATE.promptFlag.load());
-        for (int i = 0; i < 30 && SEA_BATTLE_STATE.waitingResponse; ++i) {
-            Sleep(100);
-        }
-
-        if (SEA_BATTLE_STATE.checkCode == 0) {
-            UIBridge::Instance().UpdateHelperText(L"海底激战：获取校验码失败");
-            return 0;
-        }
-
-        Sleep(500);
-        UIBridge::Instance().UpdateHelperText(L"海底激战：跳过客户端渲染，直接提交结算...");
-
-        SendSeaBattleEndGamePacket(targetScore);
-        for (int i = 0; i < 30 && SEA_BATTLE_STATE.waitingResponse; ++i) {
-            Sleep(100);
-        }
-
-        if (SEA_BATTLE_STATE.lastResult == 0 || SEA_BATTLE_STATE.lastResult == 4) {
-            wchar_t msg[256];
-            swprintf_s(
-                msg,
-                L"海底激战：完成，服务器分数=%d，最高分=%d，勋章=%d",
-                SEA_BATTLE_STATE.lastServerScore.load(),
-                SEA_BATTLE_STATE.lastScoreMax.load(),
-                SEA_BATTLE_STATE.medalNum.load());
-            UIBridge::Instance().UpdateHelperText(msg);
-        } else {
-            UIBridge::Instance().UpdateHelperText(L"海底激战：结算失败");
-        }
-
-        return 0;
-    }
-
-    BOOL StartOneKeySeaBattlePacket(bool useSweep) {
-        SEA_BATTLE_STATE.useSweep = useSweep;
-        HANDLE hThread = CreateThread(nullptr, 0, SeaBattleThreadProc, nullptr, 0, nullptr);
-        if (hThread) {
-            CloseHandle(hThread);
-            return TRUE;
-        }
-        return FALSE;
-    }
-
-    void ProcessSeaBattleResponse(const GamePacket& packet) {
-        size_t offset = 0;
-        std::string operation;
-        if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
-            return;
-        }
-
-        const BYTE* body = packet.body.data();
-        SEA_BATTLE_STATE.waitingResponse = false;
-
-        if (operation == "ui_info") {
-            if (offset + 60 <= packet.body.size()) {
-                SEA_BATTLE_STATE.playCount = ReadInt32LE(body, offset);
-                SEA_BATTLE_STATE.restTime = ReadInt32LE(body, offset);
-                SEA_BATTLE_STATE.promptFlag = ReadInt32LE(body, offset);
-                SEA_BATTLE_STATE.strengthenPopWinFlag = ReadInt32LE(body, offset);
-                SEA_BATTLE_STATE.medalNum = ReadInt32LE(body, offset);
-                SEA_BATTLE_STATE.bestRecord = ReadInt32LE(body, offset);
-                SEA_BATTLE_STATE.finishedNum = ReadInt32LE(body, offset);
-
-                ReadInt32LE(body, offset);
-                ReadInt32LE(body, offset);
-                ReadInt32LE(body, offset);
-                ReadInt32LE(body, offset);
-                ReadInt32LE(body, offset);
-                ReadInt32LE(body, offset);
-
-                SEA_BATTLE_STATE.myScore = ReadInt32LE(body, offset);
-                int star = ReadInt32LE(body, offset);
-                if (star == 0) {
-                    star = 2;
-                }
-                SEA_BATTLE_STATE.star = star;
-                SEA_BATTLE_STATE.sweepAvailable = SEA_BATTLE_STATE.bestRecord.load() > 0;
-
-                wchar_t msg[256];
-                swprintf_s(
-                    msg,
-                    L"海底激战：次数=%d 冷却=%d秒 勋章=%d 星级=%d 最高分=%d",
-                    SEA_BATTLE_STATE.playCount.load(),
-                    SEA_BATTLE_STATE.restTime.load(),
-                    SEA_BATTLE_STATE.medalNum.load(),
-                    SEA_BATTLE_STATE.star.load(),
-                    SEA_BATTLE_STATE.bestRecord.load());
-                UIBridge::Instance().UpdateHelperText(msg);
-            }
-        } else if (operation == "start_game") {
-            if (offset + 8 <= packet.body.size()) {
-                const int result = ReadInt32LE(body, offset);
-                SEA_BATTLE_STATE.lastResult = result;
-                SEA_BATTLE_STATE.playCount = ReadInt32LE(body, offset);
-                if (result == 0 && offset + 4 <= packet.body.size()) {
-                    SEA_BATTLE_STATE.checkCode = ReadInt32LE(body, offset);
-                }
-            }
-        } else if (operation == "sweep_info") {
-            if (offset + 4 <= packet.body.size()) {
-                const int result = ReadInt32LE(body, offset);
-                SEA_BATTLE_STATE.lastResult = result;
-                g_seaBattleSweepSuccess = (result == 0);
-                SEA_BATTLE_STATE.sweepSuccess = g_seaBattleSweepSuccess;
-                if (result == 0 && offset + 12 <= packet.body.size()) {
-                    const int medal = ReadInt32LE(body, offset);
-                    const int exp = ReadInt32LE(body, offset);
-                    const int coin = ReadInt32LE(body, offset);
-                    wchar_t msg[256];
-                    swprintf_s(msg, L"海底激战：扫荡预览 勋章=%d 经验=%d 铜钱=%d", medal, exp, coin);
-                    UIBridge::Instance().UpdateHelperText(msg);
-                }
-            }
-        } else if (operation == "sweep") {
-            if (offset + 4 <= packet.body.size()) {
-                const int result = ReadInt32LE(body, offset);
-                SEA_BATTLE_STATE.lastResult = result;
-                g_seaBattleSweepSuccess = (result == 0);
-                SEA_BATTLE_STATE.sweepSuccess = g_seaBattleSweepSuccess;
-                if (result == 0 && offset + 24 <= packet.body.size()) {
-                    SEA_BATTLE_STATE.playCount = ReadInt32LE(body, offset);
-                    SEA_BATTLE_STATE.medalNum = ReadInt32LE(body, offset);
-                    const int exp = ReadInt32LE(body, offset);
-                    const int coin = ReadInt32LE(body, offset);
-                    const bool isVip = ReadInt32LE(body, offset) == 1;
-                    const bool isFirst = ReadInt32LE(body, offset) == 0;
-                    (void)isVip;
-                    (void)isFirst;
-                    wchar_t msg[256];
-                    swprintf_s(
-                        msg,
-                        L"海底激战：扫荡完成 勋章=%d 经验=%d 铜钱=%d 剩余次数=%d",
-                        SEA_BATTLE_STATE.medalNum.load(),
-                        exp,
-                        coin,
-                        SEA_BATTLE_STATE.playCount.load());
-                    UIBridge::Instance().UpdateHelperText(msg);
-                }
-            }
-        } else if (operation == "end_game") {
-            if (offset + 4 <= packet.body.size()) {
-                const int result = ReadInt32LE(body, offset);
-                SEA_BATTLE_STATE.lastResult = result;
-                if ((result == 0 || result == 4) && offset + 32 <= packet.body.size()) {
-                    SEA_BATTLE_STATE.playCount = ReadInt32LE(body, offset);
-                    SEA_BATTLE_STATE.restTime = ReadInt32LE(body, offset);
-                    SEA_BATTLE_STATE.medalNum = ReadInt32LE(body, offset);
-                    const int exp = ReadInt32LE(body, offset);
-                    const int coin = ReadInt32LE(body, offset);
-                    SEA_BATTLE_STATE.lastServerScore = ReadInt32LE(body, offset);
-                    SEA_BATTLE_STATE.lastScoreMax = ReadInt32LE(body, offset);
-                    const bool isVip = ReadInt32LE(body, offset) == 1;
-                    const bool isFirst = ReadInt32LE(body, offset) == 0;
-                    (void)isVip;
-                    (void)isFirst;
-                    SEA_BATTLE_STATE.bestRecord = (std::max)(
-                        SEA_BATTLE_STATE.bestRecord.load(),
-                        SEA_BATTLE_STATE.lastServerScore.load());
-                    SEA_BATTLE_STATE.sweepAvailable = SEA_BATTLE_STATE.bestRecord.load() > 0;
-
-                    wchar_t msg[256];
-                    swprintf_s(
-                        msg,
-                        L"海底激战：结算 勋章=%d 经验=%d 铜钱=%d 分数=%d/%d",
-                        SEA_BATTLE_STATE.medalNum.load(),
-                        exp,
-                        coin,
-                        SEA_BATTLE_STATE.lastServerScore.load(),
-                        SEA_BATTLE_STATE.lastScoreMax.load());
-                    UIBridge::Instance().UpdateHelperText(msg);
                 }
             }
         }
@@ -4681,8 +4721,9 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act803::ACTIVITY_ID, ProcessAct803Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act804::ACTIVITY_ID, ProcessAct804Response);
     registerParams(Opcode::ACTIVITY_LUA_V3_BACK, Act804::ACTIVITY_ID, ProcessAct804Response);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act811::ACTIVITY_ID, ProcessAct811Response);
+    registerParams(Opcode::ACTIVITY_LUA_V3_BACK, Act811::ACTIVITY_ID, ProcessAct811Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act624::ACTIVITY_ID, ProcessAct624Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, SeaBattle::ACTIVITY_ID, ProcessSeaBattleResponse);
     registerParams(Opcode::HORSE_COMPETITION_BACK, HORSE_COMPETITION_ACT_ID, ProcessHorseCompetitionResponse);
 
     registerParams(Opcode::HEAVEN_FURUI_BACK, HeavenFurui::ACTIVITY_ID, ProcessHeavenFuruiResponse);
@@ -4746,7 +4787,6 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
         m_act805State.Reset();
         m_act793State.Reset();
         m_act791State.Reset();
-        m_seaBattleState.Reset();
         m_horseCompetitionState.Reset();
     }
 
@@ -4768,10 +4808,6 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
 
     Act791State& ActivityStateManager::GetAct791State() {
         return m_act791State;
-    }
-
-    SeaBattleState& ActivityStateManager::GetSeaBattleState() {
-        return m_seaBattleState;
     }
 
     HorseCompetitionState& ActivityStateManager::GetHorseCompetitionState() {

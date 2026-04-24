@@ -169,34 +169,34 @@ struct Act791State : ActivityState {
     }
 };
 
-struct SeaBattleState : ActivityState {
-    std::atomic<int> promptFlag{0};
-    std::atomic<int> strengthenPopWinFlag{0};
+struct Act806State : ActivityState {
+    std::atomic<int> buyCnt{0};
     std::atomic<int> medalNum{0};
-    std::atomic<int> bestRecord{0};
-    std::atomic<int> finishedNum{0};
-    std::atomic<int> myScore{0};
-    std::atomic<int> star{2};
+    std::atomic<int> maxHurt{0};
+    std::atomic<int> sweepEndTime{0};
+    std::atomic<int> hasMonster{0};
+    std::atomic<int> hurt{0};
+    std::atomic<int> sweepTime{0};
     std::atomic<int> lastResult{0};
-    std::atomic<int> lastServerScore{0};
-    std::atomic<int> lastScoreMax{0};
+    std::atomic<int> lastExp{0};
+    std::atomic<int> lastCoin{0};
     std::atomic<bool> useSweep{false};
-    std::atomic<bool> sweepSuccess{false};
+    std::atomic<bool> battleFinished{false};
 
     void Reset() override {
         ActivityState::Reset();
-        promptFlag = 0;
-        strengthenPopWinFlag = 0;
+        buyCnt = 0;
         medalNum = 0;
-        bestRecord = 0;
-        finishedNum = 0;
-        myScore = 0;
-        star = 2;
+        maxHurt = 0;
+        sweepEndTime = 0;
+        hasMonster = 0;
+        hurt = 0;
+        sweepTime = 0;
         lastResult = 0;
-        lastServerScore = 0;
-        lastScoreMax = 0;
+        lastExp = 0;
+        lastCoin = 0;
         useSweep = false;
-        sweepSuccess = false;
+        battleFinished = false;
     }
 };
 
@@ -369,7 +369,7 @@ public:
     Act805State& GetAct805State();
     Act793State& GetAct793State();
     Act791State& GetAct791State();
-    SeaBattleState& GetSeaBattleState();
+    Act806State& GetAct806State();
     HorseCompetitionState& GetHorseCompetitionState();
     void ResetAll();
 
@@ -386,6 +386,6 @@ private:
     Act805State m_act805State;
     Act793State m_act793State;
     Act791State m_act791State;
-    SeaBattleState m_seaBattleState;
+    Act806State m_act806State;
     HorseCompetitionState m_horseCompetitionState;
 };

@@ -805,6 +805,19 @@ void HandleStartOneKeyAct804Command(const std::wstring& msg) {
         StartOneKeyAct804Packet);
 }
 
+void HandleStartOneKeyAct811Command(const std::wstring& msg) {
+    HandleStartOneKeyActCommand(
+        msg,
+        nullptr,
+        0,
+        0,
+        0,
+        L"我是神射手已开始（扫荡模式）",
+        L"我是神射手已开始（完成游戏模式）",
+        L"我是神射手启动失败",
+        StartOneKeyAct811Packet);
+}
+
 void HandleStartOneKeyAct624Command(const std::wstring& msg) {
     HandleStartOneKeyActCommand(
         msg,
@@ -818,17 +831,17 @@ void HandleStartOneKeyAct624Command(const std::wstring& msg) {
         StartOneKeyAct624Packet);
 }
 
-void HandleStartOneKeySeaBattleCommand(const std::wstring& msg) {
+void HandleStartOneKeyAct806Command(const std::wstring& msg) {
     HandleStartOneKeyActCommand(
         msg,
         nullptr,
         0,
         0,
         0,
-        L"海底激战已开始（扫荡模式），请查看辅助日志",
-        L"海底激战已开始（默认分数模式），请查看辅助日志",
-        L"海底激战启动失败",
-        StartOneKeySeaBattlePacket);
+        L"疾速特训已开始（扫荡模式）",
+        L"疾速特训已开始（游戏模式）",
+        L"疾速特训启动失败",
+        StartOneKeyAct806Packet);
 }
 
 void HandleDecomposeLingyuIndicesCommand(const std::wstring& msg, const wchar_t* indicesKey) {
@@ -1235,10 +1248,12 @@ public:
             HandleStartOneKeyAct803Command(msg);
         } else if (msg.find(L"one_key_act804") != std::wstring::npos) {
             HandleStartOneKeyAct804Command(msg);
+        } else if (msg.find(L"one_key_act811") != std::wstring::npos) {
+            HandleStartOneKeyAct811Command(msg);
+        } else if (msg.find(L"one_key_act806") != std::wstring::npos) {
+            HandleStartOneKeyAct806Command(msg);
         } else if (msg.find(L"one_key_act624") != std::wstring::npos) {
             HandleStartOneKeyAct624Command(msg);
-        } else if (msg.find(L"one_key_sea_battle") != std::wstring::npos) {
-            HandleStartOneKeySeaBattleCommand(msg);
         } else if (msg.find(L"one_key_horse_competition") != std::wstring::npos) {
             HandleStartOneKeyHorseCompetitionCommand();
         } else if (msg.find(L"stop_horse_competition") != std::wstring::npos) {

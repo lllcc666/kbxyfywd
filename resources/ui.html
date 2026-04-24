@@ -2125,6 +2125,16 @@
                                     <button id="one-key-act804" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
                                 </div>
                             </div>
+                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <div style="font-size: 11px; font-weight: 600; color: #333;">我是神射手</div>
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="act811-sweep" style="width: 11px; height: 11px; cursor: pointer;">
+                                        <span>扫荡</span>
+                                    </label>
+                                    <button id="one-key-act811" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
+                                </div>
+                            </div>
                             <!-- 清明赏河景模块 (Act803) -->
                             <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -2154,17 +2164,6 @@
                                         <span>扫荡</span>
                                     </label>
                                     <button id="one-key-act782" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
-                                </div>
-                            </div>
-                            <!-- 海底激战模块 (Act653) -->
-                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
-                                <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <div style="font-size: 11px; font-weight: 600; color: #333;">海底激战</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
-                                        <input type="checkbox" id="sea-battle-sweep" style="width: 11px; height: 11px; cursor: pointer;">
-                                        <span>扫荡</span>
-                                    </label>
-                                    <button id="one-key-sea-battle" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
                                 </div>
                             </div>
                             <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 150px; flex-shrink: 0;">
@@ -3522,18 +3521,6 @@
             }
         };
 
-        // 海底激战 - 一键完成
-        window.oneKeySeaBattle = function() {
-            var sweepCheckbox = document.getElementById('sea-battle-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
-            if (window.chrome && window.chrome.webview) {
-                window.chrome.webview.postMessage(JSON.stringify({ 
-                    action: 'one_key_sea_battle',
-                    sweep: useSweep
-                }));
-            }
-        };
-
         window.huangchengWeijiTaskDefs = [
             { subtaskId: 2001001, name: '接受使命', sceneId: 1003, sceneName: '驾驶舱', reward: '600铜钱 / 700历练', note: '起始报名' },
             { subtaskId: 2001002, name: '奇怪的声音', sceneId: 2003, sceneName: '双叉岭', reward: '700铜钱 / 800历练', note: '第一次下沉' },
@@ -3888,6 +3875,18 @@
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
                     action: 'one_key_act782',
+                    sweep: useSweep
+                }));
+            }
+        };
+
+        // 我是神射手 - 一键完成
+        window.oneKeyAct811 = function() {
+            var sweepCheckbox = document.getElementById('act811-sweep');
+            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({
+                    action: 'one_key_act811',
                     sweep: useSweep
                 }));
             }
@@ -4326,10 +4325,6 @@
             if (strawberryBtn) {
                 strawberryBtn.addEventListener('click', window.oneKeyStrawberry);
             }
-            var seaBattleBtn = document.getElementById('one-key-sea-battle');
-            if (seaBattleBtn) {
-                seaBattleBtn.addEventListener('click', window.oneKeySeaBattle);
-            }
             var act793Btn = document.getElementById('one-key-act793');
             if (act793Btn) {
                 act793Btn.addEventListener('click', window.oneKeyAct793);
@@ -4353,6 +4348,10 @@
             var act804Btn = document.getElementById('one-key-act804');
             if (act804Btn) {
                 act804Btn.addEventListener('click', window.oneKeyAct804);
+            }
+            var act811Btn = document.getElementById('one-key-act811');
+            if (act811Btn) {
+                act811Btn.addEventListener('click', window.oneKeyAct811);
             }
             var act624Btn = document.getElementById('one-key-act624');
             if (act624Btn) {

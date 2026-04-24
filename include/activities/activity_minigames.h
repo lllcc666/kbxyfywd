@@ -128,6 +128,19 @@ BOOL SendAct804SweepPacket();
 BOOL StartOneKeyAct804Packet(bool useSweep = false, int targetScore = Act804::TARGET_SCORE);
 void ProcessAct804Response(const GamePacket& packet);
 
+namespace Act811 {
+constexpr int ACTIVITY_ID = 811;
+}  // namespace Act811
+
+BOOL SendAct811Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
+BOOL SendAct811OpenUIPacket();
+BOOL SendAct811StartGamePacket(int hintFlag = 0);
+BOOL SendAct811SweepInfoPacket();
+BOOL SendAct811SweepPacket();
+BOOL SendAct811EndGamePacket();
+BOOL StartOneKeyAct811Packet(bool useSweep = false);
+void ProcessAct811Response(const GamePacket& packet);
+
 namespace Act624 {
 constexpr int ACTIVITY_ID = 624;
 }  // namespace Act624
@@ -142,23 +155,18 @@ BOOL SendAct624SweepPacket();
 BOOL StartOneKeyAct624Packet(bool useSweep = false);
 void ProcessAct624Response(const GamePacket& packet);
 
-namespace SeaBattle {
-constexpr int ACTIVITY_ID = 653;
-constexpr int PASS_SCORE = 300;
-constexpr int TARGET_SCORE = 1000;
-constexpr uint32_t EXTRA_OPCODE = 1184812;
-constexpr int EXTRA_PARAMS = 3;
-constexpr int EXTRA_TASK_ID = 4039001;
-}  // namespace SeaBattle
+namespace Act806 {
+constexpr int ACTIVITY_ID = 806;
+}  // namespace Act806
 
-BOOL SendSeaBattlePacket(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-BOOL SendSeaBattleUIInfoPacket();
-BOOL SendSeaBattleStartGamePacket(int promptFlag = 0);
-BOOL SendSeaBattleEndGamePacket(int score);
-BOOL SendSeaBattleSweepInfoPacket();
-BOOL SendSeaBattleSweepPacket();
-BOOL StartOneKeySeaBattlePacket(bool useSweep = false);
-void ProcessSeaBattleResponse(const GamePacket& packet);
+BOOL SendAct806Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
+BOOL SendAct806OpenUIPacket();
+BOOL SendAct806CombatPacket();
+BOOL SendAct806SweepInfoPacket();
+BOOL SendAct806CombatSweepPacket();
+BOOL SendAct806SweepPacket();
+BOOL StartOneKeyAct806Packet(bool useSweep = false, int targetValue = 0);
+void ProcessAct806Response(const GamePacket& packet);
 
 namespace HeavenFurui {
 constexpr int ACTIVITY_ID = 900;
