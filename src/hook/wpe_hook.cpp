@@ -62,6 +62,7 @@ void ProcessSpiritPresuresResponse(const GamePacket& packet);
 void ProcessSpiritCollectResponse(const GamePacket& packet);
 void ProcessSpiritSendSpiritResponse(const GamePacket& packet);
 void ProcessSpiritPlayerInfoResponse(const GamePacket& packet);
+void ProcessAct808Response(const GamePacket& packet);
 static void ProcessTaskZoneUserTaskListResponse(const GamePacket& packet);
 static void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet);
 
@@ -332,19 +333,6 @@ static std::atomic<bool> g_act782WaitingResponse{false};
 static std::atomic<bool> g_act782UseSweep{false};
 static std::atomic<bool> g_act782SweepAvailable{false};
 
-// 清明赏河景状态 (Act803)
-static std::atomic<int> g_act803PlayCount{0};
-static std::atomic<int> g_act803RestTime{0};
-static std::atomic<int> g_act803RedBerryCount{0};
-static std::atomic<int> g_act803IsPop{0};
-static std::atomic<int> g_act803IsMoveControl{0};
-static std::atomic<int> g_act803CheckCode{0};
-static std::atomic<int> g_act803LastResult{-1};
-static std::atomic<bool> g_act803WaitingResponse{false};
-static std::atomic<bool> g_act803UseSweep{false};
-static std::atomic<bool> g_act803SweepAvailable{false};
-static std::vector<int> g_act803HasAwardArr;
-
 // 逆流的试炼状态 (Act804)
 static std::atomic<int> g_act804PlayCount{0};
 static std::atomic<int> g_act804RestTime{0};
@@ -371,19 +359,6 @@ static std::atomic<bool> g_act811UseSweep{false};
 static std::atomic<bool> g_act811SweepAvailable{false};
 static std::vector<int> g_act811AwardList;
 
-// 采蘑菇的好伙伴状态 (Act624)
-static std::atomic<int> g_act624PlayCount{0};
-static std::atomic<int> g_act624RestTime{0};
-static std::atomic<int> g_act624CanGetFlag{0};
-static std::atomic<int> g_act624GotFlag{0};
-static std::atomic<int> g_act624TotalBadgeNum{0};
-static std::atomic<int> g_act624FinishedNum{0};
-static std::atomic<int> g_act624CheckCode{0};
-static std::atomic<int> g_act624LastResult{-1};
-static std::atomic<bool> g_act624WaitingResponse{false};
-static std::atomic<bool> g_act624UseSweep{false};
-static std::atomic<bool> g_act624SweepAvailable{false};
-
 // -------------------------
 // 调试日志函数
 // -------------------------
@@ -399,10 +374,6 @@ static bool ReadLengthPrefixedString(const std::vector<BYTE>& body, size_t& offs
     value.assign(reinterpret_cast<const char*>(data + offset), len);
     offset += len;
     return true;
-}
-
-static std::vector<int32_t> BuildAct803AwardValues() {
-    return std::vector<int32_t>(15, 0);
 }
 
 static BOOL SendActivityPacket(uint32_t activityId, const std::string& operation, const std::vector<int32_t>& bodyValues = {}) {
@@ -1347,6 +1318,301 @@ void ProcessAct666Response(const GamePacket& packet) {
     }
 }
 
+// ============ 清除煞气功能实现 (Act641) ============
+
+#define ACT641_STATE ActivityStateManager::Instance().GetAct641State()
+
+BOOL SendAct641Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
+    return SendActivityPacket(Act641::ACTIVITY_ID, operation, bodyValues);
+}
+
+BOOL SendAct641OpenUIPacket() {
+    ACT641_STATE.waitingResponse = true;
+    return SendAct641Packet("open_ui", {});
+}
+
+BOOL SendAct641StartGamePacket() {
+    ACT641_STATE.waitingResponse = true;
+    return SendAct641Packet("start_game", {});
+}
+
+BOOL SendAct641EndGamePacket(int score) {
+    const int checkCode = ACT641_STATE.checkCode.load();
+    if (checkCode == 0) {
+        return FALSE;
+    }
+
+    const uint32_t userId = g_userId.load();
+    // AS3: uint(userId) % 10000 * 2 + score * checkCode + 7
+    const int64_t userIdPart = static_cast<int64_t>(userId % 10000u) * 2;
+    const int64_t scorePart = static_cast<int64_t>(score) * static_cast<int64_t>(checkCode);
+    const int clientCheckCode = static_cast<int>(userIdPart + scorePart + 7);
+    ACT641_STATE.waitingResponse = true;
+    return SendAct641Packet("end_game", {clientCheckCode, score});
+}
+
+BOOL SendAct641SweepInfoPacket() {
+    ACT641_STATE.waitingResponse = true;
+    return SendAct641Packet("sweep_info", {});
+}
+
+BOOL SendAct641SweepPacket() {
+    ACT641_STATE.waitingResponse = true;
+    return SendAct641Packet("sweep", {});
+}
+
+DWORD WINAPI Act641ThreadProc(LPVOID lpParam) {
+    const int targetScore = lpParam ? *static_cast<int*>(lpParam) : Act641::TARGET_SCORE;
+    delete static_cast<int*>(lpParam);
+
+    const bool useSweep = ACT641_STATE.useSweep.load();
+    ACT641_STATE.Reset();
+    ACT641_STATE.useSweep = useSweep;
+    ACT641_STATE.targetScore = targetScore;
+
+    auto waitForResponse = []() -> bool {
+        for (int i = 0; i < 30 && ACT641_STATE.waitingResponse; ++i) {
+            Sleep(100);
+        }
+        const bool received = !ACT641_STATE.waitingResponse.load();
+        ACT641_STATE.waitingResponse = false;
+        return received;
+    };
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"清除煞气：正在获取活动信息...");
+
+    SendAct641OpenUIPacket();
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"清除煞气：获取活动信息失败");
+        return 0;
+    }
+
+    if (ACT641_STATE.playCount.load() <= 0) {
+        UIBridge::Instance().UpdateHelperText(L"清除煞气：今日次数已用完");
+        return 0;
+    }
+
+    if (ACT641_STATE.restTime.load() > 0) {
+        UIBridge::Instance().UpdateHelperText(L"清除煞气：冷却中，请稍后再试");
+        return 0;
+    }
+
+    if (useSweep && ACT641_STATE.bestRecord.load() > 0) {
+        UIBridge::Instance().UpdateHelperText(L"清除煞气：正在获取扫荡信息...");
+
+        Sleep(300);
+        SendAct641SweepInfoPacket();
+        if (waitForResponse() && ACT641_STATE.sweepSuccess.load()) {
+            Sleep(300);
+            UIBridge::Instance().UpdateHelperText(L"清除煞气：执行扫荡...");
+            SendAct641SweepPacket();
+            if (waitForResponse() && ACT641_STATE.sweepSuccess.load()) {
+                Sleep(300);
+                SendAct641OpenUIPacket();
+                waitForResponse();
+                UIBridge::Instance().UpdateHelperText(L"清除煞气：扫荡完成");
+                return 0;
+            }
+        }
+
+        UIBridge::Instance().UpdateHelperText(L"清除煞气：扫荡失败，改为直接完成");
+    }
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"清除煞气：开始游戏...");
+    SendAct641StartGamePacket();
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"清除煞气：开始游戏失败");
+        return 0;
+    }
+
+    const int startResult = ACT641_STATE.startResult.load();
+    if (startResult != 0) {
+        if (startResult == 10) {
+            UIBridge::Instance().UpdateHelperText(L"清除煞气：当前已经在游戏中");
+        } else if (startResult == 11) {
+            UIBridge::Instance().UpdateHelperText(L"清除煞气：冷却中，请稍后再试");
+        } else if (startResult == 12) {
+            UIBridge::Instance().UpdateHelperText(L"清除煞气：今日次数已用完");
+        } else if (startResult == 13) {
+            UIBridge::Instance().UpdateHelperText(L"清除煞气：玩家正在支付中");
+        } else {
+            UIBridge::Instance().UpdateHelperText(L"清除煞气：开始游戏失败");
+        }
+        return 0;
+    }
+
+    if (ACT641_STATE.checkCode.load() == 0) {
+        UIBridge::Instance().UpdateHelperText(L"清除煞气：获取校验码失败");
+        return 0;
+    }
+
+    Sleep(500);
+    UIBridge::Instance().UpdateHelperText(L"清除煞气：直接提交结算...");
+    SendAct641EndGamePacket(std::clamp(targetScore, 1, Act641::MAX_SCORE));
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"清除煞气：结算失败");
+        return 0;
+    }
+
+    if (ACT641_STATE.endResult.load() == 3) {
+        UIBridge::Instance().UpdateHelperText(L"清除煞气：网络错误");
+        return 0;
+    }
+
+    Sleep(300);
+    SendAct641OpenUIPacket();
+    waitForResponse();
+    UIBridge::Instance().UpdateHelperText(L"清除煞气：结算完成");
+    return 0;
+}
+
+BOOL StartOneKeyAct641Packet(bool useSweep, int targetScore) {
+    ACT641_STATE.useSweep = useSweep;
+    int* pTargetScore = new int(targetScore);
+    HANDLE hThread = CreateThread(nullptr, 0, Act641ThreadProc, pTargetScore, 0, nullptr);
+    if (hThread) {
+        CloseHandle(hThread);
+        return TRUE;
+    }
+    delete pTargetScore;
+    return FALSE;
+}
+
+void ProcessAct641Response(const GamePacket& packet) {
+    size_t offset = 0;
+    std::string operation;
+    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+        return;
+    }
+
+    const BYTE* body = packet.body.data();
+    ACT641_STATE.waitingResponse = false;
+
+    if (operation == "open_ui") {
+        if (offset + 64 <= packet.body.size()) {
+            ACT641_STATE.playCount = ReadInt32LE(body, offset);
+            ACT641_STATE.restTime = ReadInt32LE(body, offset);
+            ACT641_STATE.medalCount = ReadInt32LE(body, offset);
+            ACT641_STATE.passCount = ReadInt32LE(body, offset);
+            ACT641_STATE.awardFlag = ReadInt32LE(body, offset);
+            ACT641_STATE.bestRecord = ReadInt32LE(body, offset);
+            ACT641_STATE.promptFlag = ReadInt32LE(body, offset);
+            if (ACT641_STATE.bonusList.size() < 6) {
+                ACT641_STATE.bonusList.assign(6, 0);
+            }
+            for (size_t i = 0; i < 6; ++i) {
+                ACT641_STATE.bonusList[i] = ReadInt32LE(body, offset);
+            }
+            ACT641_STATE.catchPetId = ReadInt32LE(body, offset);
+            if (ACT641_STATE.catchList.size() < 2) {
+                ACT641_STATE.catchList.assign(2, 0);
+            }
+            ACT641_STATE.catchList[0] = ReadInt32LE(body, offset);
+            ACT641_STATE.catchList[1] = ReadInt32LE(body, offset);
+            ACT641_STATE.sweepAvailable = (ACT641_STATE.bestRecord.load() > 0);
+
+            wchar_t msg[256];
+            swprintf_s(
+                msg,
+                L"清除煞气：次数=%d 冷却=%d秒 勋章=%d 历史最高=%d",
+                ACT641_STATE.playCount.load(),
+                ACT641_STATE.restTime.load(),
+                ACT641_STATE.medalCount.load(),
+                ACT641_STATE.bestRecord.load());
+            UIBridge::Instance().UpdateHelperText(msg);
+        }
+    } else if (operation == "start_game") {
+        if (offset + 4 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT641_STATE.startResult = result;
+            if (result == 0 && offset + 8 <= packet.body.size()) {
+                ACT641_STATE.playCount = ReadInt32LE(body, offset);
+                ACT641_STATE.checkCode = ReadInt32LE(body, offset);
+            } else if (result == 10) {
+                UIBridge::Instance().UpdateHelperText(L"清除煞气：当前已经在游戏中");
+            } else if (result == 11) {
+                UIBridge::Instance().UpdateHelperText(L"清除煞气：冷却中，请稍后再试");
+            } else if (result == 12) {
+                UIBridge::Instance().UpdateHelperText(L"清除煞气：今日次数已用完");
+            } else if (result == 13) {
+                UIBridge::Instance().UpdateHelperText(L"清除煞气：玩家正在支付中");
+            }
+        }
+    } else if (operation == "end_game") {
+        if (offset + 4 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT641_STATE.endResult = result;
+            // result == 3 means network error; only the status int is guaranteed.
+            if (result != 3) {
+                if (offset + 32 <= packet.body.size()) {
+                    ReadInt32LE(body, offset);
+                    ReadInt32LE(body, offset);
+                    ACT641_STATE.bestRecord = ReadInt32LE(body, offset);
+                    ReadInt32LE(body, offset);  // score
+                    ReadInt32LE(body, offset);  // unknown
+                    ACT641_STATE.rewardMedalCount = ReadInt32LE(body, offset);
+                    ACT641_STATE.rewardExp = ReadInt32LE(body, offset);
+                    ACT641_STATE.rewardCoin = ReadInt32LE(body, offset);
+                    ACT641_STATE.sweepAvailable = (ACT641_STATE.bestRecord.load() > 0);
+
+                    wchar_t msg[256];
+                    swprintf_s(
+                        msg,
+                        L"清除煞气：结算完成，勋章=%d 经验=%d 铜钱=%d",
+                        ACT641_STATE.rewardMedalCount.load(),
+                        ACT641_STATE.rewardExp.load(),
+                        ACT641_STATE.rewardCoin.load());
+                    UIBridge::Instance().UpdateHelperText(msg);
+                }
+            }
+        }
+    } else if (operation == "sweep_info") {
+        if (offset + 16 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT641_STATE.sweepSuccess = (result == 0);
+            if (result == 0) {
+                ACT641_STATE.rewardMedalCount = ReadInt32LE(body, offset);
+                ACT641_STATE.rewardExp = ReadInt32LE(body, offset);
+                ACT641_STATE.rewardCoin = ReadInt32LE(body, offset);
+                ACT641_STATE.sweepAvailable = true;
+
+                wchar_t msg[256];
+                swprintf_s(
+                    msg,
+                    L"清除煞气：扫荡预览，勋章=%d 经验=%d 铜钱=%d",
+                    ACT641_STATE.rewardMedalCount.load(),
+                    ACT641_STATE.rewardExp.load(),
+                    ACT641_STATE.rewardCoin.load());
+                UIBridge::Instance().UpdateHelperText(msg);
+            }
+        }
+    } else if (operation == "sweep") {
+        if (offset + 24 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT641_STATE.sweepSuccess = (result == 0);
+            if (result == 0) {
+                ACT641_STATE.playCount = ReadInt32LE(body, offset);
+                ACT641_STATE.restTime = ReadInt32LE(body, offset);
+                ACT641_STATE.rewardMedalCount = ReadInt32LE(body, offset);
+                ACT641_STATE.rewardExp = ReadInt32LE(body, offset);
+                ACT641_STATE.rewardCoin = ReadInt32LE(body, offset);
+                ACT641_STATE.sweepAvailable = (ACT641_STATE.bestRecord.load() > 0);
+
+                wchar_t msg[256];
+                swprintf_s(
+                    msg,
+                    L"清除煞气：扫荡完成，勋章=%d 经验=%d 铜钱=%d",
+                    ACT641_STATE.rewardMedalCount.load(),
+                    ACT641_STATE.rewardExp.load(),
+                    ACT641_STATE.rewardCoin.load());
+                UIBridge::Instance().UpdateHelperText(msg);
+            }
+        }
+    }
+}
+
 // ============ 疾速特训功能实现 (Act810) ============
 
 static std::atomic<int> g_act810PlayCount{0};
@@ -1965,378 +2231,450 @@ void ProcessAct805Response(const GamePacket& packet) {
     }
 }
 
-// ============ 磐石御天火功能实现 (Act793) ============
-    
-    // 使用新的状态管理器
-    #define ACT793_STATE ActivityStateManager::Instance().GetAct793State()
-    
-    // 兼容旧代码的静态变量映射到状态管理器
-    static bool g_act793SweepSuccess = false;  // 仅用于sweep_success标志
-    
-    BOOL SendAct793Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
-        return SendActivityPacket(Act793::ACTIVITY_ID, operation, bodyValues);
+    // ============ 欢乐跷跷板功能实现 (Act808) ============
+
+    static constexpr int ACT808_WAIT_NONE = 0;
+    static constexpr int ACT808_WAIT_OPEN_UI = 1;
+    static constexpr int ACT808_WAIT_START_GAME = 2;
+    static constexpr int ACT808_WAIT_END_GAME = 3;
+    static constexpr int ACT808_WAIT_SWEEP_INFO = 4;
+    static constexpr int ACT808_WAIT_SWEEP = 5;
+
+    static std::atomic<int> g_act808PlayCount{0};
+    static std::atomic<int> g_act808RestTime{0};
+    static std::atomic<int> g_act808MedalNum{0};
+    static std::atomic<int> g_act808HistoryBestScore{0};
+    static std::atomic<int> g_act808IsPop{0};
+    static std::atomic<int> g_act808RandomCode{0};
+    static std::atomic<int> g_act808CheckCode{0};
+    static std::atomic<int> g_act808StartResult{0};
+    static std::atomic<int> g_act808EndResult{0};
+    static std::atomic<int> g_act808SweepResult{0};
+    static std::atomic<int> g_act808WaitingOp{ACT808_WAIT_NONE};
+    static std::atomic<bool> g_act808WaitingResponse{false};
+    static std::atomic<bool> g_act808SweepAvailable{false};
+    static std::mutex g_act808Mutex;
+    static std::vector<int> g_act808AwardArr;
+
+    static void ResetAct808State() {
+        g_act808PlayCount = 0;
+        g_act808RestTime = 0;
+        g_act808MedalNum = 0;
+        g_act808HistoryBestScore = 0;
+        g_act808IsPop = 0;
+        g_act808RandomCode = 0;
+        g_act808CheckCode = 0;
+        g_act808StartResult = 0;
+        g_act808EndResult = 0;
+        g_act808SweepResult = 0;
+        g_act808WaitingOp = ACT808_WAIT_NONE;
+        g_act808WaitingResponse = false;
+        g_act808SweepAvailable = false;
+
+        std::lock_guard<std::mutex> lock(g_act808Mutex);
+        g_act808AwardArr.clear();
     }
-    
-    BOOL SendAct793GameInfoPacket() {
-        ACT793_STATE.waitingResponse = true;
-        return SendAct793Packet("open_ui", {});
+
+    static void ClearAct808WaitingState() {
+        g_act808WaitingResponse = false;
+        g_act808WaitingOp = ACT808_WAIT_NONE;
     }
-    
-    BOOL SendAct793StartGamePacket() {
-        ACT793_STATE.waitingResponse = true;
-        return SendAct793Packet("start_game", {});
+
+    static bool WaitForAct808Response() {
+        for (int i = 0; i < 30 && g_act808WaitingResponse.load(); ++i) {
+            Sleep(100);
+        }
+
+        const bool received = !g_act808WaitingResponse.load();
+        ClearAct808WaitingState();
+        return received;
     }
-    
-    BOOL SendAct793GameHitPacket(int hitCount) {
-        // 封包格式: [game_hit, hitCount + 1000]
-        // 注意：game_hit 服务器不返回响应，所以直接使用SendPacket不等待响应
-        std::vector<BYTE> packet = BuildActivityPacket(Opcode::ACTIVITY_QINGYANG_NEW_SEND, Act793::ACTIVITY_ID, "game_hit", {hitCount + 1000});
+
+    static BOOL SendAct808Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
+        std::vector<BYTE> packet = BuildActivityPacket(
+            Opcode::ACTIVITY_QINGYANG_NEW_SEND,
+            Act808::ACTIVITY_ID,
+            operation,
+            bodyValues);
         return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
     }
-    
-    BOOL SendAct793EndGamePacket(int medalCount) {
-        // 计算校验码: checkCode & (userId % checkCode)
-        int clientCheckCode = 0;
-        if (ACT793_STATE.checkCode != 0) {
-            clientCheckCode = ACT793_STATE.checkCode & (static_cast<int>(g_userId) % ACT793_STATE.checkCode);
+
+    static BOOL SendAct808DailyTaskPacket() {
+        std::vector<BYTE> packet = PacketBuilder()
+            .SetOpcode(Opcode::TASK_DAILY_SEND)
+            .SetParams(3)
+            .WriteInt32(3)
+            .WriteInt32(Act808::DAILY_TASK_ID)
+            .WriteInt32(0)
+            .Build();
+
+        return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    }
+
+    static int32_t BuildAct808ClientCheckCode() {
+        const int64_t randomCode = static_cast<int64_t>(g_act808RandomCode.load());
+        const int64_t checkCode = static_cast<int64_t>(g_act808CheckCode.load());
+        const int64_t userIdMod = static_cast<int64_t>(g_userId.load() % 1000u);
+        return static_cast<int32_t>(randomCode * userIdMod * (checkCode + 1));
+    }
+
+    BOOL SendAct808OpenUIPacket() {
+        g_act808WaitingOp = ACT808_WAIT_OPEN_UI;
+        g_act808WaitingResponse = true;
+        if (SendAct808Packet("open_ui", {})) {
+            return TRUE;
         }
-        return SendAct793Packet("end_game", {clientCheckCode, medalCount});
+        ClearAct808WaitingState();
+        return FALSE;
     }
-    
-    BOOL SendAct793SweepInfoPacket() {
-        ACT793_STATE.waitingResponse = true;
-        return SendAct793Packet("sweep_info", {});
+
+    BOOL SendAct808StartGamePacket(int popRule) {
+        g_act808WaitingOp = ACT808_WAIT_START_GAME;
+        g_act808WaitingResponse = true;
+        if (SendAct808Packet("start_game", {popRule})) {
+            return TRUE;
+        }
+        ClearAct808WaitingState();
+        return FALSE;
     }
-    
-    BOOL SendAct793SweepPacket() {
-        ACT793_STATE.waitingResponse = true;
-        return SendAct793Packet("sweep", {});
+
+    BOOL SendAct808GameingPacket(int index) {
+        if (g_act808RandomCode.load() == 0 || g_act808CheckCode.load() == 0) {
+            return FALSE;
+        }
+
+        std::vector<BYTE> packet = BuildActivityPacket(
+            Opcode::ACTIVITY_QINGYANG_NEW_SEND,
+            Act808::ACTIVITY_ID,
+            "gameing",
+            {index, BuildAct808ClientCheckCode()});
+        return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
     }
-    
-    DWORD WINAPI Act793ThreadProc(LPVOID lpParam) {
-        int targetMedals = ACT793_STATE.targetMedals;
-        
+
+    BOOL SendAct808EndGamePacket(int score) {
+        if (g_act808RandomCode.load() == 0 || g_act808CheckCode.load() == 0) {
+            return FALSE;
+        }
+
+        g_act808WaitingOp = ACT808_WAIT_END_GAME;
+        g_act808WaitingResponse = true;
+        if (SendAct808Packet("end_game", {0, BuildAct808ClientCheckCode(), score})) {
+            SendAct808DailyTaskPacket();
+            return TRUE;
+        }
+        ClearAct808WaitingState();
+        return FALSE;
+    }
+
+    BOOL SendAct808SweepInfoPacket() {
+        g_act808WaitingOp = ACT808_WAIT_SWEEP_INFO;
+        g_act808WaitingResponse = true;
+        if (SendAct808Packet("sweep_info", {})) {
+            return TRUE;
+        }
+        ClearAct808WaitingState();
+        return FALSE;
+    }
+
+    BOOL SendAct808SweepPacket() {
+        g_act808WaitingOp = ACT808_WAIT_SWEEP;
+        g_act808WaitingResponse = true;
+        if (SendAct808Packet("sweep", {})) {
+            return TRUE;
+        }
+        ClearAct808WaitingState();
+        return FALSE;
+    }
+
+    DWORD WINAPI Act808ThreadProc(LPVOID lpParam) {
+        const bool useSweep = lpParam ? *static_cast<bool*>(lpParam) : false;
+        delete static_cast<bool*>(lpParam);
+
+        ResetAct808State();
+
         Sleep(300);
-        UIBridge::Instance().UpdateHelperText(L"磐石御天火：正在获取游戏信息...");
-        
-        SendAct793GameInfoPacket();
-        for (int i = 0; i < 30 && ACT793_STATE.waitingResponse; i++) Sleep(100);
-        
-        if (ACT793_STATE.playCount <= 0) {
-            UIBridge::Instance().UpdateHelperText(L"磐石御天火：今日次数已用完");
+        UIBridge::Instance().UpdateHelperText(useSweep ? L"欢乐跷跷板：开始扫荡..." : L"欢乐跷跷板：正在获取活动信息...");
+
+        if (!SendAct808OpenUIPacket() || !WaitForAct808Response()) {
+            UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：获取活动信息失败");
             return 0;
         }
-        
-        if (ACT793_STATE.restTime > 0) {
-            UIBridge::Instance().UpdateHelperText(L"磐石御天火：冷却中，请稍后再试");
+
+        if (g_act808PlayCount.load() <= 0) {
+            UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：今日次数已用完");
             return 0;
         }
-        
-        // 尝试扫荡
-        if (ACT793_STATE.useSweep) {
-            UIBridge::Instance().UpdateHelperText(L"磐石御天火：正在获取扫荡信息...");
-            
+
+        if (g_act808RestTime.load() > 0) {
+            UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：冷却中，请稍后再试");
+            return 0;
+        }
+
+        if (useSweep && g_act808HistoryBestScore.load() > 0) {
             Sleep(300);
-            g_act793SweepSuccess = false;
-            SendAct793SweepInfoPacket();
-            for (int i = 0; i < 30 && ACT793_STATE.waitingResponse; i++) Sleep(100);
-            
-            if (!g_act793SweepSuccess) {
-                UIBridge::Instance().UpdateHelperText(L"磐石御天火：扫荡条件不满足，开始游戏...");
-            } else {
+            UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：正在获取扫荡信息...");
+
+            if (SendAct808SweepInfoPacket() && WaitForAct808Response() && g_act808SweepAvailable.load()) {
                 Sleep(300);
-                g_act793SweepSuccess = false;
-                SendAct793SweepPacket();
-                for (int i = 0; i < 30 && ACT793_STATE.waitingResponse; i++) Sleep(100);
-                
-                if (g_act793SweepSuccess) {
-                    UIBridge::Instance().UpdateHelperText(L"磐石御天火：扫荡完成！");
+                UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：执行扫荡...");
+
+                if (SendAct808SweepPacket() && WaitForAct808Response() && g_act808SweepResult.load() == 0) {
+                    Sleep(300);
+                    SendAct808OpenUIPacket();
+                    WaitForAct808Response();
+                    UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：扫荡完成");
                     return 0;
                 }
             }
+
+            UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：扫荡失败，改为直接完成");
+        } else if (useSweep) {
+            UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：需要成功进行一局游戏才可以扫荡哦！");
         }
-        
-        // 开始游戏
-        UIBridge::Instance().UpdateHelperText(L"磐石御天火：开始游戏...");
-        
+
         Sleep(300);
-        SendAct793StartGamePacket();
-        for (int i = 0; i < 30 && ACT793_STATE.waitingResponse; i++) Sleep(100);
-        
-        if (ACT793_STATE.checkCode == 0) {
-            UIBridge::Instance().UpdateHelperText(L"磐石御天火：获取校验码失败");
+        UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：开始游戏...");
+
+        const int startFlag = g_act808IsPop.load();
+        if (!SendAct808StartGamePacket(startFlag) || !WaitForAct808Response()) {
+            UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：开始游戏失败");
             return 0;
         }
-        
-        // 模拟游戏过程：发送多次 game_hit 封包收集勋章
-        for (int i = 0; i < targetMedals; i++) {
-            if (i % 10 == 0 || i == targetMedals - 1) {
-                wchar_t msg[128];
-                swprintf_s(msg, L"磐石御天火：游戏进行中... 进度 %d/%d", i + 1, targetMedals);
-                UIBridge::Instance().UpdateHelperText(msg);
+
+        const int startResult = g_act808StartResult.load();
+        if (startResult != 0) {
+            if (startResult == 10) {
+                UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：当前已经在游戏中");
+            } else if (startResult == 11) {
+                UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：冷却中，请稍后再试");
+            } else if (startResult == 12) {
+                UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：今日次数已用光");
+            } else if (startResult == 13) {
+                UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：玩家正在支付中");
+            } else {
+                UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：开始游戏失败");
             }
-            SendAct793GameHitPacket(i + 1);
-            Sleep(300);  // 固定300ms延迟
+            return 0;
         }
-        
+
+        std::vector<int> awardArr;
+        {
+            std::lock_guard<std::mutex> lock(g_act808Mutex);
+            awardArr = g_act808AwardArr;
+        }
+
+        if (awardArr.empty()) {
+            UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：未读取到开局数据");
+            return 0;
+        }
+
+        size_t sentCount = 0;
+        for (int itemType : awardArr) {
+            if (sentCount > 0 && (sentCount % 12 == 0)) {
+                Sleep(12);
+            }
+
+            if (itemType <= 0 || itemType == 30 || itemType > 15) {
+                continue;
+            }
+
+            if (!SendAct808GameingPacket(itemType)) {
+                UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：过程上报失败");
+                return 0;
+            }
+            ++sentCount;
+        }
+
+        const int score = Act808::MAX_SCORE;
         Sleep(300);
-        SendAct793EndGamePacket(targetMedals);
-        UIBridge::Instance().UpdateHelperText(L"磐石御天火：游戏完成！");
+        UIBridge::Instance().UpdateHelperText(useSweep ? L"欢乐跷跷板：快速结算..." : L"欢乐跷跷板：提交结算...");
+
+        if (!SendAct808EndGamePacket(score) || !WaitForAct808Response()) {
+            UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：结算失败");
+            return 0;
+        }
+
+        if (g_act808EndResult.load() != 0) {
+            UIBridge::Instance().UpdateHelperText(useSweep ? L"欢乐跷跷板：扫荡失败" : L"欢乐跷跷板：结算失败");
+            return 0;
+        }
+
+        if (score > g_act808HistoryBestScore.load()) {
+            g_act808HistoryBestScore = score;
+        }
+
+        Sleep(300);
+        SendAct808OpenUIPacket();
+        WaitForAct808Response();
+
+        UIBridge::Instance().UpdateHelperText(useSweep ? L"欢乐跷跷板：扫荡完成" : L"欢乐跷跷板：完成");
         return 0;
     }
-    
-    BOOL StartOneKeyAct793Packet(bool useSweep, int targetMedals) {
-        ACT793_STATE.useSweep = useSweep;
-        ACT793_STATE.targetMedals = targetMedals;
-        HANDLE hThread = CreateThread(nullptr, 0, Act793ThreadProc, nullptr, 0, nullptr);
-        if (hThread) { CloseHandle(hThread); return TRUE; }
+
+    BOOL StartOneKeyAct808Packet(bool useSweep) {
+        bool* pUseSweep = new bool(useSweep);
+        HANDLE hThread = CreateThread(nullptr, 0, Act808ThreadProc, pUseSweep, 0, nullptr);
+        if (hThread) {
+            CloseHandle(hThread);
+            return TRUE;
+        }
+
+        delete pUseSweep;
         return FALSE;
     }
-    
-    void ProcessAct793Response(const GamePacket& packet) {
+
+    void ProcessAct808Response(const GamePacket& packet) {
         size_t offset = 0;
         std::string operation;
-        if (!ReadLengthPrefixedString(packet.body, offset, operation)) return;
+        if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+            return;
+        }
+
         const BYTE* body = packet.body.data();
-        
-        ACT793_STATE.waitingResponse = false;
-        
+        const int waitingOp = g_act808WaitingOp.load();
+        const bool shouldClearWaiting =
+            g_act808WaitingResponse.load() &&
+            ((waitingOp == ACT808_WAIT_OPEN_UI && operation == "open_ui") ||
+             (waitingOp == ACT808_WAIT_START_GAME && operation == "start_game") ||
+             (waitingOp == ACT808_WAIT_END_GAME && operation == "end_game") ||
+             (waitingOp == ACT808_WAIT_SWEEP_INFO && operation == "sweep_info") ||
+             (waitingOp == ACT808_WAIT_SWEEP && operation == "sweep"));
+
+        if (shouldClearWaiting) {
+            ClearAct808WaitingState();
+        }
+
         if (operation == "open_ui") {
-            // open_ui 响应格式:
-            // playTime(4B) + restTime(4B) + skip(4B) + redBerryCount(4B) + skip(4B) + 
-            // isPop(4B) + evoFlag(4B) + isMove(4B)
             if (offset + 32 <= packet.body.size()) {
-                ACT793_STATE.playCount = ReadInt32LE(body, offset);
-                ACT793_STATE.restTime = ReadInt32LE(body, offset);
-                offset += 4;  // skip
-                ACT793_STATE.medalCount = ReadInt32LE(body, offset);
-                offset += 4;  // skip
-                offset += 4;  // isPop (不使用)
-                offset += 4;  // evoFlag (不使用)
-                offset += 4;  // isMove (不使用)
-                
-                // 通知UI更新
+                g_act808PlayCount = ReadInt32LE(body, offset);
+                g_act808RestTime = ReadInt32LE(body, offset);
+                g_act808MedalNum = ReadInt32LE(body, offset);
+                g_act808HistoryBestScore = ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);  // catchNum
+                ReadInt32LE(body, offset);  // isBuy
+                ReadInt32LE(body, offset);  // maxNum
+                g_act808IsPop = ReadInt32LE(body, offset);
+                g_act808SweepAvailable = (g_act808HistoryBestScore.load() > 0);
+
                 wchar_t msg[256];
-                swprintf_s(msg, L"磐石御天火：次数=%d 冷却=%d秒 勋章=%d", 
-                          ACT793_STATE.playCount.load(), ACT793_STATE.restTime.load(), ACT793_STATE.medalCount.load());
+                swprintf_s(
+                    msg,
+                    L"欢乐跷跷板：次数=%d 冷却=%d秒 棒棒糖=%d",
+                    g_act808PlayCount.load(),
+                    g_act808RestTime.load(),
+                    g_act808MedalNum.load());
                 UIBridge::Instance().UpdateHelperText(msg);
             }
-        }
-        else if (operation == "start_game") {
+        } else if (operation == "start_game") {
             if (offset + 4 <= packet.body.size()) {
-                int result = ReadInt32LE(body, offset);
-                if (result == 0 && offset + 8 <= packet.body.size()) {
-                    offset += 4;  // skip
-                    ACT793_STATE.checkCode = ReadInt32LE(body, offset);
+                const int32_t result = ReadInt32LE(body, offset);
+                g_act808StartResult = result;
+                if (result == 0 && offset + 12 <= packet.body.size()) {
+                    g_act808PlayCount = ReadInt32LE(body, offset);
+                    g_act808RandomCode = ReadInt32LE(body, offset);
+                    g_act808CheckCode = ReadInt32LE(body, offset);
+
+                    std::vector<int> awardArr;
+                    awardArr.reserve(180);
+                    while (offset + 4 <= packet.body.size()) {
+                        awardArr.push_back(ReadInt32LE(body, offset));
+                    }
+
+                    {
+                        std::lock_guard<std::mutex> lock(g_act808Mutex);
+                        g_act808AwardArr = awardArr;
+                    }
+                } else if (result == 10) {
+                    UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：当前已经在游戏中");
+                } else if (result == 11) {
+                    UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：冷却中，请稍后再试");
+                } else if (result == 12) {
+                    UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：今日次数已用光");
+                } else if (result == 13) {
+                    UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：玩家正在支付中");
                 }
             }
-        }
-        else if (operation == "sweep_info") {
-            if (offset + 4 <= packet.body.size()) {
-                int result = ReadInt32LE(body, offset);
-                g_act793SweepSuccess = (result == 0);
+        } else if (operation == "gameing") {
+            if (offset + 8 <= packet.body.size()) {
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
             }
-        }
-        else if (operation == "sweep") {
-            if (offset + 4 <= packet.body.size()) {
-                int result = ReadInt32LE(body, offset);
-                g_act793SweepSuccess = (result == 0);
-                if (result == 0 && offset + 8 <= packet.body.size()) {
-                    ACT793_STATE.playCount = ReadInt32LE(body, offset);
+        } else if (operation == "end_game") {
+            if (offset + 28 <= packet.body.size()) {
+                const int32_t result = ReadInt32LE(body, offset);
+                g_act808EndResult = result;
+                g_act808PlayCount = ReadInt32LE(body, offset);
+                g_act808RestTime = ReadInt32LE(body, offset);
+                g_act808MedalNum = ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);  // totalNum
+                ReadInt32LE(body, offset);  // exp
+                ReadInt32LE(body, offset);  // coin
+                const int rewardNum = ReadInt32LE(body, offset);
+                for (int i = 0; i < rewardNum && offset + 8 <= packet.body.size(); ++i) {
+                    ReadInt32LE(body, offset);
+                    ReadInt32LE(body, offset);
+                }
+
+                if (result == 0) {
+                    wchar_t msg[256];
+                    swprintf_s(
+                        msg,
+                        L"欢乐跷跷板：结算完成，棒棒糖=%d",
+                        g_act808MedalNum.load());
+                    UIBridge::Instance().UpdateHelperText(msg);
                 }
             }
-        }
-        else if (operation == "end_game") {
+        } else if (operation == "sweep_info") {
             if (offset + 4 <= packet.body.size()) {
-                int result = ReadInt32LE(body, offset);
-                if (result == 0 && offset + 8 <= packet.body.size()) {
-                    ACT793_STATE.playCount = ReadInt32LE(body, offset);
+                const int32_t result = ReadInt32LE(body, offset);
+                g_act808SweepResult = result;
+                if (result == 0 && offset + 16 <= packet.body.size()) {
+                    ReadInt32LE(body, offset);  // medal
+                    ReadInt32LE(body, offset);  // exp
+                    ReadInt32LE(body, offset);  // coin
+                    const int rewardNum = ReadInt32LE(body, offset);
+                    for (int i = 0; i < rewardNum && offset + 8 <= packet.body.size(); ++i) {
+                        ReadInt32LE(body, offset);
+                        ReadInt32LE(body, offset);
+                    }
+                    g_act808SweepAvailable = true;
+                    UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：已获取扫荡信息");
+                } else {
+                    g_act808SweepAvailable = false;
+                    if (result == 1) {
+                        UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：需要成功进行一局游戏才可以扫荡哦！");
+                    } else if (result == 2) {
+                        UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：游戏次数不足");
+                    } else if (result == 3) {
+                        UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：冷却中！");
+                    }
                 }
             }
-        }
-    }
-    
-    // ============ 五行镜破封印功能实现 (Act791) ============
-    
-    #define ACT791_STATE ActivityStateManager::Instance().GetAct791State()
-    
-    static bool g_act791SweepSuccess = false;
-    
-    BOOL SendAct791Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
-        return SendActivityPacket(Act791::ACTIVITY_ID, operation, bodyValues);
-    }
-    
-    BOOL SendAct791GameInfoPacket() {
-        ACT791_STATE.waitingResponse = true;
-        return SendAct791Packet("game_info", {});
-    }
-    
-    BOOL SendAct791StartGamePacket() {
-        ACT791_STATE.waitingResponse = true;
-        return SendAct791Packet("start_game", {});
-    }
-    
-    BOOL SendAct791EndGamePacket(int score) {
-        // 步骤1：先发送额外封包 (根据AS3代码: sendMessage(1184812, 3, [3, 4039001, 0]))
-        std::vector<BYTE> extraPacket = PacketBuilder().SetOpcode(Act791::EXTRA_OPCODE).SetParams(Act791::EXTRA_PARAMS)
-            .WriteInt32(3).WriteInt32(4039001).WriteInt32(0).Build();
-        SendPacket(0, extraPacket.data(), static_cast<DWORD>(extraPacket.size()));
-        Sleep(100);
-        
-        // 步骤2：计算校验码 (根据AS3代码: userId % 1000 + serverCheckCode + score)
-        int clientCheckCode = static_cast<int>(g_userId) % 1000 + ACT791_STATE.checkCode + score;
-        
-        return SendAct791Packet("end_game", {clientCheckCode, score});
-    }
-    
-    BOOL SendAct791SweepInfoPacket() {
-        ACT791_STATE.waitingResponse = true;
-        return SendAct791Packet("sweep_info", {});
-    }
-    
-    BOOL SendAct791SweepPacket() {
-        ACT791_STATE.waitingResponse = true;
-        return SendAct791Packet("sweep", {});
-    }
-    
-    DWORD WINAPI Act791ThreadProc(LPVOID lpParam) {
-        int targetScore = ACT791_STATE.targetScore;
-        
-        Sleep(300);
-        UIBridge::Instance().UpdateHelperText(L"五行镜破封印：正在获取游戏信息...");
-        
-        SendAct791GameInfoPacket();
-        for (int i = 0; i < 30 && ACT791_STATE.waitingResponse; i++) Sleep(100);
-        
-        if (ACT791_STATE.playCount <= 0) {
-            UIBridge::Instance().UpdateHelperText(L"五行镜破封印：今日次数已用完");
-            return 0;
-        }
-        
-        if (ACT791_STATE.restTime > 0) {
-            UIBridge::Instance().UpdateHelperText(L"五行镜破封印：冷却中，请稍后再试");
-            return 0;
-        }
-        
-        // 尝试扫荡
-        if (ACT791_STATE.useSweep) {
-            UIBridge::Instance().UpdateHelperText(L"五行镜破封印：正在获取扫荡信息...");
-            
-            Sleep(300);
-            g_act791SweepSuccess = false;
-            SendAct791SweepInfoPacket();
-            for (int i = 0; i < 30 && ACT791_STATE.waitingResponse; i++) Sleep(100);
-            
-            if (!g_act791SweepSuccess) {
-                UIBridge::Instance().UpdateHelperText(L"五行镜破封印：扫荡条件不满足，开始游戏...");
-            } else {
-                Sleep(300);
-                g_act791SweepSuccess = false;
-                SendAct791SweepPacket();
-                for (int i = 0; i < 30 && ACT791_STATE.waitingResponse; i++) Sleep(100);
-                
-                if (g_act791SweepSuccess) {
-                    UIBridge::Instance().UpdateHelperText(L"五行镜破封印：扫荡完成！");
-                    return 0;
+        } else if (operation == "sweep") {
+            if (offset + 28 <= packet.body.size()) {
+                const int32_t result = ReadInt32LE(body, offset);
+                g_act808EndResult = result;
+                g_act808PlayCount = ReadInt32LE(body, offset);
+                g_act808RestTime = ReadInt32LE(body, offset);
+                g_act808MedalNum = ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);  // totalNum
+                ReadInt32LE(body, offset);  // exp
+                ReadInt32LE(body, offset);  // coin
+                const int rewardNum = ReadInt32LE(body, offset);
+                for (int i = 0; i < rewardNum && offset + 8 <= packet.body.size(); ++i) {
+                    ReadInt32LE(body, offset);
+                    ReadInt32LE(body, offset);
                 }
-            }
-        }
-        
-        // 开始游戏
-        UIBridge::Instance().UpdateHelperText(L"五行镜破封印：开始游戏...");
-        
-        Sleep(300);
-        SendAct791StartGamePacket();
-        for (int i = 0; i < 30 && ACT791_STATE.waitingResponse; i++) Sleep(100);
-        
-        if (ACT791_STATE.checkCode == 0) {
-            UIBridge::Instance().UpdateHelperText(L"五行镜破封印：获取校验码失败");
-            return 0;
-        }
-        
-        // 模拟游戏过程（60秒点击收集游戏）
-        // 简化处理：直接结束游戏，发送目标分数
-        Sleep(500);
-        UIBridge::Instance().UpdateHelperText(L"五行镜破封印：游戏进行中...");
-        
-        // 结束游戏
-        Sleep(300);
-        SendAct791EndGamePacket(targetScore);
-        UIBridge::Instance().UpdateHelperText(L"五行镜破封印：游戏完成！");
-        return 0;
-    }
-    
-    BOOL StartOneKeyAct791Packet(bool useSweep, int targetScore) {
-        ACT791_STATE.useSweep = useSweep;
-        ACT791_STATE.targetScore = targetScore;
-        HANDLE hThread = CreateThread(nullptr, 0, Act791ThreadProc, nullptr, 0, nullptr);
-        if (hThread) { CloseHandle(hThread); return TRUE; }
-        return FALSE;
-    }
-    
-    void ProcessAct791Response(const GamePacket& packet) {
-        size_t offset = 0;
-        std::string operation;
-        if (!ReadLengthPrefixedString(packet.body, offset, operation)) return;
-        const BYTE* body = packet.body.data();
-        
-        ACT791_STATE.waitingResponse = false;
-        
-        if (operation == "game_info") {
-            // game_info 响应格式 (根据AS3代码):
-            // result(4B) + restPlayCount(4B) + restCdTime(4B) + pop_win(4B) + 
-            // medalNum(4B) + best_score(4B) + last_game_score(4B) + superEvolutionFlag(4B)
-            // 总共 32 字节，字符串后需要 32 字节
-            if (offset + 32 <= packet.body.size()) {
-                int result = ReadInt32LE(body, offset);
-                ACT791_STATE.playCount = ReadInt32LE(body, offset);
-                ACT791_STATE.restTime = ReadInt32LE(body, offset);
-                ReadInt32LE(body, offset);  // pop_win (跳过)
-                ACT791_STATE.medalNum = ReadInt32LE(body, offset);
-                ACT791_STATE.bestScore = ReadInt32LE(body, offset);
-                ACT791_STATE.lastScore = ReadInt32LE(body, offset);
-                ACT791_STATE.superEvolutionFlag = ReadInt32LE(body, offset);
-                
-                wchar_t msg[256];
-                swprintf_s(msg, L"五行镜破封印：结果=%d 次数=%d 冷却=%d秒 勋章=%d 最高分=%d", 
-                          result, ACT791_STATE.playCount.load(), ACT791_STATE.restTime.load(), 
-                          ACT791_STATE.medalNum.load(), ACT791_STATE.bestScore.load());
-                UIBridge::Instance().UpdateHelperText(msg);
-            }
-        }
-        else if (operation == "start_game") {
-            // start_game 响应格式: result(4B) + unknown(4B) + checkCode(4B)
-            if (offset + 4 <= packet.body.size()) {
-                int result = ReadInt32LE(body, offset);
-                if (result == 0 && offset + 8 <= packet.body.size()) {
-                    offset += 4;  // unknown
-                    ACT791_STATE.checkCode = ReadInt32LE(body, offset);
-                }
-            }
-        }
-        else if (operation == "sweep_info") {
-            // sweep_info 响应格式: medal(4B) + exp(4B) + coin(4B)
-            if (offset + 4 <= packet.body.size()) {
-                int medal = ReadInt32LE(body, offset);
-                g_act791SweepSuccess = (medal > 0);  // 有勋章表示可以扫荡
-            }
-        }
-        else if (operation == "sweep") {
-            // sweep 响应格式: result(4B) + unknown(4B) + unknown(4B) + medal(4B) + exp(4B) + coin(4B)
-            if (offset + 4 <= packet.body.size()) {
-                int result = ReadInt32LE(body, offset);
-                g_act791SweepSuccess = (result == 0);
-                if (result == 0 && offset + 8 <= packet.body.size()) {
-                    ACT791_STATE.playCount = ReadInt32LE(body, offset);
-                }
-            }
-        }
-        else if (operation == "end_game") {
-            // end_game 响应格式: result(4B) + unknown(4B) + unknown(4B) + medal(4B) + exp(4B) + coin(4B)
-            if (offset + 4 <= packet.body.size()) {
-                int result = ReadInt32LE(body, offset);
-                if (result == 0 && offset + 8 <= packet.body.size()) {
-                    ACT791_STATE.playCount = ReadInt32LE(body, offset);
+
+                if (result == 0) {
+                    wchar_t msg[256];
+                    swprintf_s(
+                        msg,
+                        L"欢乐跷跷板：扫荡完成，棒棒糖=%d",
+                        g_act808MedalNum.load());
+                    UIBridge::Instance().UpdateHelperText(msg);
+                } else {
+                    UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：扫荡失败");
                 }
             }
         }
@@ -2570,243 +2908,7 @@ void ProcessAct805Response(const GamePacket& packet) {
         }
     }
 
-    // ============ 清明赏河景功能实现 (Act803) ============
-
-    BOOL SendAct803Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
-        return SendActivityPacket(Act803::ACTIVITY_ID, operation, bodyValues);
-    }
-
-    BOOL SendAct803GameInfoPacket() {
-        g_act803WaitingResponse = true;
-        return SendAct803Packet("open_ui", {});
-    }
-
-    BOOL SendAct803StartGamePacket(int startFlag) {
-        g_act803WaitingResponse = true;
-        return SendAct803Packet("start_game", {startFlag});
-    }
-
-    BOOL SendAct803EndGamePacket(int score, bool isWin) {
-        const int checkCode = g_act803CheckCode.load();
-        const uint32_t userId = g_userId.load();
-        if (checkCode <= 0) {
-            return FALSE;
-        }
-
-        const int clientCheckCode = checkCode & static_cast<int>(userId % static_cast<uint32_t>(checkCode));
-        std::vector<int32_t> bodyValues;
-        bodyValues.reserve(18);
-        bodyValues.push_back(static_cast<int32_t>(clientCheckCode));
-        bodyValues.push_back(score);
-        bodyValues.push_back(isWin ? 1 : 0);
-        const std::vector<int32_t> awards = BuildAct803AwardValues();
-        bodyValues.insert(bodyValues.end(), awards.begin(), awards.end());
-
-        g_act803WaitingResponse = true;
-        return SendAct803Packet("end_game", bodyValues);
-    }
-
-    BOOL SendAct803SweepInfoPacket() {
-        g_act803WaitingResponse = true;
-        return SendAct803Packet("sweep_info", {});
-    }
-
-    BOOL SendAct803SweepPacket() {
-        g_act803WaitingResponse = true;
-        return SendAct803Packet("sweep", {});
-    }
-
-    static void ParseAct803AwardList(const std::vector<BYTE>& body, size_t& offset) {
-        if (offset + 16 > body.size()) {
-            return;
-        }
-
-        ReadInt32LE(body.data(), offset);
-        ReadInt32LE(body.data(), offset);
-        ReadInt32LE(body.data(), offset);
-        const int len = ReadInt32LE(body.data(), offset);
-        for (int i = 0; i < len && offset + 8 <= body.size(); ++i) {
-            ReadInt32LE(body.data(), offset);
-            ReadInt32LE(body.data(), offset);
-        }
-    }
-
-    DWORD WINAPI Act803ThreadProc(LPVOID lpParam) {
-        const int targetScore = lpParam ? *static_cast<int*>(lpParam) : Act803::MAX_NUM;
-        if (lpParam) {
-            delete static_cast<int*>(lpParam);
-        }
-
-        g_act803CheckCode = 0;
-        g_act803LastResult = -1;
-        g_act803PlayCount = 0;
-        g_act803RestTime = 0;
-        g_act803RedBerryCount = 0;
-        g_act803IsPop = 0;
-        g_act803IsMoveControl = 0;
-        g_act803SweepAvailable = false;
-        g_act803HasAwardArr.clear();
-
-        Sleep(300);
-        UIBridge::Instance().UpdateHelperText(L"清明赏河景：正在获取活动信息...");
-
-        SendAct803GameInfoPacket();
-        for (int i = 0; i < 30 && g_act803WaitingResponse.load(); ++i) {
-            Sleep(100);
-        }
-
-        if (g_act803PlayCount.load() <= 0) {
-            UIBridge::Instance().UpdateHelperText(L"清明赏河景：今日次数已用完");
-            return 0;
-        }
-
-        if (g_act803RestTime.load() > 0) {
-            UIBridge::Instance().UpdateHelperText(L"清明赏河景：冷却中，请稍后再试");
-            return 0;
-        }
-
-        if (g_act803UseSweep.load()) {
-            UIBridge::Instance().UpdateHelperText(L"清明赏河景：正在获取扫荡信息...");
-
-            SendAct803SweepInfoPacket();
-            for (int i = 0; i < 30 && g_act803WaitingResponse.load(); ++i) {
-                Sleep(100);
-            }
-
-            if (g_act803SweepAvailable.load()) {
-                Sleep(300);
-                UIBridge::Instance().UpdateHelperText(L"清明赏河景：执行扫荡...");
-                SendAct803SweepPacket();
-                for (int i = 0; i < 30 && g_act803WaitingResponse.load(); ++i) {
-                    Sleep(100);
-                }
-                if (g_act803LastResult.load() == 3) {
-                    UIBridge::Instance().UpdateHelperText(L"清明赏河景：扫荡失败");
-                }
-                return 0;
-            }
-
-            UIBridge::Instance().UpdateHelperText(L"清明赏河景：当前不可扫荡，改为直接结算");
-        }
-
-        Sleep(300);
-        UIBridge::Instance().UpdateHelperText(L"清明赏河景：开始游戏...");
-        SendAct803StartGamePacket(1);
-        for (int i = 0; i < 30 && g_act803WaitingResponse.load(); ++i) {
-            Sleep(100);
-        }
-
-        if (g_act803CheckCode.load() == 0) {
-            UIBridge::Instance().UpdateHelperText(L"清明赏河景：获取校验码失败");
-            return 0;
-        }
-
-        Sleep(500);
-        UIBridge::Instance().UpdateHelperText(L"清明赏河景：跳过客户端渲染，直接提交结算...");
-        SendAct803EndGamePacket(targetScore);
-        for (int i = 0; i < 30 && g_act803WaitingResponse.load(); ++i) {
-            Sleep(100);
-        }
-
-        if (g_act803LastResult.load() == 3) {
-            UIBridge::Instance().UpdateHelperText(L"清明赏河景：结算失败");
-        }
-
-        return 0;
-    }
-
-    BOOL StartOneKeyAct803Packet(bool useSweep, int targetScore) {
-        g_act803UseSweep = useSweep;
-        int* pTargetScore = new int(targetScore);
-        HANDLE hThread = CreateThread(nullptr, 0, Act803ThreadProc, pTargetScore, 0, nullptr);
-        if (hThread) {
-            CloseHandle(hThread);
-            return TRUE;
-        }
-        delete pTargetScore;
-        return FALSE;
-    }
-
-    void ProcessAct803Response(const GamePacket& packet) {
-        size_t offset = 0;
-        std::string operation;
-        if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
-            return;
-        }
-
-        const BYTE* body = packet.body.data();
-        g_act803WaitingResponse = false;
-
-        if (operation == "open_ui") {
-            if (offset + 44 <= packet.body.size()) {
-                g_act803PlayCount = ReadInt32LE(body, offset);
-                g_act803RestTime = ReadInt32LE(body, offset);
-                ReadInt32LE(body, offset);
-                g_act803RedBerryCount = ReadInt32LE(body, offset);
-                ReadInt32LE(body, offset);
-                g_act803IsPop = ReadInt32LE(body, offset);
-                g_act803IsMoveControl = ReadInt32LE(body, offset);
-                ReadInt32LE(body, offset);
-                ReadInt32LE(body, offset);
-                ReadInt32LE(body, offset);
-                ReadInt32LE(body, offset);
-
-                wchar_t msg[256];
-                swprintf_s(
-                    msg,
-                    L"清明赏河景：次数=%d 冷却=%d秒 红莓果=%d",
-                    g_act803PlayCount.load(),
-                    g_act803RestTime.load(),
-                    g_act803RedBerryCount.load());
-                UIBridge::Instance().UpdateHelperText(msg);
-            }
-        } else if (operation == "start_game") {
-            if (offset + 4 <= packet.body.size()) {
-                const int result = ReadInt32LE(body, offset);
-                g_act803LastResult = result;
-                if (result == 0 && offset + 8 <= packet.body.size()) {
-                    ReadInt32LE(body, offset);
-                    g_act803CheckCode = ReadInt32LE(body, offset);
-                    g_act803HasAwardArr.clear();
-                    while (offset + 4 <= packet.body.size()) {
-                        g_act803HasAwardArr.push_back(ReadInt32LE(body, offset));
-                    }
-                } else if (result == 12) {
-                    UIBridge::Instance().UpdateHelperText(L"清明赏河景：今日次数已用完");
-                } else if (result == 11) {
-                    UIBridge::Instance().UpdateHelperText(L"清明赏河景：冷却中，请稍后再试");
-                } else if (result == 10) {
-                    UIBridge::Instance().UpdateHelperText(L"清明赏河景：当前已经在游戏中");
-                }
-            }
-        } else if (operation == "sweep_info") {
-            if (offset + 8 <= packet.body.size()) {
-                const int result = ReadInt32LE(body, offset);
-                g_act803SweepAvailable = (result == 0 || result == 4);
-                ReadInt32LE(body, offset);
-                if (g_act803SweepAvailable.load()) {
-                    ParseAct803AwardList(packet.body, offset);
-                    UIBridge::Instance().UpdateHelperText(L"清明赏河景：扫荡预览已获取");
-                } else {
-                    UIBridge::Instance().UpdateHelperText(L"清明赏河景：当前不可扫荡");
-                }
-            }
-        } else if (operation == "end_game" || operation == "sweep") {
-            if (offset + 12 <= packet.body.size()) {
-                const int result = ReadInt32LE(body, offset);
-                g_act803LastResult = result;
-                ReadInt32LE(body, offset);
-                ReadInt32LE(body, offset);
-                if (result != 3 && offset + 4 <= packet.body.size()) {
-                    ReadInt32LE(body, offset);
-                    ParseAct803AwardList(packet.body, offset);
-                    UIBridge::Instance().UpdateHelperText(operation == "sweep" ? L"清明赏河景：扫荡完成" : L"清明赏河景：结算完成");
-                } else if (result == 3) {
-                    UIBridge::Instance().UpdateHelperText(operation == "sweep" ? L"清明赏河景：扫荡失败" : L"清明赏河景：结算失败");
-                }
-            }
-        }
-    }
+    
 
     // ============ 逆流的试炼功能实现 (Act804) ============
 
@@ -3494,270 +3596,6 @@ void ProcessAct805Response(const GamePacket& packet) {
         }
     }
 
-    // ============ 采蘑菇的好伙伴功能实现 (Act624) ============
-
-    BOOL SendAct624Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
-        std::vector<BYTE> packet = BuildActivityPacket(Opcode::ACTIVITY_QINGYANG_NEW_SEND, Act624::ACTIVITY_ID, operation, bodyValues);
-        return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
-    }
-
-    BOOL SendAct624PacketNoWait(const std::string& operation, const std::vector<int32_t>& bodyValues = {}) {
-        std::vector<BYTE> packet = BuildActivityPacket(Opcode::ACTIVITY_QINGYANG_NEW_SEND, Act624::ACTIVITY_ID, operation, bodyValues);
-        return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
-    }
-
-    BOOL SendAct624GameInfoPacket() {
-        g_act624WaitingResponse = true;
-        return SendAct624Packet("game_info", {});
-    }
-
-    BOOL SendAct624StartGamePacket(int promptFlag) {
-        g_act624WaitingResponse = true;
-        return SendAct624Packet("start_game", {promptFlag});
-    }
-
-    BOOL SendAct624EndRoundPacket(int round, int gameTime, int mushroomNum) {
-        const int checkCode = g_act624CheckCode.load();
-        const uint32_t userId = g_userId.load();
-        if (checkCode <= 0) {
-            return FALSE;
-        }
-
-        const int clientCheckCode = checkCode & static_cast<int>(userId % static_cast<uint32_t>(checkCode));
-        g_act624WaitingResponse = true;
-        return SendAct624Packet("round", {clientCheckCode, round, gameTime, mushroomNum, 0});
-    }
-
-    BOOL SendAct624NextRoundPacket() {
-        return SendAct624PacketNoWait("revive", {2});
-    }
-
-    BOOL SendAct624SweepInfoPacket() {
-        g_act624WaitingResponse = true;
-        return SendAct624Packet("sweep_info", {});
-    }
-
-    BOOL SendAct624SweepPacket() {
-        g_act624WaitingResponse = true;
-        return SendAct624Packet("sweep", {});
-    }
-
-    DWORD WINAPI Act624ThreadProc(LPVOID lpParam) {
-        (void)lpParam;
-
-        g_act624CheckCode = 0;
-        g_act624LastResult = -1;
-        g_act624PlayCount = 0;
-        g_act624RestTime = 0;
-        g_act624CanGetFlag = 0;
-        g_act624GotFlag = 0;
-        g_act624TotalBadgeNum = 0;
-        g_act624FinishedNum = 0;
-        g_act624SweepAvailable = false;
-
-        Sleep(300);
-        UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：正在获取活动信息...");
-
-        SendAct624GameInfoPacket();
-        for (int i = 0; i < 30 && g_act624WaitingResponse.load(); ++i) {
-            Sleep(100);
-        }
-
-        if (g_act624PlayCount.load() <= 0) {
-            UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：今日次数已用完");
-            return 0;
-        }
-
-        if (g_act624RestTime.load() > 0) {
-            UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：冷却中，请稍后再试");
-            return 0;
-        }
-
-        if (g_act624UseSweep.load()) {
-            UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：正在获取扫荡信息...");
-            SendAct624SweepInfoPacket();
-            for (int i = 0; i < 30 && g_act624WaitingResponse.load(); ++i) {
-                Sleep(100);
-            }
-
-            if (g_act624SweepAvailable.load()) {
-                Sleep(300);
-                UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：执行扫荡...");
-                SendAct624SweepPacket();
-                for (int i = 0; i < 30 && g_act624WaitingResponse.load(); ++i) {
-                    Sleep(100);
-                }
-                if (g_act624LastResult.load() == 0) {
-                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：扫荡完成");
-                } else {
-                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：扫荡失败");
-                }
-                return 0;
-            }
-
-            UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：当前不可扫荡，改为三轮游戏");
-        }
-
-        Sleep(300);
-        UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：开始游戏...");
-        SendAct624StartGamePacket(1);
-        for (int i = 0; i < 30 && g_act624WaitingResponse.load(); ++i) {
-            Sleep(100);
-        }
-
-        if (g_act624CheckCode.load() == 0) {
-            UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：获取校验码失败");
-            return 0;
-        }
-
-        static const int kTargetNums[3] = {5, 10, 15};
-        static const int kTargetTimes[3] = {0, 0, 0};
-        for (int round = 1; round <= 3; ++round) {
-            Sleep(300);
-            wchar_t msg[128];
-            swprintf_s(msg, L"采蘑菇的好伙伴：第%d轮结算中...", round);
-            UIBridge::Instance().UpdateHelperText(msg);
-            SendAct624EndRoundPacket(round, kTargetTimes[round - 1], kTargetNums[round - 1]);
-            for (int i = 0; i < 30 && g_act624WaitingResponse.load(); ++i) {
-                Sleep(100);
-            }
-
-            if (round < 3) {
-                // AS3 里的“下一轮”只是本地 UI 切换，不会额外向服务端发送 revive。
-                Sleep(600);
-            }
-        }
-
-        Sleep(300);
-        g_act624WaitingResponse = true;
-        SendAct624Packet("revive", {2});
-        for (int i = 0; i < 30 && g_act624WaitingResponse.load(); ++i) {
-            Sleep(100);
-        }
-
-        Sleep(300);
-        SendAct624GameInfoPacket();
-        for (int i = 0; i < 30 && g_act624WaitingResponse.load(); ++i) {
-            Sleep(100);
-        }
-
-        UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：三轮结算完成");
-        return 0;
-    }
-
-    BOOL StartOneKeyAct624Packet(bool useSweep) {
-        g_act624UseSweep = useSweep;
-        HANDLE hThread = CreateThread(nullptr, 0, Act624ThreadProc, nullptr, 0, nullptr);
-        if (hThread) {
-            CloseHandle(hThread);
-            return TRUE;
-        }
-        return FALSE;
-    }
-
-    void ProcessAct624Response(const GamePacket& packet) {
-        size_t offset = 0;
-        std::string operation;
-        if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
-            return;
-        }
-
-        const BYTE* body = packet.body.data();
-        g_act624WaitingResponse = false;
-
-        if (operation == "game_info") {
-            if (offset + 4 <= packet.body.size()) {
-                const int result = ReadInt32LE(body, offset);
-                g_act624LastResult = result;
-                if (result == 0 && offset + 52 <= packet.body.size()) {
-                    g_act624PlayCount = ReadInt32LE(body, offset);
-                    g_act624RestTime = ReadInt32LE(body, offset);
-                    g_act624CanGetFlag = ReadInt32LE(body, offset);
-                    g_act624GotFlag = ReadInt32LE(body, offset);
-                    ReadInt32LE(body, offset);
-                    ReadInt32LE(body, offset);
-                    ReadInt32LE(body, offset);
-                    ReadInt32LE(body, offset);
-                    g_act624TotalBadgeNum = ReadInt32LE(body, offset);
-                    g_act624FinishedNum = ReadInt32LE(body, offset);
-                    ReadInt32LE(body, offset);
-                    ReadInt32LE(body, offset);
-                    ReadInt32LE(body, offset);
-
-                    wchar_t msg[256];
-                    swprintf_s(
-                        msg,
-                        L"采蘑菇的好伙伴：次数=%d 冷却=%d秒 勋章=%d",
-                        g_act624PlayCount.load(),
-                        g_act624RestTime.load(),
-                        g_act624TotalBadgeNum.load());
-                    UIBridge::Instance().UpdateHelperText(msg);
-                } else if (result == 12) {
-                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：今日次数已用完");
-                } else if (result == 11) {
-                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：冷却中，请稍后再试");
-                } else if (result == 10) {
-                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：当前已经在游戏中");
-                } else {
-                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：获取活动信息失败");
-                }
-            }
-        } else if (operation == "start_game") {
-            if (offset + 4 <= packet.body.size()) {
-                const int result = ReadInt32LE(body, offset);
-                g_act624LastResult = result;
-                if (result == 0 && offset + 8 <= packet.body.size()) {
-                    ReadInt32LE(body, offset);
-                    g_act624CheckCode = ReadInt32LE(body, offset);
-                } else if (result == 12) {
-                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：今日次数已用完");
-                } else if (result == 11) {
-                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：冷却中，请稍后再试");
-                } else if (result == 10) {
-                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：当前已经在游戏中");
-                }
-            }
-        } else if (operation == "round") {
-            if (offset + 12 <= packet.body.size()) {
-                g_act624CheckCode = ReadInt32LE(body, offset);
-                ReadInt32LE(body, offset);
-                ReadInt32LE(body, offset);
-                UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：结算完成");
-            }
-        } else if (operation == "revive") {
-            g_act624LastResult = 0;
-        } else if (operation == "sweep_info") {
-            if (offset + 4 <= packet.body.size()) {
-                const int result = ReadInt32LE(body, offset);
-                g_act624SweepAvailable = (result == 0);
-                if (g_act624SweepAvailable.load()) {
-                    std::string jsonStr;
-                    if (ReadLengthPrefixedString(packet.body, offset, jsonStr)) {
-                        UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：扫荡预览已获取");
-                    }
-                } else {
-                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：当前不可扫荡");
-                }
-            }
-        } else if (operation == "sweep") {
-            if (offset + 4 <= packet.body.size()) {
-                const int result = ReadInt32LE(body, offset);
-                g_act624LastResult = result;
-                if (offset + 4 <= packet.body.size()) {
-                    g_act624PlayCount = ReadInt32LE(body, offset);
-                }
-                if (result == 0) {
-                    std::string jsonStr;
-                    if (ReadLengthPrefixedString(packet.body, offset, jsonStr)) {
-                        UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：扫荡完成");
-                    }
-                } else {
-                    UIBridge::Instance().UpdateHelperText(L"采蘑菇的好伙伴：扫荡失败");
-                }
-            }
-        }
-    }
-
     // ============ 驱傩聚福寿功能实现 (Act778) ============
     
     // 使用新的状态管理器
@@ -4256,7 +4094,7 @@ void ProcessEnterWorldPacket(const GamePacket& gp) {
     std::wstring kabuName = Utf8ToWide(nameUtf8);
     
     // 更新窗口标题
-    std::wstring newTitle = L"卡布西游浮影微端 V1.10 - " + 
+    std::wstring newTitle = L"卡布西游浮影微端 V1.11 - " + 
                            std::to_wstring(kabuId) + L" " + kabuName;
     SetWindowTextW(g_hWnd, newTitle.c_str());
 }
@@ -5046,17 +4884,15 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
 
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act778::ACTIVITY_ID, ProcessAct778Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act666::ACTIVITY_ID, ProcessAct666Response);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act641::ACTIVITY_ID, ProcessAct641Response);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act808::ACTIVITY_ID, ProcessAct808Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act805::ACTIVITY_ID, ProcessAct805Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act793::ACTIVITY_ID, ProcessAct793Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act791::ACTIVITY_ID, ProcessAct791Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act782::ACTIVITY_ID, ProcessAct782Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act803::ACTIVITY_ID, ProcessAct803Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act804::ACTIVITY_ID, ProcessAct804Response);
     registerParams(Opcode::ACTIVITY_LUA_V3_BACK, Act804::ACTIVITY_ID, ProcessAct804Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act810::ACTIVITY_ID, ProcessAct810Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act811::ACTIVITY_ID, ProcessAct811Response);
     registerParams(Opcode::ACTIVITY_LUA_V3_BACK, Act811::ACTIVITY_ID, ProcessAct811Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act624::ACTIVITY_ID, ProcessAct624Response);
     registerParams(Opcode::HORSE_COMPETITION_BACK, HORSE_COMPETITION_ACT_ID, ProcessHorseCompetitionResponse);
 
     registerParams(Opcode::HEAVEN_FURUI_BACK, HeavenFurui::ACTIVITY_ID, ProcessHeavenFuruiResponse);
@@ -5117,9 +4953,8 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
         m_trialState.Reset();
         m_act778State.Reset();
         m_act666State.Reset();
+        m_act641State.Reset();
         m_act805State.Reset();
-        m_act793State.Reset();
-        m_act791State.Reset();
         m_horseCompetitionState.Reset();
     }
 
@@ -5131,16 +4966,12 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
         return m_act666State;
     }
 
+    Act641State& ActivityStateManager::GetAct641State() {
+        return m_act641State;
+    }
+
     Act805State& ActivityStateManager::GetAct805State() {
         return m_act805State;
-    }
-
-    Act793State& ActivityStateManager::GetAct793State() {
-        return m_act793State;
-    }
-
-    Act791State& ActivityStateManager::GetAct791State() {
-        return m_act791State;
     }
 
     HorseCompetitionState& ActivityStateManager::GetHorseCompetitionState() {

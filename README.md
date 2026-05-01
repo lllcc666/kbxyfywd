@@ -1,6 +1,6 @@
 # 卡布西游浮影微端
 
-[![Version](https://img.shields.io/badge/version-1.10-blue.svg)](https://github.com/lllcc666/kbxyfywd)
+[![Version](https://img.shields.io/badge/version-1.11-blue.svg)](https://github.com/lllcc666/kbxyfywd)
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey.svg)](https://github.com/lllcc666/kbxyfywd)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 

@@ -6,8 +6,8 @@
 
 // 版本信息 (Unicode)
 1 VERSIONINFO
-FILEVERSION     1,0,10,0
-PRODUCTVERSION  1,0,10,0
+FILEVERSION     1,0,11,0
+PRODUCTVERSION  1,0,11,0
 FILEFLAGSMASK   0x3fL
 FILEFLAGS       0x0L
 FILEOS          VOS_NT_WINDOWS32
@@ -20,12 +20,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "KBWebUI"
             VALUE "FileDescription", "\x5361\x5e03\x897f\x6e38\x5fae\x7aef"
-            VALUE "FileVersion", "1.0.10.0"
+            VALUE "FileVersion", "1.0.11.0"
             VALUE "InternalName", "KBWebUI"
             VALUE "LegalCopyright", "Copyright (C) 2025"
             VALUE "OriginalFilename", "WebView2Demo.exe"
             VALUE "ProductName", "\x5361\x5e03\x897f\x6e38\x5fae\x7aef"
-            VALUE "ProductVersion", "1.0.10.0"
+            VALUE "ProductVersion", "1.0.11.0"
         END
     END
     BLOCK "VarFileInfo"

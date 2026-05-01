@@ -714,19 +714,6 @@ void HandleStartOneKeyActCommand(const std::wstring& msg,
     }
 }
 
-void HandleStartOneKeyAct793Command(const std::wstring& msg) {
-    HandleStartOneKeyActCommand(
-        msg,
-        L"medals",
-        Act793::TARGET_MEDALS,
-        1,
-        100,
-        L"磐石御天火已开始（扫荡模式），请查看辅助日志",
-        L"磐石御天火已开始（游戏模式），请查看辅助日志",
-        L"磐石御天火启动失败",
-        StartOneKeyAct793Packet);
-}
-
 void HandleStartOneKeyAct666Command(const std::wstring& msg) {
     HandleStartOneKeyActCommand(
         msg,
@@ -738,6 +725,32 @@ void HandleStartOneKeyAct666Command(const std::wstring& msg) {
         L"天之骄子的特训：开始自动完成...",
         L"天之骄子的特训启动失败",
         StartOneKeyAct666Packet);
+}
+
+void HandleStartOneKeyAct808Command(const std::wstring& msg) {
+    HandleStartOneKeyActCommand(
+        msg,
+        nullptr,
+        0,
+        0,
+        0,
+        L"欢乐跷跷板：开始扫荡...",
+        L"欢乐跷跷板：开始游戏...",
+        L"欢乐跷跷板启动失败",
+        StartOneKeyAct808Packet);
+}
+
+void HandleStartOneKeyAct641Command(const std::wstring& msg) {
+    HandleStartOneKeyActCommand(
+        msg,
+        L"score",
+        Act641::TARGET_SCORE,
+        1,
+        Act641::MAX_SCORE,
+        L"清除煞气：开始扫荡...",
+        L"清除煞气：开始游戏...",
+        L"清除煞气启动失败",
+        StartOneKeyAct641Packet);
 }
 
 void HandleStartOneKeyAct805Command(const std::wstring& msg) {
@@ -753,19 +766,6 @@ void HandleStartOneKeyAct805Command(const std::wstring& msg) {
         StartOneKeyAct805Packet);
 }
 
-void HandleStartOneKeyAct791Command(const std::wstring& msg) {
-    HandleStartOneKeyActCommand(
-        msg,
-        L"score",
-        Act791::TARGET_SCORE,
-        1,
-        250,
-        L"五行镜破封印已开始（扫荡模式），请查看辅助日志",
-        L"五行镜破封印已开始（游戏模式），请查看辅助日志",
-        L"五行镜破封印启动失败",
-        StartOneKeyAct791Packet);
-}
-
 void HandleStartOneKeyAct782Command(const std::wstring& msg) {
     HandleStartOneKeyActCommand(
         msg,
@@ -777,19 +777,6 @@ void HandleStartOneKeyAct782Command(const std::wstring& msg) {
         L"摘取大力果实已开始（400分模式），请查看辅助日志",
         L"摘取大力果实启动失败",
         StartOneKeyAct782Packet);
-}
-
-void HandleStartOneKeyAct803Command(const std::wstring& msg) {
-    HandleStartOneKeyActCommand(
-        msg,
-        nullptr,
-        Act803::MAX_NUM,
-        0,
-        0,
-        L"清明赏河景已开始（扫荡模式）",
-        L"清明赏河景已开始（游戏模式）",
-        L"清明赏河景启动失败",
-        StartOneKeyAct803Packet);
 }
 
 void HandleStartOneKeyAct804Command(const std::wstring& msg) {
@@ -829,19 +816,6 @@ void HandleStartOneKeyAct811Command(const std::wstring& msg) {
         L"我是神射手已开始（完成游戏模式）",
         L"我是神射手启动失败",
         StartOneKeyAct811Packet);
-}
-
-void HandleStartOneKeyAct624Command(const std::wstring& msg) {
-    HandleStartOneKeyActCommand(
-        msg,
-        nullptr,
-        0,
-        0,
-        0,
-        L"采蘑菇的好伙伴已开始（扫荡模式）",
-        L"采蘑菇的好伙伴已开始（三轮模式）",
-        L"采蘑菇的好伙伴启动失败",
-        StartOneKeyAct624Packet);
 }
 
 void HandleDecomposeLingyuIndicesCommand(const std::wstring& msg, const wchar_t* indicesKey) {
@@ -1236,24 +1210,20 @@ public:
             HandleStopDungeonJumpCommand();
         } else if (msg.find(L"one_key_act666") != std::wstring::npos) {
             HandleStartOneKeyAct666Command(msg);
+        } else if (msg.find(L"one_key_act808") != std::wstring::npos) {
+            HandleStartOneKeyAct808Command(msg);
+        } else if (msg.find(L"one_key_act641") != std::wstring::npos) {
+            HandleStartOneKeyAct641Command(msg);
         } else if (msg.find(L"one_key_act805") != std::wstring::npos) {
             HandleStartOneKeyAct805Command(msg);
-        } else if (msg.find(L"one_key_act793") != std::wstring::npos) {
-            HandleStartOneKeyAct793Command(msg);
-        } else if (msg.find(L"one_key_act791") != std::wstring::npos) {
-            HandleStartOneKeyAct791Command(msg);
         } else if (msg.find(L"one_key_act782") != std::wstring::npos) {
             HandleStartOneKeyAct782Command(msg);
-        } else if (msg.find(L"one_key_act803") != std::wstring::npos) {
-            HandleStartOneKeyAct803Command(msg);
         } else if (msg.find(L"one_key_act804") != std::wstring::npos) {
             HandleStartOneKeyAct804Command(msg);
         } else if (msg.find(L"one_key_act810") != std::wstring::npos) {
             HandleStartOneKeyAct810Command(msg);
         } else if (msg.find(L"one_key_act811") != std::wstring::npos) {
             HandleStartOneKeyAct811Command(msg);
-        } else if (msg.find(L"one_key_act624") != std::wstring::npos) {
-            HandleStartOneKeyAct624Command(msg);
         } else if (msg.find(L"one_key_horse_competition") != std::wstring::npos) {
             HandleStartOneKeyHorseCompetitionCommand();
         } else if (msg.find(L"stop_horse_competition") != std::wstring::npos) {

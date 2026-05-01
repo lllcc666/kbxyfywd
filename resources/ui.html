@@ -1411,7 +1411,7 @@
     <div class="title-bar">
         <div class="title-bar-left">
             <div class="title-bar-icon">卡</div>
-            <span class="title-bar-title">卡布西游浮影微端 V1.10</span>
+            <span class="title-bar-title">卡布西游浮影微端 V1.11</span>
         </div>
         <div class="title-bar-controls">
             <button class="title-bar-button" id="btn-minimize" title="最小化">
@@ -2114,6 +2114,26 @@
                         <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 6px;">最新活动</div>
                         <!-- 活动卡片网格布局 -->
                         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 150px; flex-shrink: 0;">
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <div style="font-size: 11px; font-weight: 600; color: #333;">欢乐跷跷板</div>
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="act808-sweep" style="width: 11px; height: 11px; cursor: pointer;">
+                                        <span>扫荡</span>
+                                    </label>
+                                    <button id="one-key-act808" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
+                                </div>
+                            </div>
+                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 150px; flex-shrink: 0;">
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <div style="font-size: 11px; font-weight: 600; color: #333;">清除煞气</div>
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="act641-sweep" style="width: 11px; height: 11px; cursor: pointer;">
+                                        <span>扫荡</span>
+                                    </label>
+                                    <button id="one-key-act641" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
+                                </div>
+                            </div>
                             <!-- 逆流的试炼模块 (Act804) -->
                             <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -2145,27 +2165,6 @@
                                     <button id="one-key-act811" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
                                 </div>
                             </div>
-                            <!-- 清明赏河景模块 (Act803) -->
-                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
-                                <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <div style="font-size: 11px; font-weight: 600; color: #333;">清明赏河景</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
-                                        <input type="checkbox" id="act803-sweep" style="width: 11px; height: 11px; cursor: pointer;">
-                                        <span>扫荡</span>
-                                    </label>
-                                    <button id="one-key-act803" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
-                                </div>
-                            </div>
-                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
-                                <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <div style="font-size: 11px; font-weight: 600; color: #333;">采蘑菇的好伙伴</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
-                                        <input type="checkbox" id="act624-sweep" style="width: 11px; height: 11px; cursor: pointer;">
-                                        <span>扫荡</span>
-                                    </label>
-                                    <button id="one-key-act624" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
-                                </div>
-                            </div>
                             <div style="background: #FFFFFF; border: 1px solid #E8E1D4; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <div style="font-size: 11px; font-weight: 600; color: #333;">摘取大力果实</div>
@@ -2194,28 +2193,6 @@
                                         <span>扫荡</span>
                                     </label>
                                     <button id="one-key-act805" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
-                                </div>
-                            </div>
-                            <!-- 磐石御天火模块 (Act793) -->
-                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 150px; flex-shrink: 0;">
-                                <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <div style="font-size: 11px; font-weight: 600; color: #333;">磐石御天火</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
-                                        <input type="checkbox" id="act793-sweep" style="width: 11px; height: 11px; cursor: pointer;">
-                                        <span>扫荡</span>
-                                    </label>
-                                    <button id="one-key-act793" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
-                                </div>
-                            </div>
-                            <!-- 五行镜破封印模块 (Act791) -->
-                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 150px; flex-shrink: 0;">
-                                <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <div style="font-size: 11px; font-weight: 600; color: #333;">五行镜破封印</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
-                                        <input type="checkbox" id="act791-sweep" style="width: 11px; height: 11px; cursor: pointer;">
-                                        <span>扫荡</span>
-                                    </label>
-                                    <button id="one-key-act791" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
                                 </div>
                             </div>
                         </div>
@@ -3831,18 +3808,6 @@
             }
         };
 
-        // 磐石御天火 - 一键完成
-        window.oneKeyAct793 = function() {
-            var sweepCheckbox = document.getElementById('act793-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
-            if (window.chrome && window.chrome.webview) {
-                window.chrome.webview.postMessage(JSON.stringify({ 
-                    action: 'one_key_act793',
-                    sweep: useSweep
-                }));
-            }
-        };
-
         // 天之骄子的特训 - 一键完成
         window.oneKeyAct666 = function() {
             var sweepCheckbox = document.getElementById('act666-sweep');
@@ -3855,6 +3820,30 @@
             }
         };
 
+        // 欢乐跷跷板 - 一键完成
+        window.oneKeyAct808 = function() {
+            var sweepCheckbox = document.getElementById('act808-sweep');
+            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({
+                    action: 'one_key_act808',
+                    sweep: useSweep
+                }));
+            }
+        };
+
+        // 清除煞气 - 一键完成
+        window.oneKeyAct641 = function() {
+            var sweepCheckbox = document.getElementById('act641-sweep');
+            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({
+                    action: 'one_key_act641',
+                    sweep: useSweep
+                }));
+            }
+        };
+
         // 守护梦境 - 一键完成
         window.oneKeyAct805 = function() {
             var sweepCheckbox = document.getElementById('act805-sweep');
@@ -3862,17 +3851,6 @@
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
                     action: 'one_key_act805',
-                    sweep: useSweep
-                }));
-            }
-        };
-
-        window.oneKeyAct791 = function() {
-            var sweepCheckbox = document.getElementById('act791-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
-            if (window.chrome && window.chrome.webview) {
-                window.chrome.webview.postMessage(JSON.stringify({ 
-                    action: 'one_key_act791',
                     sweep: useSweep
                 }));
             }
@@ -3922,30 +3900,6 @@
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
                     action: 'one_key_act810',
-                    sweep: useSweep
-                }));
-            }
-        };
-
-        // 清明赏河景 - 一键完成
-        window.oneKeyAct803 = function() {
-            var sweepCheckbox = document.getElementById('act803-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
-            if (window.chrome && window.chrome.webview) {
-                window.chrome.webview.postMessage(JSON.stringify({
-                    action: 'one_key_act803',
-                    sweep: useSweep
-                }));
-            }
-        };
-
-        // 采蘑菇的好伙伴 - 一键完成
-        window.oneKeyAct624 = function() {
-            var sweepCheckbox = document.getElementById('act624-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
-            if (window.chrome && window.chrome.webview) {
-                window.chrome.webview.postMessage(JSON.stringify({
-                    action: 'one_key_act624',
                     sweep: useSweep
                 }));
             }
@@ -4347,25 +4301,21 @@
             if (strawberryBtn) {
                 strawberryBtn.addEventListener('click', window.oneKeyStrawberry);
             }
-            var act793Btn = document.getElementById('one-key-act793');
-            if (act793Btn) {
-                act793Btn.addEventListener('click', window.oneKeyAct793);
-            }
             var act666Btn = document.getElementById('one-key-act666');
             if (act666Btn) {
                 act666Btn.addEventListener('click', window.oneKeyAct666);
             }
+            var act808Btn = document.getElementById('one-key-act808');
+            if (act808Btn) {
+                act808Btn.addEventListener('click', window.oneKeyAct808);
+            }
+            var act641Btn = document.getElementById('one-key-act641');
+            if (act641Btn) {
+                act641Btn.addEventListener('click', window.oneKeyAct641);
+            }
             var act805Btn = document.getElementById('one-key-act805');
             if (act805Btn) {
                 act805Btn.addEventListener('click', window.oneKeyAct805);
-            }
-            var act791Btn = document.getElementById('one-key-act791');
-            if (act791Btn) {
-                act791Btn.addEventListener('click', window.oneKeyAct791);
-            }
-            var act803Btn = document.getElementById('one-key-act803');
-            if (act803Btn) {
-                act803Btn.addEventListener('click', window.oneKeyAct803);
             }
             var act804Btn = document.getElementById('one-key-act804');
             if (act804Btn) {
@@ -4378,10 +4328,6 @@
             var act811Btn = document.getElementById('one-key-act811');
             if (act811Btn) {
                 act811Btn.addEventListener('click', window.oneKeyAct811);
-            }
-            var act624Btn = document.getElementById('one-key-act624');
-            if (act624Btn) {
-                act624Btn.addEventListener('click', window.oneKeyAct624);
             }
             var act782Btn = document.getElementById('one-key-act782');
             if (act782Btn) {

@@ -102,6 +102,45 @@ struct Act666State : ActivityState {
     }
 };
 
+struct Act641State : ActivityState {
+    std::atomic<int> medalCount{0};
+    std::atomic<int> passCount{0};
+    std::atomic<int> awardFlag{0};
+    std::atomic<int> bestRecord{0};
+    std::atomic<int> promptFlag{0};
+    std::atomic<int> targetScore{0};
+    std::atomic<int> startResult{0};
+    std::atomic<int> endResult{0};
+    std::atomic<int> rewardMedalCount{0};
+    std::atomic<int> rewardExp{0};
+    std::atomic<int> rewardCoin{0};
+    std::atomic<int> catchPetId{0};
+    std::atomic<bool> useSweep{false};
+    std::atomic<bool> sweepSuccess{false};
+    std::vector<int> bonusList;
+    std::vector<int> catchList;
+
+    void Reset() override {
+        ActivityState::Reset();
+        medalCount = 0;
+        passCount = 0;
+        awardFlag = 0;
+        bestRecord = 0;
+        promptFlag = 0;
+        targetScore = 0;
+        startResult = 0;
+        endResult = 0;
+        rewardMedalCount = 0;
+        rewardExp = 0;
+        rewardCoin = 0;
+        catchPetId = 0;
+        useSweep = false;
+        sweepSuccess = false;
+        bonusList.assign(6, 0);
+        catchList.assign(2, 0);
+    }
+};
+
 struct Act805State : ActivityState {
     std::atomic<int> medalNum{0};
     std::atomic<int> historyBestScore{0};
@@ -126,44 +165,6 @@ struct Act805State : ActivityState {
         rewardMedalCount = 0;
         rewardExp = 0;
         rewardCoin = 0;
-        useSweep = false;
-        sweepSuccess = false;
-    }
-};
-
-struct Act793State : ActivityState {
-    std::atomic<int> bestScore{0};
-    std::atomic<int> medalCount{0};
-    std::atomic<int> targetMedals{0};
-    std::atomic<bool> useSweep{false};
-    std::atomic<bool> sweepSuccess{false};
-
-    void Reset() override {
-        ActivityState::Reset();
-        bestScore = 0;
-        medalCount = 0;
-        targetMedals = 0;
-        useSweep = false;
-        sweepSuccess = false;
-    }
-};
-
-struct Act791State : ActivityState {
-    std::atomic<int> medalNum{0};
-    std::atomic<int> bestScore{0};
-    std::atomic<int> lastScore{0};
-    std::atomic<int> superEvolutionFlag{0};
-    std::atomic<int> targetScore{0};
-    std::atomic<bool> useSweep{false};
-    std::atomic<bool> sweepSuccess{false};
-
-    void Reset() override {
-        ActivityState::Reset();
-        medalNum = 0;
-        bestScore = 0;
-        lastScore = 0;
-        superEvolutionFlag = 0;
-        targetScore = 0;
         useSweep = false;
         sweepSuccess = false;
     }
@@ -335,9 +336,8 @@ public:
     TrialState& GetTrialState();
     Act778State& GetAct778State();
     Act666State& GetAct666State();
+    Act641State& GetAct641State();
     Act805State& GetAct805State();
-    Act793State& GetAct793State();
-    Act791State& GetAct791State();
     HorseCompetitionState& GetHorseCompetitionState();
     void ResetAll();
 
@@ -351,8 +351,7 @@ private:
     TrialState m_trialState;
     Act778State m_act778State;
     Act666State m_act666State;
+    Act641State m_act641State;
     Act805State m_act805State;
-    Act793State m_act793State;
-    Act791State m_act791State;
     HorseCompetitionState m_horseCompetitionState;
 };
