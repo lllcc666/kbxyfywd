@@ -170,6 +170,55 @@ struct Act805State : ActivityState {
     }
 };
 
+struct Act631State : ActivityState {
+    std::atomic<int> bubbleNum{0};
+    std::atomic<int> flag{0};
+    std::atomic<int> passCount{0};
+    std::atomic<int> maxScore{0};
+    std::atomic<int> ruleFlag{0};
+    std::atomic<int> isPass{2};
+    std::atomic<int> score{0};
+    std::atomic<int> isVip{0};
+    std::atomic<int> isFirst{0};
+    std::atomic<int> startResult{0};
+    std::atomic<int> endResult{0};
+    std::atomic<int> sweepResult{0};
+    std::atomic<int> exp{0};
+    std::atomic<int> coin{0};
+    std::atomic<int> rewardBubbleNum{0};
+    std::atomic<int> rewardExp{0};
+    std::atomic<int> rewardCoin{0};
+    std::atomic<bool> useSweep{false};
+    std::atomic<bool> sweepSuccess{false};
+    std::vector<int> rewardList;
+    std::vector<int> catchList;
+
+    void Reset() override {
+        ActivityState::Reset();
+        bubbleNum = 0;
+        flag = 0;
+        passCount = 0;
+        maxScore = 0;
+        ruleFlag = 0;
+        isPass = 2;
+        score = 0;
+        isVip = 0;
+        isFirst = 0;
+        startResult = 0;
+        endResult = 0;
+        sweepResult = 0;
+        exp = 0;
+        coin = 0;
+        rewardBubbleNum = 0;
+        rewardExp = 0;
+        rewardCoin = 0;
+        useSweep = false;
+        sweepSuccess = false;
+        rewardList.assign(3, 0);
+        catchList.assign(2, 0);
+    }
+};
+
 enum HorseRoomStatus {
     HORSE_ROOM_FREE = 0,
     HORSE_ROOM_READY = 1,
@@ -338,6 +387,7 @@ public:
     Act666State& GetAct666State();
     Act641State& GetAct641State();
     Act805State& GetAct805State();
+    Act631State& GetAct631State();
     HorseCompetitionState& GetHorseCompetitionState();
     void ResetAll();
 
@@ -353,5 +403,6 @@ private:
     Act666State m_act666State;
     Act641State m_act641State;
     Act805State m_act805State;
+    Act631State m_act631State;
     HorseCompetitionState m_horseCompetitionState;
 };

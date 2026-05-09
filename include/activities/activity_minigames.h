@@ -66,6 +66,21 @@ BOOL SendAct805SweepPacket();
 BOOL StartOneKeyAct805Packet(bool useSweep = false, int targetScore = Act805::TARGET_SCORE);
 void ProcessAct805Response(const GamePacket& packet);
 
+namespace Act631 {
+constexpr int ACTIVITY_ID = 631;
+constexpr int PASS_SCORE = 200;
+constexpr int DAILY_TASK_ID = 4039001;
+}  // namespace Act631
+
+BOOL SendAct631Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
+BOOL SendAct631OpenUIPacket();
+BOOL SendAct631StartGamePacket(int ruleFlag = 0);
+BOOL SendAct631EndGamePacket(int isPass, int clientCheckCode, int score);
+BOOL SendAct631SweepInfoPacket();
+BOOL SendAct631SweepPacket();
+BOOL StartOneKeyAct631Packet(bool useSweep = false);
+void ProcessAct631Response(const GamePacket& packet);
+
 namespace Act782 {
 constexpr int ACTIVITY_ID = 782;
 constexpr int PASS_SCORE = 200;

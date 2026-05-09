@@ -766,6 +766,19 @@ void HandleStartOneKeyAct805Command(const std::wstring& msg) {
         StartOneKeyAct805Packet);
 }
 
+void HandleStartOneKeyAct631Command(const std::wstring& msg) {
+    HandleStartOneKeyActCommand(
+        msg,
+        nullptr,
+        0,
+        0,
+        0,
+        L"妖力考验已开始（扫荡模式）",
+        L"妖力考验已开始（完成游戏模式）",
+        L"妖力考验启动失败",
+        StartOneKeyAct631Packet);
+}
+
 void HandleStartOneKeyAct782Command(const std::wstring& msg) {
     HandleStartOneKeyActCommand(
         msg,
@@ -1216,6 +1229,8 @@ public:
             HandleStartOneKeyAct641Command(msg);
         } else if (msg.find(L"one_key_act805") != std::wstring::npos) {
             HandleStartOneKeyAct805Command(msg);
+        } else if (msg.find(L"one_key_act631") != std::wstring::npos) {
+            HandleStartOneKeyAct631Command(msg);
         } else if (msg.find(L"one_key_act782") != std::wstring::npos) {
             HandleStartOneKeyAct782Command(msg);
         } else if (msg.find(L"one_key_act804") != std::wstring::npos) {

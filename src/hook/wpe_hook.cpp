@@ -2231,7 +2231,325 @@ void ProcessAct805Response(const GamePacket& packet) {
     }
 }
 
-    // ============ 欢乐跷跷板功能实现 (Act808) ============
+// ============ 妖力考验功能实现 (Act631) ============
+
+#define ACT631_STATE ActivityStateManager::Instance().GetAct631State()
+
+static BOOL SendAct631DailyTaskPacket() {
+    std::vector<BYTE> packet = PacketBuilder()
+                                   .SetOpcode(Opcode::TASK_DAILY_SEND)
+                                   .SetParams(3)
+                                   .WriteInt32(3)
+                                   .WriteInt32(Act631::DAILY_TASK_ID)
+                                   .WriteInt32(0)
+                                   .Build();
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+}
+
+BOOL SendAct631Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
+    return SendActivityPacket(Act631::ACTIVITY_ID, operation, bodyValues);
+}
+
+BOOL SendAct631OpenUIPacket() {
+    ACT631_STATE.waitingResponse = true;
+    return SendAct631Packet("open_ui", {});
+}
+
+BOOL SendAct631StartGamePacket(int ruleFlag) {
+    ACT631_STATE.waitingResponse = true;
+    return SendAct631Packet("start_game", {ruleFlag});
+}
+
+BOOL SendAct631EndGamePacket(int isPass, int clientCheckCode, int score) {
+    ACT631_STATE.waitingResponse = true;
+    const BOOL sent = SendAct631Packet("end_game", {isPass, clientCheckCode, score});
+    if (sent) {
+        SendAct631DailyTaskPacket();
+    }
+    return sent;
+}
+
+BOOL SendAct631SweepInfoPacket() {
+    ACT631_STATE.waitingResponse = true;
+    return SendAct631Packet("sweep_info", {});
+}
+
+BOOL SendAct631SweepPacket() {
+    ACT631_STATE.waitingResponse = true;
+    return SendAct631Packet("sweep", {});
+}
+
+DWORD WINAPI Act631ThreadProc(LPVOID lpParam) {
+    (void)lpParam;
+
+    const bool useSweep = ACT631_STATE.useSweep.load();
+    ACT631_STATE.Reset();
+    ACT631_STATE.useSweep = useSweep;
+
+    auto waitForResponse = []() -> bool {
+        for (int i = 0; i < 30 && ACT631_STATE.waitingResponse; ++i) {
+            Sleep(100);
+        }
+        const bool received = !ACT631_STATE.waitingResponse.load();
+        ACT631_STATE.waitingResponse = false;
+        return received;
+    };
+
+    auto waitForSettlementResponse = []() -> bool {
+        for (int i = 0; i < 60 && ACT631_STATE.waitingResponse; ++i) {
+            Sleep(100);
+        }
+        const bool received = !ACT631_STATE.waitingResponse.load();
+        ACT631_STATE.waitingResponse = false;
+        return received;
+    };
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"妖力考验：正在获取活动信息...");
+
+    SendAct631OpenUIPacket();
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"妖力考验：获取活动信息失败");
+        return 0;
+    }
+
+    if (ACT631_STATE.playCount.load() <= 0) {
+        UIBridge::Instance().UpdateHelperText(L"妖力考验：今日次数已用完");
+        return 0;
+    }
+
+    if (ACT631_STATE.restTime.load() > 0) {
+        UIBridge::Instance().UpdateHelperText(L"妖力考验：冷却中，请稍后再试");
+        return 0;
+    }
+
+    if (useSweep) {
+        Sleep(300);
+        UIBridge::Instance().UpdateHelperText(L"妖力考验：正在获取扫荡信息...");
+        ACT631_STATE.sweepSuccess = false;
+
+        if (SendAct631SweepInfoPacket() && waitForResponse() && ACT631_STATE.sweepSuccess.load()) {
+            Sleep(300);
+            UIBridge::Instance().UpdateHelperText(L"妖力考验：执行扫荡...");
+
+            if (SendAct631SweepPacket() && waitForResponse()) {
+                Sleep(300);
+                SendAct631OpenUIPacket();
+                waitForResponse();
+                UIBridge::Instance().UpdateHelperText(L"妖力考验：扫荡完成");
+                return 0;
+            }
+        }
+
+        UIBridge::Instance().UpdateHelperText(L"妖力考验：扫荡失败，改为直接完成");
+    }
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"妖力考验：开始游戏...");
+
+    int ruleFlag = ACT631_STATE.ruleFlag.load();
+    if (ruleFlag < 1) {
+        ruleFlag = 1;
+    }
+
+    if (!SendAct631StartGamePacket(ruleFlag) || !waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"妖力考验：开始游戏失败");
+        return 0;
+    }
+
+    const int startResult = ACT631_STATE.startResult.load();
+    if (startResult != 0) {
+        if (startResult == 10) {
+            UIBridge::Instance().UpdateHelperText(L"妖力考验：当前已经在游戏中");
+        } else if (startResult == 11) {
+            UIBridge::Instance().UpdateHelperText(L"妖力考验：冷却中，请稍后再试");
+        } else if (startResult == 12) {
+            UIBridge::Instance().UpdateHelperText(L"妖力考验：今日次数已用完");
+        } else if (startResult == 13) {
+            UIBridge::Instance().UpdateHelperText(L"妖力考验：玩家正在支付中");
+        } else {
+            UIBridge::Instance().UpdateHelperText(L"妖力考验：开始游戏失败");
+        }
+        return 0;
+    }
+
+    if (ACT631_STATE.checkCode.load() == 0) {
+        UIBridge::Instance().UpdateHelperText(L"妖力考验：获取校验码失败");
+        return 0;
+    }
+
+    const int score = Act631::PASS_SCORE;
+    const int isPass = (score >= Act631::PASS_SCORE) ? 1 : 2;
+    const int clientCheckCode = ACT631_STATE.checkCode.load()
+        + static_cast<int>(g_userId.load() % 100)
+        + isPass
+        + score;
+
+    Sleep(500);
+    UIBridge::Instance().UpdateHelperText(L"妖力考验：直接提交结算...");
+    (void)SendAct631EndGamePacket(isPass, clientCheckCode, score);
+    if (!waitForSettlementResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"妖力考验：结算失败");
+        return 0;
+    }
+
+    Sleep(300);
+    SendAct631OpenUIPacket();
+    waitForResponse();
+    UIBridge::Instance().UpdateHelperText(L"妖力考验：结算完成");
+    return 0;
+}
+
+BOOL StartOneKeyAct631Packet(bool useSweep) {
+    ACT631_STATE.useSweep = useSweep;
+    HANDLE hThread = CreateThread(nullptr, 0, Act631ThreadProc, nullptr, 0, nullptr);
+    if (hThread) {
+        CloseHandle(hThread);
+        return TRUE;
+    }
+    return FALSE;
+}
+
+void ProcessAct631Response(const GamePacket& packet) {
+    size_t offset = 0;
+    std::string operation;
+    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+        return;
+    }
+
+    const BYTE* body = packet.body.data();
+    ACT631_STATE.waitingResponse = false;
+
+    if (operation == "open_ui") {
+        if (offset + 52 <= packet.body.size()) {
+            ACT631_STATE.playCount = ReadInt32LE(body, offset);
+            ACT631_STATE.restTime = ReadInt32LE(body, offset);
+            ACT631_STATE.bubbleNum = ReadInt32LE(body, offset);
+            ACT631_STATE.flag = ReadInt32LE(body, offset);
+
+            if (ACT631_STATE.rewardList.size() < 3) {
+                ACT631_STATE.rewardList.assign(3, 0);
+            }
+            for (size_t i = 0; i < 3; ++i) {
+                ACT631_STATE.rewardList[i] = ReadInt32LE(body, offset);
+            }
+
+            ACT631_STATE.passCount = ReadInt32LE(body, offset);
+            ACT631_STATE.maxScore = ReadInt32LE(body, offset);
+            ACT631_STATE.ruleFlag = ReadInt32LE(body, offset);
+            ReadInt32LE(body, offset);  // skip
+
+            if (ACT631_STATE.catchList.size() < 2) {
+                ACT631_STATE.catchList.assign(2, 0);
+            }
+            ACT631_STATE.catchList[0] = ReadInt32LE(body, offset);
+            ACT631_STATE.catchList[1] = ReadInt32LE(body, offset);
+
+            ACT631_STATE.sweepAvailable = (ACT631_STATE.passCount.load() > 0 || ACT631_STATE.maxScore.load() > 0);
+
+            wchar_t msg[256];
+            swprintf_s(
+                msg,
+                L"妖力考验：次数=%d 冷却=%d秒 勋章=%d",
+                ACT631_STATE.playCount.load(),
+                ACT631_STATE.restTime.load(),
+                ACT631_STATE.bubbleNum.load());
+            UIBridge::Instance().UpdateHelperText(msg);
+        }
+    } else if (operation == "start_game") {
+        if (offset + 4 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT631_STATE.startResult = result;
+            if (result == 0 && offset + 8 <= packet.body.size()) {
+                ACT631_STATE.playCount = ReadInt32LE(body, offset);
+                ACT631_STATE.checkCode = ReadInt32LE(body, offset);
+            } else if (result == 10) {
+                UIBridge::Instance().UpdateHelperText(L"妖力考验：当前已经在游戏中");
+            } else if (result == 11) {
+                UIBridge::Instance().UpdateHelperText(L"妖力考验：冷却中，请稍后再试");
+            } else if (result == 12) {
+                UIBridge::Instance().UpdateHelperText(L"妖力考验：今日次数已用完");
+            } else if (result == 13) {
+                UIBridge::Instance().UpdateHelperText(L"妖力考验：玩家正在支付中");
+            } else {
+                UIBridge::Instance().UpdateHelperText(L"妖力考验：开始游戏失败");
+            }
+        }
+    } else if (operation == "end_game") {
+        if (offset + 44 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT631_STATE.endResult = result;
+            ACT631_STATE.playCount = ReadInt32LE(body, offset);
+            ACT631_STATE.restTime = ReadInt32LE(body, offset);
+            ACT631_STATE.bubbleNum = ReadInt32LE(body, offset);
+            ACT631_STATE.rewardExp = ReadInt32LE(body, offset);
+            ACT631_STATE.rewardCoin = ReadInt32LE(body, offset);
+            ACT631_STATE.isVip = ReadInt32LE(body, offset);
+            ACT631_STATE.isFirst = ReadInt32LE(body, offset);
+            ACT631_STATE.score = ReadInt32LE(body, offset);
+            ACT631_STATE.maxScore = ReadInt32LE(body, offset);
+            ACT631_STATE.passCount = ReadInt32LE(body, offset);
+            ACT631_STATE.isPass = (ACT631_STATE.score.load() >= Act631::PASS_SCORE) ? 1 : 2;
+            ACT631_STATE.sweepAvailable = (ACT631_STATE.passCount.load() > 0 || ACT631_STATE.maxScore.load() > 0);
+
+            wchar_t msg[256];
+            swprintf_s(
+                msg,
+                L"妖力考验：结算完成，分数=%d 最高分=%d",
+                ACT631_STATE.score.load(),
+                ACT631_STATE.maxScore.load());
+            UIBridge::Instance().UpdateHelperText(msg);
+        }
+    } else if (operation == "sweep_info") {
+        if (offset + 20 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT631_STATE.sweepResult = result;
+            if (result == 0) {
+                std::vector<std::pair<int, int>> awardList;
+                awardList.reserve(8);
+                awardList.emplace_back(0, ReadInt32LE(body, offset));
+                awardList.emplace_back(202, ReadInt32LE(body, offset));
+                awardList.emplace_back(201, ReadInt32LE(body, offset));
+                const int len = ReadInt32LE(body, offset);
+                for (int i = 0; i < len && offset + 8 <= packet.body.size(); ++i) {
+                    const int id = ReadInt32LE(body, offset);
+                    const int num = ReadInt32LE(body, offset);
+                    awardList.emplace_back(id, num);
+                }
+                ACT631_STATE.sweepSuccess = true;
+                ACT631_STATE.sweepAvailable = true;
+                (void)awardList;
+                UIBridge::Instance().UpdateHelperText(L"妖力考验：已获取扫荡信息");
+            } else {
+                ACT631_STATE.sweepSuccess = false;
+                ACT631_STATE.sweepAvailable = false;
+                UIBridge::Instance().UpdateHelperText(L"妖力考验：需要成功进行一局游戏才可以扫荡哦！");
+            }
+        }
+    } else if (operation == "sweep") {
+        if (offset + 28 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT631_STATE.sweepResult = result;
+            ACT631_STATE.sweepSuccess = true;
+            ACT631_STATE.playCount = ReadInt32LE(body, offset);
+            ACT631_STATE.restTime = ReadInt32LE(body, offset);
+            ACT631_STATE.bubbleNum = ReadInt32LE(body, offset);
+            ACT631_STATE.rewardExp = ReadInt32LE(body, offset);
+            ACT631_STATE.rewardCoin = ReadInt32LE(body, offset);
+            ACT631_STATE.maxScore = ReadInt32LE(body, offset);
+            ACT631_STATE.sweepAvailable = (ACT631_STATE.maxScore.load() > 0 || ACT631_STATE.passCount.load() > 0);
+
+            wchar_t msg[256];
+            swprintf_s(
+                msg,
+                L"妖力考验：扫荡完成，分数=%d",
+                ACT631_STATE.maxScore.load());
+            UIBridge::Instance().UpdateHelperText(msg);
+        }
+    }
+}
+
+// ============ 欢乐跷跷板功能实现 (Act808) ============
 
     static constexpr int ACT808_WAIT_NONE = 0;
     static constexpr int ACT808_WAIT_OPEN_UI = 1;
@@ -4094,7 +4412,7 @@ void ProcessEnterWorldPacket(const GamePacket& gp) {
     std::wstring kabuName = Utf8ToWide(nameUtf8);
     
     // 更新窗口标题
-    std::wstring newTitle = L"卡布西游浮影微端 V1.11 - " + 
+    std::wstring newTitle = L"卡布西游浮影微端 V1.12 - " + 
                            std::to_wstring(kabuId) + L" " + kabuName;
     SetWindowTextW(g_hWnd, newTitle.c_str());
 }
@@ -4887,6 +5205,7 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act641::ACTIVITY_ID, ProcessAct641Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act808::ACTIVITY_ID, ProcessAct808Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act805::ACTIVITY_ID, ProcessAct805Response);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act631::ACTIVITY_ID, ProcessAct631Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act782::ACTIVITY_ID, ProcessAct782Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act804::ACTIVITY_ID, ProcessAct804Response);
     registerParams(Opcode::ACTIVITY_LUA_V3_BACK, Act804::ACTIVITY_ID, ProcessAct804Response);
@@ -4955,6 +5274,7 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
         m_act666State.Reset();
         m_act641State.Reset();
         m_act805State.Reset();
+        m_act631State.Reset();
         m_horseCompetitionState.Reset();
     }
 
@@ -4972,6 +5292,10 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
 
     Act805State& ActivityStateManager::GetAct805State() {
         return m_act805State;
+    }
+
+    Act631State& ActivityStateManager::GetAct631State() {
+        return m_act631State;
     }
 
     HorseCompetitionState& ActivityStateManager::GetHorseCompetitionState() {
