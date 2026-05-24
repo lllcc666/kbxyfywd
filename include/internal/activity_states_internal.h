@@ -2,6 +2,8 @@
 
 #include "wpe_hook.h"
 
+#include <utility>
+
 struct ActivityState {
     std::atomic<bool> isRunning{false};
     std::atomic<bool> waitingResponse{false};
@@ -68,6 +70,43 @@ struct Act778State : ActivityState {
         useSweep = false;
         sweepSuccess = false;
         gameTime = 0;
+    }
+};
+
+struct Act685State : ActivityState {
+    std::atomic<int> bubbleNum{0};
+    std::atomic<int> ruleFlag{0};
+    std::atomic<int> maxScore{0};
+    std::atomic<int> passCount{0};
+    std::atomic<int> passBonusFlag{0};
+    std::atomic<int> startResult{0};
+    std::atomic<int> endResult{0};
+    std::atomic<int> rewardBubbleNum{0};
+    std::atomic<int> rewardExp{0};
+    std::atomic<int> rewardCoin{0};
+    std::atomic<int> catchCnt{0};
+    std::atomic<bool> useSweep{false};
+    std::vector<int> catchList;
+    std::vector<std::pair<int, int>> passBonusList;
+    std::vector<int> propList;
+
+    void Reset() override {
+        ActivityState::Reset();
+        bubbleNum = 0;
+        ruleFlag = 0;
+        maxScore = 0;
+        passCount = 0;
+        passBonusFlag = 0;
+        startResult = 0;
+        endResult = 0;
+        rewardBubbleNum = 0;
+        rewardExp = 0;
+        rewardCoin = 0;
+        catchCnt = 0;
+        useSweep = false;
+        catchList.assign(2, 0);
+        passBonusList.assign(3, std::pair<int, int>{0, 0});
+        propList.assign(3, 0);
     }
 };
 
@@ -167,6 +206,96 @@ struct Act805State : ActivityState {
         rewardCoin = 0;
         useSweep = false;
         sweepSuccess = false;
+    }
+};
+
+struct Act757State : ActivityState {
+    std::atomic<int> totalBadgeNum{0};
+    std::atomic<int> buyCnt{0};
+    std::atomic<int> passCount{0};
+    std::atomic<int> isPop{0};
+    std::atomic<int> historyBestScore{0};
+    std::atomic<int> lastScore{0};
+    std::atomic<int> passFlag{0};
+    std::atomic<int> catchId{0};
+    std::atomic<int> checkCode{0};
+    std::atomic<int> startResult{0};
+    std::atomic<int> endResult{0};
+    std::atomic<int> sweepResult{0};
+    std::atomic<bool> useSweep{false};
+    std::atomic<bool> sweepSuccess{false};
+    std::vector<int> passAwards;
+    std::vector<std::pair<int, int>> catchList;
+    std::vector<std::pair<int, int>> sweepAwards;
+    std::vector<std::pair<int, int>> resultAwards;
+
+    void Reset() override {
+        ActivityState::Reset();
+        totalBadgeNum = 0;
+        buyCnt = 0;
+        passCount = 0;
+        isPop = 0;
+        historyBestScore = 0;
+        lastScore = 0;
+        passFlag = 0;
+        catchId = 0;
+        checkCode = 0;
+        startResult = 0;
+        endResult = 0;
+        sweepResult = 0;
+        useSweep = false;
+        sweepSuccess = false;
+        passAwards.assign(3, 0);
+        catchList.assign(1, {0, 0});
+        sweepAwards.clear();
+        resultAwards.clear();
+    }
+};
+
+struct Act822State : ActivityState {
+    std::atomic<int> playCount{0};
+    std::atomic<int> restTime{0};
+    std::atomic<int> totalBadgeNum{0};
+    std::atomic<int> buyCnt{0};
+    std::atomic<int> passCount{0};
+    std::atomic<int> isPop{0};
+    std::atomic<int> historyBestScore{0};
+    std::atomic<int> lastScore{0};
+    std::atomic<int> passFlag{0};
+    std::atomic<int> catchId{0};
+    std::atomic<int> checkCode{0};
+    std::atomic<int> startResult{0};
+    std::atomic<int> endResult{0};
+    std::atomic<int> sweepResult{0};
+    std::atomic<bool> useSweep{false};
+    std::atomic<bool> sweepSuccess{false};
+    std::vector<int> passAwards;
+    std::vector<std::pair<int, int>> catchList;
+    std::vector<std::pair<int, int>> sweepAwards;
+    std::vector<std::pair<int, int>> resultAwards;
+
+    void Reset() override {
+        ActivityState::Reset();
+        playCount = 0;
+        restTime = 0;
+        totalBadgeNum = 0;
+        buyCnt = 0;
+        passCount = 0;
+        isPop = 0;
+        historyBestScore = 0;
+        lastScore = 0;
+        passFlag = 0;
+        catchId = 0;
+        checkCode = 0;
+        startResult = 0;
+        endResult = 0;
+        sweepResult = 0;
+        useSweep = false;
+        sweepSuccess = false;
+        passAwards.assign(3, 0);
+        catchList.assign(1, {0, 0});
+        sweepAwards.clear();
+        resultAwards.clear();
     }
 };
 
@@ -384,7 +513,10 @@ public:
     StrawberryState& GetStrawberryState();
     TrialState& GetTrialState();
     Act778State& GetAct778State();
+    Act685State& GetAct685State();
     Act666State& GetAct666State();
+    Act757State& GetAct757State();
+    Act822State& GetAct822State();
     Act641State& GetAct641State();
     Act805State& GetAct805State();
     Act631State& GetAct631State();
@@ -400,7 +532,10 @@ private:
     StrawberryState m_strawberryState;
     TrialState m_trialState;
     Act778State m_act778State;
+    Act685State m_act685State;
     Act666State m_act666State;
+    Act757State m_act757State;
+    Act822State m_act822State;
     Act641State m_act641State;
     Act805State m_act805State;
     Act631State m_act631State;

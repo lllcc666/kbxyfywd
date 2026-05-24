@@ -2114,6 +2114,26 @@
                         <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 6px;">最新活动</div>
                         <!-- 活动卡片网格布局 -->
                         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <div style="font-size: 11px; font-weight: 600; color: #333;">光辉穿梭大考验</div>
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="act822-sweep" style="width: 11px; height: 11px; cursor: pointer;">
+                                        <span>扫荡</span>
+                                    </label>
+                                    <button id="one-key-act822" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
+                                </div>
+                            </div>
+                            <div style="background: #FFFFFF; border: 1px solid #D6E6F7; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <div style="font-size: 11px; font-weight: 600; color: #333;">航海大挑战</div>
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="act685-sweep" style="width: 11px; height: 11px; cursor: pointer;">
+                                        <span>扫荡</span>
+                                    </label>
+                                    <button id="one-key-act685" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
+                                </div>
+                            </div>
                             <div style="background: #FFFFFF; border: 1px solid #DDE8DD; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <div style="font-size: 11px; font-weight: 600; color: #333;">妖力考验</div>
@@ -2122,6 +2142,16 @@
                                         <span>扫荡</span>
                                     </label>
                                     <button id="one-key-act631" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
+                                </div>
+                            </div>
+                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <div style="font-size: 11px; font-weight: 600; color: #333;">果宝救援</div>
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="act757-sweep" style="width: 11px; height: 11px; cursor: pointer;">
+                                        <span>扫荡</span>
+                                    </label>
+                                    <button id="one-key-act757" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
                                 </div>
                             </div>
                             <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 150px; flex-shrink: 0;">
@@ -3830,6 +3860,30 @@
             }
         };
 
+        // 果宝救援 - 一键完成
+        window.oneKeyAct757 = function() {
+            var sweepCheckbox = document.getElementById('act757-sweep');
+            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({
+                    action: 'one_key_act757',
+                    sweep: useSweep
+                }));
+            }
+        };
+
+        // 航海大挑战 - 一键完成
+        window.oneKeyAct685 = function() {
+            var sweepCheckbox = document.getElementById('act685-sweep');
+            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({
+                    action: 'one_key_act685',
+                    sweep: useSweep
+                }));
+            }
+        };
+
         // 天之骄子的特训 - 一键完成
         window.oneKeyAct666 = function() {
             var sweepCheckbox = document.getElementById('act666-sweep');
@@ -3897,6 +3951,18 @@
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
                     action: 'one_key_act811',
+                    sweep: useSweep
+                }));
+            }
+        };
+
+        // 光辉穿梭大考验 - 一键完成
+        window.oneKeyAct822 = function() {
+            var sweepCheckbox = document.getElementById('act822-sweep');
+            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({
+                    action: 'one_key_act822',
                     sweep: useSweep
                 }));
             }
@@ -4327,6 +4393,14 @@
             if (act631Btn) {
                 act631Btn.addEventListener('click', window.oneKeyAct631);
             }
+            var act685Btn = document.getElementById('one-key-act685');
+            if (act685Btn) {
+                act685Btn.addEventListener('click', window.oneKeyAct685);
+            }
+            var act757Btn = document.getElementById('one-key-act757');
+            if (act757Btn) {
+                act757Btn.addEventListener('click', window.oneKeyAct757);
+            }
             var act666Btn = document.getElementById('one-key-act666');
             if (act666Btn) {
                 act666Btn.addEventListener('click', window.oneKeyAct666);
@@ -4354,6 +4428,10 @@
             var act811Btn = document.getElementById('one-key-act811');
             if (act811Btn) {
                 act811Btn.addEventListener('click', window.oneKeyAct811);
+            }
+            var act822Btn = document.getElementById('one-key-act822');
+            if (act822Btn) {
+                act822Btn.addEventListener('click', window.oneKeyAct822);
             }
             var act782Btn = document.getElementById('one-key-act782');
             if (act782Btn) {

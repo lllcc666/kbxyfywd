@@ -333,6 +333,54 @@ static std::atomic<bool> g_act782WaitingResponse{false};
 static std::atomic<bool> g_act782UseSweep{false};
 static std::atomic<bool> g_act782SweepAvailable{false};
 
+// 果宝救援状态 (Act757)
+static std::atomic<int> g_act757PlayCount{0};
+static std::atomic<int> g_act757RestTime{0};
+static std::atomic<int> g_act757TotalBadgeNum{0};
+static std::atomic<int> g_act757BuyCnt{0};
+static std::atomic<int> g_act757PassCount{0};
+static std::atomic<int> g_act757IsPop{0};
+static std::atomic<int> g_act757HistoryBestScore{0};
+static std::atomic<int> g_act757LastScore{0};
+static std::atomic<int> g_act757PassFlag{0};
+static std::atomic<int> g_act757CatchId{0};
+static std::atomic<int> g_act757CheckCode{0};
+static std::atomic<int> g_act757StartResult{-1};
+static std::atomic<int> g_act757EndResult{-1};
+static std::atomic<int> g_act757SweepResult{-1};
+static std::atomic<bool> g_act757WaitingResponse{false};
+static std::atomic<bool> g_act757UseSweep{false};
+static std::atomic<bool> g_act757SweepAvailable{false};
+static std::mutex g_act757Mutex;
+static std::vector<int> g_act757PassAwards;
+static std::vector<std::pair<int, int>> g_act757CatchList;
+static std::vector<std::pair<int, int>> g_act757SweepAwards;
+static std::vector<std::pair<int, int>> g_act757ResultAwards;
+
+// 光辉穿梭大考验状态 (Act822)
+static std::atomic<int> g_act822PlayCount{0};
+static std::atomic<int> g_act822RestTime{0};
+static std::atomic<int> g_act822TotalBadgeNum{0};
+static std::atomic<int> g_act822BuyCnt{0};
+static std::atomic<int> g_act822PassCount{0};
+static std::atomic<int> g_act822IsPop{0};
+static std::atomic<int> g_act822HistoryBestScore{0};
+static std::atomic<int> g_act822LastScore{0};
+static std::atomic<int> g_act822PassFlag{0};
+static std::atomic<int> g_act822CatchId{0};
+static std::atomic<int> g_act822CheckCode{0};
+static std::atomic<int> g_act822StartResult{-1};
+static std::atomic<int> g_act822EndResult{-1};
+static std::atomic<int> g_act822SweepResult{-1};
+static std::atomic<bool> g_act822WaitingResponse{false};
+static std::atomic<bool> g_act822UseSweep{false};
+static std::atomic<bool> g_act822SweepAvailable{false};
+static std::mutex g_act822Mutex;
+static std::vector<int> g_act822PassAwards;
+static std::vector<std::pair<int, int>> g_act822CatchList;
+static std::vector<std::pair<int, int>> g_act822SweepAwards;
+static std::vector<std::pair<int, int>> g_act822ResultAwards;
+
 // 逆流的试炼状态 (Act804)
 static std::atomic<int> g_act804PlayCount{0};
 static std::atomic<int> g_act804RestTime{0};
@@ -381,6 +429,68 @@ static BOOL SendActivityPacket(uint32_t activityId, const std::string& operation
     return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()),
                       Opcode::ACTIVITY_QUERY_BACK, WpeHook::TIMEOUT_RESPONSE,
                       activityId, true);
+}
+
+static void BuildAct757AwardList(
+    int medal,
+    int exp,
+    int coin,
+    const std::vector<std::pair<int, int>>& rewards,
+    std::vector<std::pair<int, int>>& awardList) {
+    int practiceNum = 0;
+    std::vector<std::pair<int, int>> tempList;
+    awardList.clear();
+    awardList.emplace_back(0, medal);
+    awardList.emplace_back(202, exp);
+    awardList.emplace_back(201, coin);
+    for (const auto& reward : rewards) {
+        const int id = reward.first;
+        const int num = reward.second;
+        if (num <= 0) {
+            continue;
+        }
+        switch (id) {
+            case 208:
+            case 209:
+            case 210:
+            case 211:
+            case 212:
+            case 213:
+                practiceNum += num;
+                break;
+            default:
+                tempList.emplace_back(id, num);
+                break;
+        }
+    }
+    awardList.emplace_back(203, practiceNum);
+    awardList.insert(awardList.end(), tempList.begin(), tempList.end());
+}
+
+static void BuildAct822AwardList(
+    int medal,
+    int exp,
+    int coin,
+    const std::vector<std::pair<int, int>>& rewards,
+    std::vector<std::pair<int, int>>& awardList) {
+    awardList.clear();
+    awardList.emplace_back(0, medal);
+    awardList.emplace_back(202, exp);
+    awardList.emplace_back(201, coin);
+    for (const auto& reward : rewards) {
+        if (reward.second > 0) {
+            awardList.emplace_back(reward.first, reward.second);
+        }
+    }
+}
+
+static int FindAwardAmount(const std::vector<std::pair<int, int>>& awardList, int itemId) {
+    for (const auto& award : awardList) {
+        if (award.first == itemId) {
+            return award.second;
+        }
+    }
+    return 0;
 }
 
 }  // anonymous namespace
@@ -1061,6 +1171,303 @@ uint32_t GetItemPosition(uint32_t itemId) {
     return 0;
 }
 
+// ============ 航海大挑战功能实现 (Act685) ============
+
+#define ACT685_STATE ActivityStateManager::Instance().GetAct685State()
+
+BOOL SendAct685Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
+    return SendActivityPacket(Act685::ACTIVITY_ID, operation, bodyValues);
+}
+
+BOOL SendAct685OpenUIPacket() {
+    ACT685_STATE.waitingResponse = true;
+    return SendAct685Packet("open_ui", {});
+}
+
+BOOL SendAct685StartGamePacket(int ruleFlag) {
+    ACT685_STATE.waitingResponse = true;
+    return SendAct685Packet("start_game", {ruleFlag});
+}
+
+BOOL SendAct685EndGamePacket(int score) {
+    const int checkCode = ACT685_STATE.checkCode.load();
+    if (checkCode == 0) {
+        return FALSE;
+    }
+
+    const uint32_t userId = g_userId.load();
+    const int64_t clientCheckCode =
+        static_cast<int64_t>(checkCode) * static_cast<int64_t>(userId % 100u + 1u) +
+        static_cast<int64_t>(score);
+
+    ACT685_STATE.waitingResponse = true;
+    return SendAct685Packet("end_game", {static_cast<int32_t>(clientCheckCode), score});
+}
+
+BOOL SendAct685SweepInfoPacket() {
+    ACT685_STATE.waitingResponse = true;
+    return SendAct685Packet("sweep_info", {});
+}
+
+BOOL SendAct685SweepPacket() {
+    ACT685_STATE.waitingResponse = true;
+    return SendAct685Packet("sweep", {});
+}
+
+DWORD WINAPI Act685ThreadProc(LPVOID lpParam) {
+    (void)lpParam;
+
+    const bool useSweep = ACT685_STATE.useSweep.load();
+    ACT685_STATE.Reset();
+    ACT685_STATE.useSweep = useSweep;
+
+    auto waitForResponse = []() -> bool {
+        for (int i = 0; i < 30 && ACT685_STATE.waitingResponse; ++i) {
+            Sleep(100);
+        }
+        const bool received = !ACT685_STATE.waitingResponse.load();
+        ACT685_STATE.waitingResponse = false;
+        return received;
+    };
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"航海大挑战：正在获取活动信息...");
+
+    SendAct685OpenUIPacket();
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"航海大挑战：获取活动信息失败");
+        return 0;
+    }
+
+    if (ACT685_STATE.playCount.load() <= 0) {
+        UIBridge::Instance().UpdateHelperText(L"航海大挑战：今日次数已用完");
+        return 0;
+    }
+
+    if (ACT685_STATE.restTime.load() > 0) {
+        UIBridge::Instance().UpdateHelperText(L"航海大挑战：冷却中，请稍后再试");
+        return 0;
+    }
+
+    if (useSweep) {
+        Sleep(300);
+        UIBridge::Instance().UpdateHelperText(L"航海大挑战：正在获取扫荡信息...");
+
+        SendAct685SweepInfoPacket();
+        if (waitForResponse() && ACT685_STATE.sweepAvailable.load()) {
+            Sleep(300);
+            UIBridge::Instance().UpdateHelperText(L"航海大挑战：执行扫荡...");
+            ACT685_STATE.endResult = -1;
+            SendAct685SweepPacket();
+            if (waitForResponse() && ACT685_STATE.endResult.load() != 3) {
+                Sleep(300);
+                SendAct685OpenUIPacket();
+                waitForResponse();
+                UIBridge::Instance().UpdateHelperText(L"航海大挑战：扫荡完成");
+                return 0;
+            }
+        }
+
+        UIBridge::Instance().UpdateHelperText(L"航海大挑战：扫荡失败，改为直接完成");
+    }
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"航海大挑战：开始游戏...");
+
+    int ruleFlag = ACT685_STATE.ruleFlag.load();
+    if (ruleFlag < 1) {
+        ruleFlag = 1;
+    }
+
+    ACT685_STATE.ruleFlag = ruleFlag;
+    SendAct685StartGamePacket(ruleFlag);
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"航海大挑战：开始游戏失败");
+        return 0;
+    }
+
+    const int startResult = ACT685_STATE.startResult.load();
+    if (startResult != 0) {
+        if (startResult == 10) {
+            UIBridge::Instance().UpdateHelperText(L"航海大挑战：当前已经在游戏中");
+        } else if (startResult == 11) {
+            UIBridge::Instance().UpdateHelperText(L"航海大挑战：冷却中，请稍后再试");
+        } else if (startResult == 12) {
+            UIBridge::Instance().UpdateHelperText(L"航海大挑战：剩余次数不足");
+        } else if (startResult == 13) {
+            UIBridge::Instance().UpdateHelperText(L"航海大挑战：玩家正在支付中");
+        } else {
+            UIBridge::Instance().UpdateHelperText(L"航海大挑战：开始游戏失败");
+        }
+        return 0;
+    }
+
+    if (ACT685_STATE.checkCode.load() == 0) {
+        UIBridge::Instance().UpdateHelperText(L"航海大挑战：获取校验码失败");
+        return 0;
+    }
+
+    Sleep(500);
+    UIBridge::Instance().UpdateHelperText(L"航海大挑战：直接提交结算...");
+    SendAct685EndGamePacket(Act685::MAX_SCORE);
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"航海大挑战：结算失败");
+        return 0;
+    }
+
+    if (ACT685_STATE.endResult.load() == 3) {
+        UIBridge::Instance().UpdateHelperText(L"航海大挑战：结算失败");
+        return 0;
+    }
+
+    Sleep(300);
+    SendAct685OpenUIPacket();
+    waitForResponse();
+    UIBridge::Instance().UpdateHelperText(L"航海大挑战：结算完成");
+    return 0;
+}
+
+BOOL StartOneKeyAct685Packet(bool useSweep) {
+    ACT685_STATE.useSweep = useSweep;
+    HANDLE hThread = CreateThread(nullptr, 0, Act685ThreadProc, nullptr, 0, nullptr);
+    if (hThread) {
+        CloseHandle(hThread);
+        return TRUE;
+    }
+    return FALSE;
+}
+
+void ProcessAct685Response(const GamePacket& packet) {
+    size_t offset = 0;
+    std::string operation;
+    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+        return;
+    }
+
+    const BYTE* body = packet.body.data();
+    ACT685_STATE.waitingResponse = false;
+
+    if (operation == "open_ui") {
+        if (offset + 60 <= packet.body.size()) {
+            ACT685_STATE.playCount = ReadInt32LE(body, offset);
+            ACT685_STATE.restTime = ReadInt32LE(body, offset);
+            ACT685_STATE.bubbleNum = ReadInt32LE(body, offset);
+            ACT685_STATE.ruleFlag = ReadInt32LE(body, offset);
+            ACT685_STATE.maxScore = ReadInt32LE(body, offset);
+            ACT685_STATE.passCount = ReadInt32LE(body, offset);
+            ACT685_STATE.passBonusFlag = ReadInt32LE(body, offset);
+
+            if (ACT685_STATE.catchList.size() < 2) {
+                ACT685_STATE.catchList.assign(2, 0);
+            }
+            ACT685_STATE.catchList[0] = ReadInt32LE(body, offset);
+            ACT685_STATE.catchList[1] = ReadInt32LE(body, offset);
+
+            if (ACT685_STATE.passBonusList.size() < 3) {
+                ACT685_STATE.passBonusList.assign(3, std::pair<int, int>{0, 0});
+            }
+            for (size_t i = 0; i < 3; ++i) {
+                ACT685_STATE.passBonusList[i].first = ReadInt32LE(body, offset);
+                ACT685_STATE.passBonusList[i].second = ReadInt32LE(body, offset);
+            }
+
+            ACT685_STATE.sweepAvailable = (ACT685_STATE.passCount.load() > 0);
+
+            wchar_t msg[256];
+            swprintf_s(
+                msg,
+                L"航海大挑战：次数=%d 冷却=%d秒 海魂之力=%d",
+                ACT685_STATE.playCount.load(),
+                ACT685_STATE.restTime.load(),
+                ACT685_STATE.bubbleNum.load());
+            UIBridge::Instance().UpdateHelperText(msg);
+        }
+    } else if (operation == "start_game") {
+        if (offset + 4 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT685_STATE.startResult = result;
+            if (result == 0 && offset + 8 <= packet.body.size()) {
+                ReadInt32LE(body, offset);  // skip
+                ACT685_STATE.checkCode = ReadInt32LE(body, offset);
+            } else if (result == 10) {
+                UIBridge::Instance().UpdateHelperText(L"航海大挑战：当前已经在游戏中");
+            } else if (result == 11) {
+                UIBridge::Instance().UpdateHelperText(L"航海大挑战：冷却中，请稍后再试");
+            } else if (result == 12) {
+                UIBridge::Instance().UpdateHelperText(L"航海大挑战：剩余次数不足");
+            } else if (result == 13) {
+                UIBridge::Instance().UpdateHelperText(L"航海大挑战：玩家正在支付中");
+            }
+        }
+    } else if (operation == "sweep_info") {
+        if (offset + 16 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            if (result == 0) {
+                std::vector<int> rewardList;
+                rewardList.reserve(3);
+                for (int i = 0; i < 3; ++i) {
+                    rewardList.push_back(ReadInt32LE(body, offset));
+                }
+
+                ACT685_STATE.rewardBubbleNum = rewardList[0];
+                ACT685_STATE.rewardCoin = rewardList[1];
+                ACT685_STATE.rewardExp = rewardList[2];
+                ACT685_STATE.sweepAvailable = true;
+
+                wchar_t msg[256];
+                swprintf_s(
+                    msg,
+                    L"航海大挑战：扫荡预览，海魂之力=%d 铜钱=%d 历练=%d",
+                    rewardList[0],
+                    rewardList[1],
+                    rewardList[2]);
+                UIBridge::Instance().UpdateHelperText(msg);
+            }
+        }
+    } else if (operation == "end_game" || operation == "sweep") {
+        if (offset + 4 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT685_STATE.endResult = result;
+            if (offset + 12 <= packet.body.size()) {
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+                ReadInt32LE(body, offset);
+            }
+
+            if (result != 3 && offset + 12 <= packet.body.size()) {
+                if (ACT685_STATE.propList.size() < 3) {
+                    ACT685_STATE.propList.assign(3, 0);
+                }
+                for (size_t i = 0; i < 3; ++i) {
+                    ACT685_STATE.propList[i] = ReadInt32LE(body, offset);
+                }
+
+                ACT685_STATE.rewardBubbleNum = ACT685_STATE.propList[0];
+                ACT685_STATE.rewardCoin = ACT685_STATE.propList[1];
+                ACT685_STATE.rewardExp = ACT685_STATE.propList[2];
+
+                wchar_t msg[256];
+                if (operation == "sweep") {
+                    swprintf_s(
+                        msg,
+                        L"航海大挑战：扫荡完成，海魂之力=%d 铜钱=%d 历练=%d",
+                        ACT685_STATE.rewardBubbleNum.load(),
+                        ACT685_STATE.rewardCoin.load(),
+                        ACT685_STATE.rewardExp.load());
+                } else {
+                    swprintf_s(
+                        msg,
+                        L"航海大挑战：结算完成，海魂之力=%d 铜钱=%d 历练=%d",
+                        ACT685_STATE.rewardBubbleNum.load(),
+                        ACT685_STATE.rewardCoin.load(),
+                        ACT685_STATE.rewardExp.load());
+                }
+                UIBridge::Instance().UpdateHelperText(msg);
+            }
+        }
+    }
+}
+
 // ============ 天之骄子的特训功能实现 (Act666) ============
 
 #define ACT666_STATE ActivityStateManager::Instance().GetAct666State()
@@ -1314,6 +1721,492 @@ void ProcessAct666Response(const GamePacket& packet) {
                 ACT666_STATE.rewardExp.load(),
                 ACT666_STATE.rewardCoin.load());
             UIBridge::Instance().UpdateHelperText(msg);
+        }
+    }
+}
+
+// ============ 光辉穿梭大考验功能实现 (Act822) ============
+
+#define ACT822_STATE ActivityStateManager::Instance().GetAct822State()
+
+static BOOL SendAct822DailyTaskPacket() {
+    std::vector<BYTE> packet = PacketBuilder()
+                                   .SetOpcode(Opcode::TASK_DAILY_SEND)
+                                   .SetParams(3)
+                                   .WriteInt32(3)
+                                   .WriteInt32(Act822::DAILY_TASK_ID)
+                                   .WriteInt32(0)
+                                   .Build();
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+}
+
+BOOL SendAct822Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
+    return SendActivityPacket(Act822::ACTIVITY_ID, operation, bodyValues);
+}
+
+BOOL SendAct822OpenUIPacket() {
+    ACT822_STATE.waitingResponse = true;
+    return SendAct822Packet("open_ui", {});
+}
+
+BOOL SendAct822StartGamePacket(int ruleFlag) {
+    (void)ruleFlag;
+    ACT822_STATE.waitingResponse = true;
+    return SendAct822Packet("start_game", {});
+}
+
+BOOL SendAct822EndGamePacket(int score, bool isPass) {
+    const int checkCode = ACT822_STATE.checkCode.load();
+    if (checkCode == 0) {
+        return FALSE;
+    }
+
+    const uint32_t userId = g_userId.load();
+    const int clientCheckCode = checkCode & static_cast<int>(userId % static_cast<uint32_t>(checkCode));
+    std::vector<int32_t> bodyValues;
+    bodyValues.reserve(10);
+    bodyValues.push_back(clientCheckCode);
+    bodyValues.push_back(score);
+    bodyValues.push_back(isPass ? 1 : 0);
+    // AS3 会把 scoreArr 的前 7 项附在结算包后面，最后第 8 项是总分。
+    // 当前 C++ 侧不复刻完整的逐项统计流程，先按相同长度补 7 个占位值，保持协议结构一致。
+    bodyValues.insert(bodyValues.end(), 7, 0);
+    ACT822_STATE.waitingResponse = true;
+    const BOOL sent = SendAct822Packet("end_game", bodyValues);
+    if (sent) {
+        SendAct822DailyTaskPacket();
+    }
+    return sent;
+}
+
+BOOL SendAct822SweepInfoPacket() {
+    ACT822_STATE.waitingResponse = true;
+    return SendAct822Packet("sweep_info", {});
+}
+
+BOOL SendAct822SweepPacket() {
+    ACT822_STATE.waitingResponse = true;
+    return SendAct822Packet("sweep", {});
+}
+
+static void ResetAct822State() {
+    g_act822PlayCount = 0;
+    g_act822RestTime = 0;
+    g_act822TotalBadgeNum = 0;
+    g_act822BuyCnt = 0;
+    g_act822PassCount = 0;
+    g_act822IsPop = 0;
+    g_act822HistoryBestScore = 0;
+    g_act822LastScore = 0;
+    g_act822PassFlag = 0;
+    g_act822CatchId = 0;
+    g_act822CheckCode = 0;
+    g_act822StartResult = -1;
+    g_act822EndResult = -1;
+    g_act822SweepResult = -1;
+    g_act822WaitingResponse = false;
+    g_act822UseSweep = false;
+    g_act822SweepAvailable = false;
+
+    std::lock_guard<std::mutex> lock(g_act822Mutex);
+    g_act822PassAwards.assign(3, 0);
+    g_act822CatchList.assign(1, {0, 0});
+    g_act822SweepAwards.clear();
+    g_act822ResultAwards.clear();
+}
+
+static bool WaitForAct822Response() {
+    for (int i = 0; i < 30 && g_act822WaitingResponse.load(); ++i) {
+        Sleep(100);
+    }
+    const bool received = !g_act822WaitingResponse.load();
+    g_act822WaitingResponse = false;
+    return received;
+}
+
+DWORD WINAPI Act822ThreadProc(LPVOID lpParam) {
+    const bool useSweep = lpParam ? *static_cast<bool*>(lpParam) : false;
+    delete static_cast<bool*>(lpParam);
+
+    ACT822_STATE.Reset();
+    ResetAct822State();
+    ACT822_STATE.useSweep = useSweep;
+    g_act822UseSweep = useSweep;
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：正在获取活动信息...");
+
+    SendAct822OpenUIPacket();
+    if (!WaitForAct822Response()) {
+        UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：获取活动信息失败");
+        return 0;
+    }
+
+    if (g_act822PlayCount.load() <= 0) {
+        UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：今日次数已用完");
+        return 0;
+    }
+
+    if (g_act822RestTime.load() > 0) {
+        UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：冷却中，请稍后再试");
+        return 0;
+    }
+
+    if (useSweep && g_act822HistoryBestScore.load() > 0) {
+        Sleep(300);
+        UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：正在获取扫荡信息...");
+        SendAct822SweepInfoPacket();
+        if (WaitForAct822Response() && g_act822SweepAvailable.load()) {
+            Sleep(300);
+            UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：执行扫荡...");
+            SendAct822SweepPacket();
+            const int sweepResult = g_act822SweepResult.load();
+            if (WaitForAct822Response() && (sweepResult == 0 || sweepResult == 4)) {
+                Sleep(300);
+                SendAct822OpenUIPacket();
+                WaitForAct822Response();
+                const int medal = FindAwardAmount(g_act822ResultAwards, 0);
+                const int exp = FindAwardAmount(g_act822ResultAwards, 202);
+                const int coin = FindAwardAmount(g_act822ResultAwards, 201);
+                wchar_t msg[256];
+                swprintf_s(
+                    msg,
+                    L"光辉穿梭大考验：扫荡完成，勋章=%d 经验=%d 铜钱=%d",
+                    medal,
+                    exp,
+                    coin);
+                UIBridge::Instance().UpdateHelperText(msg);
+                return 0;
+            }
+        }
+
+        UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：扫荡失败，改为直接完成");
+    } else if (useSweep) {
+        UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：需要成功进行一局游戏才可以扫荡哦！");
+    }
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：开始游戏...");
+    SendAct822StartGamePacket(g_act822IsPop.load());
+    if (!WaitForAct822Response()) {
+        UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：开始游戏失败");
+        return 0;
+    }
+
+    const int startResult = g_act822StartResult.load();
+    if (startResult != 0) {
+        if (startResult == 10) {
+            UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：游戏中！");
+        } else if (startResult == 11) {
+            UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：在冷却");
+        } else if (startResult == 12) {
+            UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：没次数了");
+        } else if (startResult == 13) {
+            UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：玩家正在支付中");
+        } else {
+            UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：开始游戏失败");
+        }
+        return 0;
+    }
+
+    if (g_act822CheckCode.load() == 0) {
+        UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：获取校验码失败");
+        return 0;
+    }
+
+    const int finalScore = Act822::PASS_SCORE;
+    g_act822LastScore = finalScore;
+    ACT822_STATE.lastScore = finalScore;
+    Sleep(500);
+    UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：直接提交结算...");
+    SendAct822EndGamePacket(finalScore, true);
+    if (!WaitForAct822Response()) {
+        UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：结算失败");
+        return 0;
+    }
+
+    if (g_act822EndResult.load() == 3) {
+        UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：结算失败");
+        return 0;
+    }
+
+    Sleep(300);
+    SendAct822OpenUIPacket();
+    WaitForAct822Response();
+
+    wchar_t msg[256];
+    swprintf_s(
+        msg,
+        L"光辉穿梭大考验：结算完成，分数=%d 勋章=%d 经验=%d 铜钱=%d",
+        g_act822LastScore.load(),
+        FindAwardAmount(g_act822ResultAwards, 0),
+        FindAwardAmount(g_act822ResultAwards, 202),
+        FindAwardAmount(g_act822ResultAwards, 201));
+    UIBridge::Instance().UpdateHelperText(msg);
+    return 0;
+}
+
+BOOL StartOneKeyAct822Packet(bool useSweep, int targetScore) {
+    (void)targetScore;
+    ACT822_STATE.useSweep = useSweep;
+    bool* pUseSweep = new bool(useSweep);
+    HANDLE hThread = CreateThread(nullptr, 0, Act822ThreadProc, pUseSweep, 0, nullptr);
+    if (hThread) {
+        CloseHandle(hThread);
+        return TRUE;
+    }
+    delete pUseSweep;
+    return FALSE;
+}
+
+void ProcessAct822Response(const GamePacket& packet) {
+    size_t offset = 0;
+    std::string operation;
+    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+        return;
+    }
+
+    const BYTE* body = packet.body.data();
+    g_act822WaitingResponse = false;
+    ACT822_STATE.waitingResponse = false;
+
+    if (operation == "open_ui") {
+        if (offset + 40 <= packet.body.size()) {
+            g_act822PlayCount = ReadInt32LE(body, offset);
+            g_act822RestTime = ReadInt32LE(body, offset);
+            g_act822BuyCnt = ReadInt32LE(body, offset);
+            g_act822TotalBadgeNum = ReadInt32LE(body, offset);
+            g_act822PassCount = ReadInt32LE(body, offset);
+            g_act822IsPop = ReadInt32LE(body, offset);
+            g_act822HistoryBestScore = ReadInt32LE(body, offset);
+            g_act822CatchId = ReadInt32LE(body, offset);
+
+            std::vector<std::pair<int, int>> catchList;
+            catchList.emplace_back(ReadInt32LE(body, offset), ReadInt32LE(body, offset));
+
+            ACT822_STATE.playCount = g_act822PlayCount.load();
+            ACT822_STATE.restTime = g_act822RestTime.load();
+            ACT822_STATE.buyCnt = g_act822BuyCnt.load();
+            ACT822_STATE.totalBadgeNum = g_act822TotalBadgeNum.load();
+            ACT822_STATE.passCount = g_act822PassCount.load();
+            ACT822_STATE.isPop = g_act822IsPop.load();
+            ACT822_STATE.historyBestScore = g_act822HistoryBestScore.load();
+            ACT822_STATE.catchId = g_act822CatchId.load();
+            ACT822_STATE.catchList = catchList;
+            ACT822_STATE.sweepAvailable = (g_act822HistoryBestScore.load() > 0);
+            g_act822SweepAvailable = ACT822_STATE.sweepAvailable.load();
+
+            wchar_t msg[256];
+            swprintf_s(
+                msg,
+                L"光辉穿梭大考验：次数=%d 冷却=%d秒 勋章=%d",
+                g_act822PlayCount.load(),
+                g_act822RestTime.load(),
+                g_act822TotalBadgeNum.load());
+            UIBridge::Instance().UpdateHelperText(msg);
+        }
+    } else if (operation == "start_game") {
+        if (offset + 16 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            g_act822StartResult = result;
+            ACT822_STATE.startResult = result;
+            if (result == 0) {
+                g_act822PlayCount = ReadInt32LE(body, offset);
+                g_act822CheckCode = ReadInt32LE(body, offset);
+                const int awardNum = ReadInt32LE(body, offset);
+                for (int i = 0; i < awardNum && offset + 4 <= packet.body.size(); ++i) {
+                    ReadInt32LE(body, offset);
+                }
+                ACT822_STATE.playCount = g_act822PlayCount.load();
+                ACT822_STATE.checkCode = g_act822CheckCode.load();
+            } else if (result == 10) {
+                UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：游戏中！");
+            } else if (result == 11) {
+                UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：在冷却");
+            } else if (result == 12) {
+                UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：没次数了");
+            } else if (result == 13) {
+                UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：玩家正在支付中");
+            } else {
+                UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：开始游戏失败");
+            }
+        }
+    } else if (operation == "end_game") {
+        if (offset + 36 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            const int playCount = ReadInt32LE(body, offset);
+            const int coolTimeLeft = ReadInt32LE(body, offset);
+            const int invite = ReadInt32LE(body, offset);
+            const int passGmaeAward = ReadInt32LE(body, offset);
+            const int medal = ReadInt32LE(body, offset);
+            int exp = ReadInt32LE(body, offset);
+            const int coin = ReadInt32LE(body, offset);
+            const int itemNum = ReadInt32LE(body, offset);
+
+            std::vector<std::pair<int, int>> rewards;
+            for (int i = 0; i < itemNum && offset + 8 <= packet.body.size(); ++i) {
+                const int id = ReadInt32LE(body, offset);
+                const int num = ReadInt32LE(body, offset);
+                if (num > 0) {
+                    rewards.emplace_back(id, num);
+                }
+            }
+
+            if (passGmaeAward > 0) {
+                exp -= Act822::PASS_EXP;
+            }
+
+            std::vector<std::pair<int, int>> awardList;
+            BuildAct822AwardList(medal, exp, coin, rewards, awardList);
+            {
+                std::lock_guard<std::mutex> lock(g_act822Mutex);
+                g_act822ResultAwards = awardList;
+            }
+
+            g_act822EndResult = result;
+            g_act822PlayCount = playCount;
+            g_act822RestTime = coolTimeLeft;
+            g_act822PassFlag = passGmaeAward;
+
+            ACT822_STATE.endResult = result;
+            ACT822_STATE.playCount = g_act822PlayCount.load();
+            ACT822_STATE.restTime = g_act822RestTime.load();
+            ACT822_STATE.passFlag = g_act822PassFlag.load();
+            ACT822_STATE.resultAwards = awardList;
+            ACT822_STATE.sweepSuccess = (result == 0);
+
+            if (result == 0) {
+                wchar_t msg[256];
+                swprintf_s(
+                    msg,
+                    L"光辉穿梭大考验：结算完成，分数=%d 勋章=%d 经验=%d 铜钱=%d",
+                    g_act822LastScore.load(),
+                    FindAwardAmount(awardList, 0),
+                    FindAwardAmount(awardList, 202),
+                    FindAwardAmount(awardList, 201));
+                UIBridge::Instance().UpdateHelperText(msg);
+            } else {
+                UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：结算失败");
+            }
+        }
+    } else if (operation == "sweep_info") {
+        if (offset + 28 <= packet.body.size()) {
+            const int resultType = ReadInt32LE(body, offset);
+            const int invite = ReadInt32LE(body, offset);
+            const int passGmaeAward = ReadInt32LE(body, offset);
+            const int medal = ReadInt32LE(body, offset);
+            int exp = ReadInt32LE(body, offset);
+            const int coin = ReadInt32LE(body, offset);
+            const int itemNum = ReadInt32LE(body, offset);
+
+            std::vector<std::pair<int, int>> rewards;
+            for (int i = 0; i < itemNum && offset + 8 <= packet.body.size(); ++i) {
+                const int id = ReadInt32LE(body, offset);
+                const int num = ReadInt32LE(body, offset);
+                if (num > 0) {
+                    rewards.emplace_back(id, num);
+                }
+            }
+
+            if (resultType == 1) {
+                UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：需要成功进行一局游戏才可以扫荡哦！");
+            } else if (resultType == 2) {
+                UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：游戏次数不足");
+            } else if (resultType == 3) {
+                UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：冷却中！");
+            } else {
+                std::vector<std::pair<int, int>> awardList;
+                awardList.emplace_back(0, medal);
+                awardList.emplace_back(202, exp);
+                awardList.emplace_back(201, coin);
+                if (resultType == 4) {
+                    awardList.emplace_back(203, Act822::PASS_XIUWEI);
+                }
+                for (const auto& reward : rewards) {
+                    if (reward.second > 0) {
+                        awardList.emplace_back(reward.first, reward.second);
+                    }
+                }
+
+                {
+                    std::lock_guard<std::mutex> lock(g_act822Mutex);
+                    g_act822SweepAwards = awardList;
+                }
+
+                g_act822SweepResult = resultType;
+                g_act822PassFlag = passGmaeAward;
+                g_act822SweepAvailable = (resultType == 0 || resultType == 4);
+
+                ACT822_STATE.sweepResult = resultType;
+                ACT822_STATE.passFlag = g_act822PassFlag.load();
+                ACT822_STATE.sweepAwards = awardList;
+                ACT822_STATE.sweepAvailable = g_act822SweepAvailable.load();
+                UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：已获取扫荡信息");
+            }
+        }
+    } else if (operation == "sweep") {
+        if (offset + 36 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            const int buyCnt = ReadInt32LE(body, offset);
+            const int restTime = ReadInt32LE(body, offset);
+            const int invite = ReadInt32LE(body, offset);
+            const int passGmaeAward = ReadInt32LE(body, offset);
+            const int medal = ReadInt32LE(body, offset);
+            int exp = ReadInt32LE(body, offset);
+            const int coin = ReadInt32LE(body, offset);
+            const int itemNum = ReadInt32LE(body, offset);
+
+            std::vector<std::pair<int, int>> rewards;
+            for (int i = 0; i < itemNum && offset + 8 <= packet.body.size(); ++i) {
+                const int id = ReadInt32LE(body, offset);
+                const int num = ReadInt32LE(body, offset);
+                if (num > 0) {
+                    rewards.emplace_back(id, num);
+                }
+            }
+
+            if (passGmaeAward > 0) {
+                exp -= Act822::PASS_EXP;
+            }
+
+            std::vector<std::pair<int, int>> awardList;
+            BuildAct822AwardList(medal, exp, coin, rewards, awardList);
+            {
+                std::lock_guard<std::mutex> lock(g_act822Mutex);
+                g_act822ResultAwards = awardList;
+            }
+
+            g_act822SweepResult = result;
+            g_act822BuyCnt = buyCnt;
+            g_act822RestTime = restTime;
+            g_act822PassFlag = passGmaeAward;
+
+            ACT822_STATE.sweepResult = result;
+            ACT822_STATE.buyCnt = g_act822BuyCnt.load();
+            ACT822_STATE.restTime = g_act822RestTime.load();
+            ACT822_STATE.passFlag = g_act822PassFlag.load();
+            ACT822_STATE.resultAwards = awardList;
+            ACT822_STATE.sweepAvailable = (result == 0 || result == 4);
+            g_act822SweepAvailable = ACT822_STATE.sweepAvailable.load();
+
+            if (result == 0) {
+                wchar_t msg[256];
+                swprintf_s(
+                    msg,
+                    L"光辉穿梭大考验：扫荡完成，勋章=%d 经验=%d 铜钱=%d",
+                    FindAwardAmount(awardList, 0),
+                    FindAwardAmount(awardList, 202),
+                    FindAwardAmount(awardList, 201));
+                UIBridge::Instance().UpdateHelperText(msg);
+            } else if (result == 1) {
+                UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：需要成功进行一局游戏才可以扫荡哦！");
+            } else if (result == 2) {
+                UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：游戏次数不足");
+            } else if (result == 3) {
+                UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：冷却中！");
+            } else {
+                UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：扫荡完成");
+            }
         }
     }
 }
@@ -2227,6 +3120,443 @@ void ProcessAct805Response(const GamePacket& packet) {
                     ACT805_STATE.rewardCoin.load());
                 UIBridge::Instance().UpdateHelperText(msg);
             }
+        }
+    }
+}
+
+// ============ 果宝救援功能实现 (Act757) ============
+
+#define ACT757_STATE ActivityStateManager::Instance().GetAct757State()
+
+BOOL SendAct757Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
+    return SendActivityPacket(Act757::ACTIVITY_ID, operation, bodyValues);
+}
+
+BOOL SendAct757OpenUIPacket() {
+    g_act757WaitingResponse = true;
+    return SendAct757Packet("open_ui", {});
+}
+
+BOOL SendAct757StartGamePacket(int promptFlag) {
+    g_act757WaitingResponse = true;
+    return SendAct757Packet("start_game", {promptFlag});
+}
+
+BOOL SendAct757EndGamePacket(int score) {
+    const int checkCode = g_act757CheckCode.load();
+    int clientCheckCode = 0;
+    if (checkCode > 0) {
+        clientCheckCode = checkCode & static_cast<int>(g_userId.load() % static_cast<uint32_t>(checkCode));
+    }
+    g_act757WaitingResponse = true;
+    return SendAct757Packet("end_game", {clientCheckCode, score});
+}
+
+BOOL SendAct757SweepInfoPacket() {
+    g_act757WaitingResponse = true;
+    return SendAct757Packet("sweep_info", {});
+}
+
+BOOL SendAct757SweepPacket() {
+    g_act757WaitingResponse = true;
+    return SendAct757Packet("sweep", {});
+}
+
+static void ResetAct757State() {
+    g_act757PlayCount = 0;
+    g_act757RestTime = 0;
+    g_act757TotalBadgeNum = 0;
+    g_act757BuyCnt = 0;
+    g_act757PassCount = 0;
+    g_act757IsPop = 0;
+    g_act757HistoryBestScore = 0;
+    g_act757LastScore = 0;
+    g_act757PassFlag = 0;
+    g_act757CatchId = 0;
+    g_act757CheckCode = 0;
+    g_act757StartResult = -1;
+    g_act757EndResult = -1;
+    g_act757SweepResult = -1;
+    g_act757WaitingResponse = false;
+    g_act757UseSweep = false;
+    g_act757SweepAvailable = false;
+
+    std::lock_guard<std::mutex> lock(g_act757Mutex);
+    g_act757PassAwards.assign(3, 0);
+    g_act757CatchList.clear();
+    g_act757SweepAwards.clear();
+    g_act757ResultAwards.clear();
+}
+
+static bool WaitForAct757Response() {
+    for (int i = 0; i < 30 && g_act757WaitingResponse.load(); ++i) {
+        Sleep(100);
+    }
+    const bool received = !g_act757WaitingResponse.load();
+    g_act757WaitingResponse = false;
+    return received;
+}
+
+static std::vector<std::pair<int, int>> BuildAct757RewardList(
+    int medal,
+    int exp,
+    int coin,
+    const std::vector<std::pair<int, int>>& rewards) {
+    std::vector<std::pair<int, int>> awardList;
+    std::vector<std::pair<int, int>> tempList;
+    int xiuwei = 0;
+
+    awardList.emplace_back(0, medal);
+    awardList.emplace_back(202, exp);
+    awardList.emplace_back(201, coin);
+
+    for (const auto& reward : rewards) {
+        const int id = reward.first;
+        const int num = reward.second;
+        if (num <= 0) {
+            break;
+        }
+        switch (id) {
+            case 208:
+            case 209:
+            case 210:
+            case 211:
+            case 212:
+            case 213:
+                xiuwei += num;
+                break;
+            default:
+                tempList.emplace_back(id, num);
+                break;
+        }
+    }
+
+    awardList.emplace_back(203, xiuwei);
+    awardList.insert(awardList.end(), tempList.begin(), tempList.end());
+    return awardList;
+}
+
+DWORD WINAPI Act757ThreadProc(LPVOID lpParam) {
+    const bool useSweep = lpParam ? *static_cast<bool*>(lpParam) : false;
+    delete static_cast<bool*>(lpParam);
+
+    ACT757_STATE.Reset();
+    ResetAct757State();
+    g_act757UseSweep = useSweep;
+    ACT757_STATE.useSweep = useSweep;
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"果宝救援：正在获取活动信息...");
+
+    SendAct757OpenUIPacket();
+    if (!WaitForAct757Response()) {
+        UIBridge::Instance().UpdateHelperText(L"果宝救援：获取活动信息失败");
+        return 0;
+    }
+
+    if (g_act757PlayCount.load() <= 0) {
+        UIBridge::Instance().UpdateHelperText(L"果宝救援：今日次数已用完");
+        return 0;
+    }
+
+    if (g_act757RestTime.load() > 0) {
+        UIBridge::Instance().UpdateHelperText(L"果宝救援：冷却中，请稍后再试");
+        return 0;
+    }
+
+    if (useSweep && g_act757HistoryBestScore.load() > 0) {
+        Sleep(300);
+        UIBridge::Instance().UpdateHelperText(L"果宝救援：正在获取扫荡信息...");
+        SendAct757SweepInfoPacket();
+        if (WaitForAct757Response() && g_act757SweepAvailable.load()) {
+            Sleep(300);
+            UIBridge::Instance().UpdateHelperText(L"果宝救援：执行扫荡...");
+            SendAct757SweepPacket();
+            if (WaitForAct757Response() && g_act757SweepResult.load() == 0) {
+                Sleep(300);
+                SendAct757OpenUIPacket();
+                WaitForAct757Response();
+                UIBridge::Instance().UpdateHelperText(L"果宝救援：扫荡完成");
+                return 0;
+            }
+        }
+
+        UIBridge::Instance().UpdateHelperText(L"果宝救援：扫荡失败，改为直接完成");
+    } else if (useSweep) {
+        UIBridge::Instance().UpdateHelperText(L"果宝救援：需要成功进行一局游戏才可以扫荡哦！");
+    }
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"果宝救援：开始游戏...");
+    SendAct757StartGamePacket(g_act757IsPop.load());
+    if (!WaitForAct757Response()) {
+        UIBridge::Instance().UpdateHelperText(L"果宝救援：开始游戏失败");
+        return 0;
+    }
+
+    if (g_act757StartResult.load() != 0) {
+        return 0;
+    }
+
+    if (g_act757CheckCode.load() == 0) {
+        UIBridge::Instance().UpdateHelperText(L"果宝救援：获取校验码失败");
+        return 0;
+    }
+
+    const int finalScore = Act757::MAX_SCORE;
+    Sleep(500);
+    UIBridge::Instance().UpdateHelperText(L"果宝救援：直接提交结算...");
+    SendAct757EndGamePacket(finalScore);
+    if (!WaitForAct757Response()) {
+        UIBridge::Instance().UpdateHelperText(L"果宝救援：结算失败");
+        return 0;
+    }
+
+    Sleep(300);
+    SendAct757OpenUIPacket();
+    WaitForAct757Response();
+
+    std::vector<std::pair<int, int>> resultAwards;
+    {
+        std::lock_guard<std::mutex> lock(g_act757Mutex);
+        resultAwards = g_act757ResultAwards;
+    }
+
+    if (!resultAwards.empty()) {
+        const int medal = resultAwards.size() > 0 ? resultAwards[0].second : 0;
+        const int coin = resultAwards.size() > 1 ? resultAwards[1].second : 0;
+        const int exp = resultAwards.size() > 2 ? resultAwards[2].second : 0;
+        wchar_t msg[256];
+        swprintf_s(
+            msg,
+            L"果宝救援：结算完成，分数=%d，疯狂勋章=%d，历练=%d，铜钱=%d",
+            finalScore,
+            medal,
+            exp,
+            coin);
+        UIBridge::Instance().UpdateHelperText(msg);
+    } else {
+        UIBridge::Instance().UpdateHelperText(L"果宝救援：结算完成");
+    }
+    return 0;
+}
+
+BOOL StartOneKeyAct757Packet(bool useSweep) {
+    bool* pUseSweep = new bool(useSweep);
+    HANDLE hThread = CreateThread(nullptr, 0, Act757ThreadProc, pUseSweep, 0, nullptr);
+    if (hThread) {
+        CloseHandle(hThread);
+        return TRUE;
+    }
+    delete pUseSweep;
+    return FALSE;
+}
+
+void ProcessAct757Response(const GamePacket& packet) {
+    size_t offset = 0;
+    std::string operation;
+    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+        return;
+    }
+
+    const BYTE* body = packet.body.data();
+    g_act757WaitingResponse = false;
+
+    if (operation == "open_ui") {
+        // open_ui: playCount, frozenTime, buyCnt, totalBadgeNum, passCnt, isPop, historyBestScore, lastScore, passAwards[3], passFlag, catchId, catchList[1][2]
+        if (offset + 60 <= packet.body.size()) {
+            g_act757PlayCount = ReadInt32LE(body, offset);
+            g_act757RestTime = ReadInt32LE(body, offset);
+            g_act757BuyCnt = ReadInt32LE(body, offset);
+            g_act757TotalBadgeNum = ReadInt32LE(body, offset);
+            g_act757PassCount = ReadInt32LE(body, offset);
+            g_act757IsPop = ReadInt32LE(body, offset);
+            g_act757HistoryBestScore = ReadInt32LE(body, offset);
+            g_act757LastScore = ReadInt32LE(body, offset);
+
+            std::vector<int> passAwards;
+            passAwards.reserve(3);
+            for (int i = 0; i < 3; ++i) {
+                passAwards.push_back(ReadInt32LE(body, offset));
+            }
+            g_act757PassFlag = ReadInt32LE(body, offset);
+            g_act757CatchId = ReadInt32LE(body, offset);
+
+            std::vector<std::pair<int, int>> catchList;
+            catchList.emplace_back(ReadInt32LE(body, offset), ReadInt32LE(body, offset));
+
+            {
+                std::lock_guard<std::mutex> lock(g_act757Mutex);
+                g_act757PassAwards = passAwards;
+                g_act757CatchList = catchList;
+            }
+
+            g_act757SweepAvailable = (g_act757HistoryBestScore.load() > 0);
+            ACT757_STATE.playCount = g_act757PlayCount.load();
+            ACT757_STATE.restTime = g_act757RestTime.load();
+            ACT757_STATE.totalBadgeNum = g_act757TotalBadgeNum.load();
+            ACT757_STATE.buyCnt = g_act757BuyCnt.load();
+            ACT757_STATE.passCount = g_act757PassCount.load();
+            ACT757_STATE.isPop = g_act757IsPop.load();
+            ACT757_STATE.historyBestScore = g_act757HistoryBestScore.load();
+            ACT757_STATE.lastScore = g_act757LastScore.load();
+            ACT757_STATE.passFlag = g_act757PassFlag.load();
+            ACT757_STATE.catchId = g_act757CatchId.load();
+            ACT757_STATE.checkCode = g_act757CheckCode.load();
+            ACT757_STATE.sweepAvailable = g_act757SweepAvailable.load();
+            ACT757_STATE.passAwards = passAwards;
+            ACT757_STATE.catchList = catchList;
+
+            wchar_t msg[256];
+            swprintf_s(
+                msg,
+                L"果宝救援：次数=%d 冷却=%d秒 勋章=%d",
+                g_act757PlayCount.load(),
+                g_act757RestTime.load(),
+                g_act757TotalBadgeNum.load());
+            UIBridge::Instance().UpdateHelperText(msg);
+        }
+    } else if (operation == "start_game") {
+        if (offset + 4 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            g_act757StartResult = result;
+            ACT757_STATE.startResult = result;
+            if (result == 0 && offset + 8 <= packet.body.size()) {
+                g_act757PlayCount = ReadInt32LE(body, offset);
+                g_act757CheckCode = ReadInt32LE(body, offset);
+                ACT757_STATE.playCount = g_act757PlayCount.load();
+                ACT757_STATE.checkCode = g_act757CheckCode.load();
+                ACT757_STATE.sweepAvailable = false;
+            } else if (result == 10) {
+                UIBridge::Instance().UpdateHelperText(L"果宝救援：游戏中！");
+            } else if (result == 11) {
+                UIBridge::Instance().UpdateHelperText(L"果宝救援：在冷却");
+            } else if (result == 12) {
+                UIBridge::Instance().UpdateHelperText(L"果宝救援：没次数了");
+            } else if (result == 13) {
+                UIBridge::Instance().UpdateHelperText(L"果宝救援：玩家正在支付中");
+            } else {
+                UIBridge::Instance().UpdateHelperText(L"果宝救援：开始游戏失败");
+            }
+        }
+    } else if (operation == "end_game") {
+        if (offset + 32 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            g_act757EndResult = result;
+            ACT757_STATE.endResult = result;
+            g_act757PlayCount = ReadInt32LE(body, offset);
+            g_act757RestTime = ReadInt32LE(body, offset);
+            g_act757PassCount = ReadInt32LE(body, offset);
+            const int score = ReadInt32LE(body, offset);
+            const int medal = ReadInt32LE(body, offset);
+            const int exp = ReadInt32LE(body, offset);
+            const int coin = ReadInt32LE(body, offset);
+
+            ACT757_STATE.playCount = g_act757PlayCount.load();
+            ACT757_STATE.restTime = g_act757RestTime.load();
+            ACT757_STATE.passCount = g_act757PassCount.load();
+            ACT757_STATE.sweepSuccess = (result == 0);
+
+            std::vector<std::pair<int, int>> awards;
+            awards.emplace_back(0, medal);
+            awards.emplace_back(201, coin);
+            awards.emplace_back(202, exp);
+            {
+                std::lock_guard<std::mutex> lock(g_act757Mutex);
+                g_act757ResultAwards = awards;
+            }
+            ACT757_STATE.resultAwards = awards;
+
+            wchar_t msg[256];
+            swprintf_s(msg, L"果宝救援：结算完成，分数=%d", score);
+            UIBridge::Instance().UpdateHelperText(msg);
+        }
+    } else if (operation == "sweep_info") {
+        if (offset + 24 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            g_act757SweepResult = result;
+            ACT757_STATE.sweepResult = result;
+            ACT757_STATE.sweepSuccess = (result == 0);
+            if (result == 0 && offset + 20 <= packet.body.size()) {
+                const int score = ReadInt32LE(body, offset);
+                const int medal = ReadInt32LE(body, offset);
+                const int exp = ReadInt32LE(body, offset);
+                const int coin = ReadInt32LE(body, offset);
+                const int rewardNum = ReadInt32LE(body, offset);
+                std::vector<std::pair<int, int>> rewards;
+                for (int i = 0; i < rewardNum && offset + 8 <= packet.body.size(); ++i) {
+                    const int id = ReadInt32LE(body, offset);
+                    const int num = ReadInt32LE(body, offset);
+                    if (num <= 0) {
+                        break;
+                    }
+                    rewards.emplace_back(id, num);
+                }
+
+                std::vector<std::pair<int, int>> awards;
+                BuildAct757AwardList(medal, exp, coin, rewards, awards);
+                {
+                    std::lock_guard<std::mutex> lock(g_act757Mutex);
+                    g_act757SweepAwards = awards;
+                }
+                ACT757_STATE.sweepAwards = awards;
+                g_act757SweepAvailable = true;
+                ACT757_STATE.sweepAvailable = true;
+                (void)score;
+                UIBridge::Instance().UpdateHelperText(L"果宝救援：已获取扫荡信息");
+            } else if (result == 1) {
+                UIBridge::Instance().UpdateHelperText(L"果宝救援：需要成功进行一局游戏才可以扫荡哦！");
+            } else if (result == 2) {
+                UIBridge::Instance().UpdateHelperText(L"果宝救援：游戏次数不足");
+            } else if (result == 3) {
+                UIBridge::Instance().UpdateHelperText(L"果宝救援：冷却中！");
+            } else {
+                ACT757_STATE.sweepAvailable = false;
+                UIBridge::Instance().UpdateHelperText(L"果宝救援：扫荡失败");
+            }
+        }
+    } else if (operation == "sweep") {
+        if (offset + 36 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            g_act757SweepResult = result;
+            ACT757_STATE.sweepResult = result;
+            ACT757_STATE.sweepSuccess = (result == 0);
+            g_act757BuyCnt = ReadInt32LE(body, offset);
+            g_act757RestTime = ReadInt32LE(body, offset);
+            g_act757PassCount = ReadInt32LE(body, offset);
+            const int score = ReadInt32LE(body, offset);
+            const int medal = ReadInt32LE(body, offset);
+            const int exp = ReadInt32LE(body, offset);
+            const int coin = ReadInt32LE(body, offset);
+            const int rewardNum = ReadInt32LE(body, offset);
+            std::vector<std::pair<int, int>> rewards;
+            for (int i = 0; i < rewardNum && offset + 8 <= packet.body.size(); ++i) {
+                const int id = ReadInt32LE(body, offset);
+                const int num = ReadInt32LE(body, offset);
+                if (num <= 0) {
+                    break;
+                }
+                rewards.emplace_back(id, num);
+            }
+
+            std::vector<std::pair<int, int>> awards;
+            BuildAct757AwardList(medal, exp, coin, rewards, awards);
+            {
+                std::lock_guard<std::mutex> lock(g_act757Mutex);
+                g_act757ResultAwards = awards;
+            }
+            ACT757_STATE.resultAwards = awards;
+
+            g_act757SweepAvailable = true;
+            ACT757_STATE.buyCnt = g_act757BuyCnt.load();
+            ACT757_STATE.restTime = g_act757RestTime.load();
+            ACT757_STATE.passCount = g_act757PassCount.load();
+            ACT757_STATE.sweepAvailable = true;
+            ACT757_STATE.checkCode = g_act757CheckCode.load();
+
+            wchar_t msg[256];
+            swprintf_s(msg, L"果宝救援：扫荡完成，分数=%d", score);
+            UIBridge::Instance().UpdateHelperText(msg);
         }
     }
 }
@@ -5201,7 +6531,9 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerOpcode(Opcode::REQ_PACKAGE_DATA_BACK, ProcessPackageDataResponse);
 
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act778::ACTIVITY_ID, ProcessAct778Response);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act685::ACTIVITY_ID, ProcessAct685Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act666::ACTIVITY_ID, ProcessAct666Response);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act757::ACTIVITY_ID, ProcessAct757Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act641::ACTIVITY_ID, ProcessAct641Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act808::ACTIVITY_ID, ProcessAct808Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act805::ACTIVITY_ID, ProcessAct805Response);
@@ -5212,6 +6544,7 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act810::ACTIVITY_ID, ProcessAct810Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act811::ACTIVITY_ID, ProcessAct811Response);
     registerParams(Opcode::ACTIVITY_LUA_V3_BACK, Act811::ACTIVITY_ID, ProcessAct811Response);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act822::ACTIVITY_ID, ProcessAct822Response);
     registerParams(Opcode::HORSE_COMPETITION_BACK, HORSE_COMPETITION_ACT_ID, ProcessHorseCompetitionResponse);
 
     registerParams(Opcode::HEAVEN_FURUI_BACK, HeavenFurui::ACTIVITY_ID, ProcessHeavenFuruiResponse);
@@ -5268,10 +6601,13 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     }
 
     void ActivityStateManager::ResetAll() {
-        m_strawberryState.Reset();
-        m_trialState.Reset();
-        m_act778State.Reset();
-        m_act666State.Reset();
+    m_strawberryState.Reset();
+    m_trialState.Reset();
+    m_act778State.Reset();
+    m_act685State.Reset();
+    m_act666State.Reset();
+    m_act757State.Reset();
+    m_act822State.Reset();
         m_act641State.Reset();
         m_act805State.Reset();
         m_act631State.Reset();
@@ -5282,8 +6618,20 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
         return m_act778State;
     }
 
+    Act685State& ActivityStateManager::GetAct685State() {
+        return m_act685State;
+    }
+
     Act666State& ActivityStateManager::GetAct666State() {
         return m_act666State;
+    }
+
+    Act757State& ActivityStateManager::GetAct757State() {
+        return m_act757State;
+    }
+
+    Act822State& ActivityStateManager::GetAct822State() {
+        return m_act822State;
     }
 
     Act641State& ActivityStateManager::GetAct641State() {
@@ -5301,21 +6649,6 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     HorseCompetitionState& ActivityStateManager::GetHorseCompetitionState() {
         return m_horseCompetitionState;
     }
-
-
-                
-
-    
-
-                
-
-    
-
-                    // ============================================================================
-
-    
-
-                
 
     
 

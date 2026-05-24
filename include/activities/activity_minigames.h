@@ -23,6 +23,21 @@ BOOL SendAct778SweepPacket();
 BOOL StartOneKeyAct778Packet(bool useSweep = false);
 void ProcessAct778Response(const GamePacket& packet);
 
+namespace Act685 {
+constexpr int ACTIVITY_ID = 685;
+constexpr int PASS_SCORE = 40;
+constexpr int MAX_SCORE = 50;
+}  // namespace Act685
+
+BOOL SendAct685Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
+BOOL SendAct685OpenUIPacket();
+BOOL SendAct685StartGamePacket(int ruleFlag = 0);
+BOOL SendAct685EndGamePacket(int score);
+BOOL SendAct685SweepInfoPacket();
+BOOL SendAct685SweepPacket();
+BOOL StartOneKeyAct685Packet(bool useSweep = false);
+void ProcessAct685Response(const GamePacket& packet);
+
 namespace Act666 {
 constexpr int ACTIVITY_ID = 666;
 }  // namespace Act666
@@ -65,6 +80,21 @@ BOOL SendAct805SweepInfoPacket();
 BOOL SendAct805SweepPacket();
 BOOL StartOneKeyAct805Packet(bool useSweep = false, int targetScore = Act805::TARGET_SCORE);
 void ProcessAct805Response(const GamePacket& packet);
+
+namespace Act757 {
+constexpr int ACTIVITY_ID = 757;
+constexpr int PASS_SCORE = 180;
+constexpr int MAX_SCORE = 250;
+}  // namespace Act757
+
+BOOL SendAct757Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
+BOOL SendAct757OpenUIPacket();
+BOOL SendAct757StartGamePacket(int promptFlag = 0);
+BOOL SendAct757EndGamePacket(int score);
+BOOL SendAct757SweepInfoPacket();
+BOOL SendAct757SweepPacket();
+BOOL StartOneKeyAct757Packet(bool useSweep = false);
+void ProcessAct757Response(const GamePacket& packet);
 
 namespace Act631 {
 constexpr int ACTIVITY_ID = 631;
@@ -135,6 +165,24 @@ BOOL SendAct811SweepPacket();
 BOOL SendAct811EndGamePacket();
 BOOL StartOneKeyAct811Packet(bool useSweep = false);
 void ProcessAct811Response(const GamePacket& packet);
+
+namespace Act822 {
+constexpr int ACTIVITY_ID = 822;
+constexpr int PASS_SCORE = 35;
+constexpr int MAX_SCORE = 35;
+constexpr int PASS_EXP = 10000;
+constexpr int PASS_XIUWEI = 30;
+constexpr int DAILY_TASK_ID = 4039001;
+}  // namespace Act822
+
+BOOL SendAct822Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
+BOOL SendAct822OpenUIPacket();
+BOOL SendAct822StartGamePacket(int ruleFlag = 0);
+BOOL SendAct822EndGamePacket(int score, bool isPass = true);
+BOOL SendAct822SweepInfoPacket();
+BOOL SendAct822SweepPacket();
+BOOL StartOneKeyAct822Packet(bool useSweep = false, int targetScore = Act822::PASS_SCORE);
+void ProcessAct822Response(const GamePacket& packet);
 
 namespace Act808 {
 constexpr int ACTIVITY_ID = 808;
