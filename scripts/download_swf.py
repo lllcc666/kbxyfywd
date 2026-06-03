@@ -32,11 +32,11 @@ def download_swf(url_path, output_name=None):
             with open(output_path, 'wb') as f:
                 f.write(data)
             
-            print(f'✓ 成功 ({len(data)} 字节)')
+            print(f'OK 成功 ({len(data)} 字节)')
             return True
             
     except Exception as e:
-        print(f'✗ 失败: {e}')
+        print(f'FAIL 失败: {e}')
         return False
 
 if __name__ == '__main__':

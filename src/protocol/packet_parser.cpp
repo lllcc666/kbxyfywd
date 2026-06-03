@@ -335,6 +335,125 @@ static std::wstring GetBufTipString(int bufId, int param1, int param2) {
     return GetBufName(bufId, param1);
 }
 
+static BattleEntity* FindBattleEntityBySid(int32_t sid) {
+    BattleData& battle = PacketParser::GetCurrentBattle();
+    for (auto& pet : battle.myPets) {
+        if (pet.sid == sid) {
+            return &pet;
+        }
+    }
+    for (auto& pet : battle.otherPets) {
+        if (pet.sid == sid) {
+            return &pet;
+        }
+    }
+    return nullptr;
+}
+
+static void ApplyBattleBufToPet(BattleEntity& pet, const BufData& sourceBuf) {
+    BufData buf = sourceBuf;
+    buf.name = GetBufName(buf.bufId, buf.param1);
+    buf.tipString = GetBufTipString(buf.bufId, buf.param1, buf.param2);
+
+    if (buf.addOrRemove == BufDataType::BUF_TYPE_0) {
+        for (auto it = pet.bufArr.begin(); it != pet.bufArr.end(); ) {
+            if (it->bufId == buf.bufId) {
+                it = pet.bufArr.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        return;
+    }
+
+    bool replaced = false;
+    for (auto& existing : pet.bufArr) {
+        if (existing.bufId == buf.bufId) {
+            existing = buf;
+            replaced = true;
+            break;
+        }
+    }
+    if (!replaced) {
+        pet.bufArr.push_back(buf);
+    }
+
+    if (buf.addOrRemove == BufDataType::BUF_TYPE_2 && buf.param1 != 0) {
+        bool isBloodChange = false;
+        for (int id : BufDataType::DEALADD_BLOOD_1) {
+            if (id == buf.bufId) {
+                isBloodChange = true;
+                break;
+            }
+        }
+        if (!isBloodChange) {
+            for (int id : BufDataType::DEALADD_BLOOD_2) {
+                if (id == buf.bufId) {
+                    isBloodChange = true;
+                    break;
+                }
+            }
+        }
+        if (isBloodChange) {
+            bool isDamage = false;
+            for (int id : BufDataType::DEALADD_BLOOD_1) {
+                if (id == buf.bufId) {
+                    isDamage = true;
+                    break;
+                }
+            }
+            int hpChange = isDamage ? -buf.param1 : buf.param1;
+            pet.hp += hpChange;
+            if (pet.hp < 0) pet.hp = 0;
+            if (pet.hp > pet.maxHp) pet.hp = pet.maxHp;
+        }
+    }
+}
+
+static void RemoveBattleBufFromPet(BattleEntity& pet, int32_t bufId) {
+    for (auto it = pet.bufArr.begin(); it != pet.bufArr.end(); ) {
+        if (it->bufId == bufId) {
+            it = pet.bufArr.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+static void ApplyBattleBufFromSid(int32_t sid, const BufData& bufData) {
+    if (BattleEntity* pet = FindBattleEntityBySid(sid)) {
+        ApplyBattleBufToPet(*pet, bufData);
+    }
+}
+
+static void ParseBattleBufList(const uint8_t* data, size_t& offset, size_t size) {
+    if (offset + 4 > size) {
+        return;
+    }
+
+    int32_t sid = ReadInt32LE(data, offset);
+    while (sid != -1 && sid < 1000) {
+        if (offset + 12 > size) {
+            break;
+        }
+
+        BufData bufData;
+        bufData.defId = sid;
+        bufData.bufId = ReadInt32LE(data, offset);
+        bufData.param1 = ReadInt32LE(data, offset);
+        bufData.param2 = ReadInt32LE(data, offset);
+        bufData.addOrRemove = BufDataType::BUF_TYPE_1;
+        bufData.name = GetBufName(bufData.bufId, bufData.param1);
+        bufData.tipString = GetBufTipString(bufData.bufId, bufData.param1, bufData.param2);
+        ApplyBattleBufFromSid(bufData.defId, bufData);
+
+        if (offset + 4 > size) {
+            break;
+        }
+        sid = ReadInt32LE(data, offset);
+    }
+}
+
 static bool HttpGet(const wchar_t* url, std::vector<uint8_t>& out) {
     HINTERNET hInternet = InternetOpenW(L"KBWebUILoader", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
     if (!hInternet) return false;
@@ -850,7 +969,7 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend, st
 void PacketParser::SendToUI(const std::wstring& type, const std::wstring& data) {
     // 如果 g_hWnd 为空，尝试查找窗口
     if (!g_hWnd) {
-        g_hWnd = FindWindowW(L"WebView2DemoWindowClass", L"卡布西游浮影微端 V1.13");
+        g_hWnd = FindWindowW(L"WebView2DemoWindowClass", L"卡布西游浮影微端 V1.14");
         if (!g_hWnd) {
             g_hWnd = FindWindowW(L"WebView2DemoWindowClass", nullptr);
         }
@@ -872,7 +991,7 @@ void PacketParser::SendBossListToUI() {
     
     // 如果 g_hWnd 为空，尝试查找窗口
     if (!g_hWnd) {
-        g_hWnd = FindWindowW(L"WebView2DemoWindowClass", L"卡布西游浮影微端 V1.13");
+        g_hWnd = FindWindowW(L"WebView2DemoWindowClass", L"卡布西游浮影微端 V1.14");
         if (!g_hWnd) {
             g_hWnd = FindWindowW(L"WebView2DemoWindowClass", nullptr);
         }
@@ -978,7 +1097,7 @@ void PacketParser::UpdateUIBattleData() {
         g_hWnd = FindWindowW(L"WebView2DemoWindowClass", nullptr);
         if (!g_hWnd) {
             // 备用方案：通过窗口标题查找
-        g_hWnd = FindWindowW(nullptr, L"卡布西游浮影微端 V1.13");
+        g_hWnd = FindWindowW(nullptr, L"卡布西游浮影微端 V1.14");
             if (!g_hWnd) {
                 return;
             }
@@ -993,7 +1112,7 @@ void PacketParser::UpdateUIBattleData() {
     for (size_t i = 0; i < g_currentBattle.myPets.size(); ++i) {
         const auto& p = g_currentBattle.myPets[i];
         jsData += L"{\"spiritId\":" + std::to_wstring(p.spiritId) + 
-                  L",\"name\":\"" + (p.name.empty() ? L"" : p.name) + L"\"" +
+                  L",\"name\":\"" + UIBridge::EscapeJsonString(p.name.empty() ? L"" : p.name) + L"\"" +
                   L",\"sid\":" + std::to_wstring(p.sid) +
                   L",\"uniqueId\":" + std::to_wstring(p.uniqueId) +
                   L",\"userId\":" + std::to_wstring(p.userId) +
@@ -1005,7 +1124,7 @@ void PacketParser::UpdateUIBattleData() {
                   L",\"skills\":[";
         for (size_t j = 0; j < p.skills.size(); ++j) {
             jsData += L"{\"id\":" + std::to_wstring(p.skills[j].id) + 
-                      L",\"name\":\"" + (p.skills[j].name.empty() ? L"" : p.skills[j].name) + L"\"" +
+                      L",\"name\":\"" + UIBridge::EscapeJsonString(p.skills[j].name.empty() ? L"" : p.skills[j].name) + L"\"" +
                       L",\"pp\":" + std::to_wstring(p.skills[j].pp) + 
                       L",\"maxPp\":" + std::to_wstring(p.skills[j].maxPp) + L"}";
             if (j < p.skills.size() - 1) jsData += L",";
@@ -1015,10 +1134,14 @@ void PacketParser::UpdateUIBattleData() {
         for (size_t j = 0; j < p.bufArr.size(); ++j) {
             const auto& buf = p.bufArr[j];
             jsData += L"{\"bufId\":" + std::to_wstring(buf.bufId) +
-                      L",\"name\":\"" + (buf.name.empty() ? L"" : buf.name) + L"\"" +
+                      L",\"name\":\"" + UIBridge::EscapeJsonString(buf.name.empty() ? L"" : buf.name) + L"\"" +
+                      L",\"tipString\":\"" + UIBridge::EscapeJsonString(buf.tipString) + L"\"" +
                       L",\"round\":" + std::to_wstring(buf.round) +
                       L",\"param1\":" + std::to_wstring(buf.param1) +
                       L",\"param2\":" + std::to_wstring(buf.param2) +
+                      L",\"param3\":" + std::to_wstring(buf.param3) +
+                      L",\"param4\":" + std::to_wstring(buf.param4) +
+                      L",\"leftOrRight\":" + std::to_wstring(buf.leftOrRight) +
                       L",\"addOrRemove\":" + std::to_wstring(buf.addOrRemove) + L"}";
             if (j < p.bufArr.size() - 1) jsData += L",";
         }
@@ -1032,7 +1155,7 @@ void PacketParser::UpdateUIBattleData() {
     for (size_t i = 0; i < g_currentBattle.otherPets.size(); ++i) {
         const auto& p = g_currentBattle.otherPets[i];
         jsData += L"{\"spiritId\":" + std::to_wstring(p.spiritId) + 
-                  L",\"name\":\"" + (p.name.empty() ? L"" : p.name) + L"\"" +
+                  L",\"name\":\"" + UIBridge::EscapeJsonString(p.name.empty() ? L"" : p.name) + L"\"" +
                   L",\"sid\":" + std::to_wstring(p.sid) +
                   L",\"uniqueId\":" + std::to_wstring(p.uniqueId) +
                   L",\"userId\":" + std::to_wstring(p.userId) +
@@ -1044,7 +1167,7 @@ void PacketParser::UpdateUIBattleData() {
                   L",\"skills\":[";
         for (size_t j = 0; j < p.skills.size(); ++j) {
             jsData += L"{\"id\":" + std::to_wstring(p.skills[j].id) + 
-                      L",\"name\":\"" + (p.skills[j].name.empty() ? L"" : p.skills[j].name) + L"\"" +
+                      L",\"name\":\"" + UIBridge::EscapeJsonString(p.skills[j].name.empty() ? L"" : p.skills[j].name) + L"\"" +
                       L",\"pp\":" + std::to_wstring(p.skills[j].pp) + 
                       L",\"maxPp\":" + std::to_wstring(p.skills[j].maxPp) + L"}";
             if (j < p.skills.size() - 1) jsData += L",";
@@ -1054,10 +1177,14 @@ void PacketParser::UpdateUIBattleData() {
         for (size_t j = 0; j < p.bufArr.size(); ++j) {
             const auto& buf = p.bufArr[j];
             jsData += L"{\"bufId\":" + std::to_wstring(buf.bufId) +
-                      L",\"name\":\"" + (buf.name.empty() ? L"" : buf.name) + L"\"" +
+                      L",\"name\":\"" + UIBridge::EscapeJsonString(buf.name.empty() ? L"" : buf.name) + L"\"" +
+                      L",\"tipString\":\"" + UIBridge::EscapeJsonString(buf.tipString) + L"\"" +
                       L",\"round\":" + std::to_wstring(buf.round) +
                       L",\"param1\":" + std::to_wstring(buf.param1) +
                       L",\"param2\":" + std::to_wstring(buf.param2) +
+                      L",\"param3\":" + std::to_wstring(buf.param3) +
+                      L",\"param4\":" + std::to_wstring(buf.param4) +
+                      L",\"leftOrRight\":" + std::to_wstring(buf.leftOrRight) +
                       L",\"addOrRemove\":" + std::to_wstring(buf.addOrRemove) + L"}";
             if (j < p.bufArr.size() - 1) jsData += L",";
         }
@@ -1068,7 +1195,10 @@ void PacketParser::UpdateUIBattleData() {
     
     jsData += L"\"myActiveIndex\":" + std::to_wstring(g_currentBattle.myActiveIndex) + L",";
     jsData += L"\"otherActiveIndex\":" + std::to_wstring(g_currentBattle.otherActiveIndex) + L",";
-    jsData += L"\"lastItemName\":\"" + g_lastItemName + L"\"";
+    jsData += L"\"battleType\":" + std::to_wstring(g_currentBattle.battleType) + L",";
+    jsData += L"\"escape\":" + std::to_wstring(g_currentBattle.escape) + L",";
+    jsData += L"\"round\":" + std::to_wstring(g_currentBattle.round) + L",";
+    jsData += L"\"lastItemName\":\"" + UIBridge::EscapeJsonString(g_lastItemName) + L"\"";
     jsData += L"}";
 
     std::wstring jsCode = L"if(window.updateBattleUI) { window.updateBattleUI(" + jsData + L"); }";
@@ -1177,6 +1307,8 @@ void PacketParser::ProcessBattlePacket(const GamePacket& packet) {
     if (packet.opcode != OPCODE_BATTLE_START &&
         packet.opcode != OPCODE_BATTLE_ROUND_START &&
         packet.opcode != OPCODE_BATTLE_ROUND &&
+        packet.opcode != OPCODE_BATTLE_BUF &&
+        packet.opcode != OPCODE_BATTLE_BUF_DIS &&
         packet.opcode != OPCODE_BATTLE_END &&
         packet.opcode != Opcode::BATTLE_CHANGE_SPIRIT_ROUND) {
         return;
@@ -1197,8 +1329,12 @@ void PacketParser::ProcessBattlePacket(const GamePacket& packet) {
         g_currentBattle.otherPets.clear();
         g_currentBattle.myActiveIndex = 0;
         g_currentBattle.otherActiveIndex = 0;
+        g_currentBattle.battleType = 0;
+        g_currentBattle.escape = 0;
+        g_currentBattle.round = 0;
 
         if (offset + 4 > size) goto start_done;
+        g_currentBattle.battleType = static_cast<int32_t>(packet.params);
         int state = (int)ReadInt32LE(data, offset);
         
         // SWF: for(; state != -1; state = msgpack.body.readInt())
@@ -1325,7 +1461,11 @@ void PacketParser::ProcessBattlePacket(const GamePacket& packet) {
         if (offset + 4 <= size) {
             g_currentBattle.escape = (int)ReadInt32LE(data, offset);
         }
-        
+
+        if (g_currentBattle.battleType == 0) {
+            g_currentBattle.battleType = static_cast<int32_t>(packet.params);
+        }
+
 start_done:
         UpdateUIBattleData();
         {
@@ -1439,6 +1579,7 @@ start_done:
         }
     }
     else if (packet.opcode == OPCODE_BATTLE_ROUND_START) {
+        ++g_currentBattle.round;
         // 战斗回合开始 - 处理buf回合数减少
         // 根据 AS3 代码分析，buf的round字段只在首次添加时从服务端获取
         // 之后每回合服务端不会更新回合数，需要客户端自己维护
@@ -1513,6 +1654,47 @@ start_done:
         if (g_battleSixAuto.IsInBattle() && g_battleSixAuto.IsAutoBattleEnabled()) {
             g_battleSixAuto.OnBattleRoundStart();
         }
+    }
+    else if (packet.opcode == OPCODE_BATTLE_BUF) {
+        if (offset + 20 > size) {
+            return;
+        }
+
+        BufData bufData;
+        bufData.addOrRemove = (int)ReadInt32LE(data, offset);
+        bufData.bufId = (int)ReadInt32LE(data, offset);
+        bufData.defId = (int)ReadInt32LE(data, offset);
+        bufData.param1 = (int)ReadInt32LE(data, offset);
+        bufData.param2 = (int)ReadInt32LE(data, offset);
+
+        if (bufData.addOrRemove == BufDataType::BUF_TYPE_7) {
+            if (offset + 8 <= size) {
+                bufData.param3 = (int)ReadInt32LE(data, offset);
+                bufData.param4 = (int)ReadInt32LE(data, offset);
+            }
+        }
+
+        bufData.name = GetBufName(bufData.bufId, bufData.param1);
+        bufData.tipString = GetBufTipString(bufData.bufId, bufData.param1, bufData.param2);
+
+        ApplyBattleBufFromSid(bufData.defId, bufData);
+        UpdateUIBattleData();
+    }
+    else if (packet.opcode == OPCODE_BATTLE_BUF_DIS) {
+        if (offset + 8 > size) {
+            return;
+        }
+
+        BufData bufData;
+        bufData.bufId = (int)ReadInt32LE(data, offset);
+        bufData.defId = (int)ReadInt32LE(data, offset);
+        bufData.addOrRemove = BufDataType::BUF_TYPE_0;
+        ApplyBattleBufFromSid(bufData.defId, bufData);
+        UpdateUIBattleData();
+    }
+    else if (packet.opcode == OPCODE_BATTLE_BUFS) {
+        ParseBattleBufList(data, offset, size);
+        UpdateUIBattleData();
     }
     else if (packet.opcode == Opcode::BATTLE_CHANGE_SPIRIT_ROUND) {
         // AS3 中该包表示进入切换精灵回合，不是切换成功回包。

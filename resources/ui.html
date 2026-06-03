@@ -1411,7 +1411,7 @@
     <div class="title-bar">
         <div class="title-bar-left">
             <div class="title-bar-icon">卡</div>
-            <span class="title-bar-title">卡布西游浮影微端 V1.13</span>
+            <span class="title-bar-title">卡布西游浮影微端 V1.14</span>
         </div>
         <div class="title-bar-controls">
             <button class="title-bar-button" id="btn-minimize" title="最小化">
@@ -2114,6 +2114,16 @@
                         <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 6px;">最新活动</div>
                         <!-- 活动卡片网格布局 -->
                         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                            <div style="background: #FFFFFF; border: 1px solid #D6E6F7; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <div style="font-size: 11px; font-weight: 600; color: #333;">齐心协力大挑战</div>
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="act827-sweep" style="width: 11px; height: 11px; cursor: pointer;">
+                                        <span>扫荡</span>
+                                    </label>
+                                    <button id="one-key-act827" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
+                                </div>
+                            </div>
                             <div style="background: #FFFFFF; border: 1px solid #D9E4F1; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <div style="font-size: 11px; font-weight: 600; color: #333;">圣石之战</div>
@@ -3907,6 +3917,18 @@
             }
         };
 
+        // 齐心协力大挑战 - 一键完成
+        window.oneKeyAct827 = function() {
+            var sweepCheckbox = document.getElementById('act827-sweep');
+            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({
+                    action: 'one_key_act827',
+                    sweep: useSweep
+                }));
+            }
+        };
+
         // 光辉穿梭大考验 - 一键完成
         window.oneKeyAct822 = function() {
             var sweepCheckbox = document.getElementById('act822-sweep');
@@ -4383,6 +4405,10 @@
             var act826Btn = document.getElementById('one-key-act826');
             if (act826Btn) {
                 act826Btn.addEventListener('click', window.oneKeyAct826);
+            }
+            var act827Btn = document.getElementById('one-key-act827');
+            if (act827Btn) {
+                act827Btn.addEventListener('click', window.oneKeyAct827);
             }
             var act822Btn = document.getElementById('one-key-act822');
             if (act822Btn) {

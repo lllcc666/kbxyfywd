@@ -23,8 +23,16 @@ constexpr uint32_t ENTER_SCENE_BACK = 1315395;
 constexpr uint32_t BATTLE_START = 1317120;
 constexpr uint32_t BATTLE_ROUND_START = 1317121;
 constexpr uint32_t BATTLE_ROUND = 1317122;
+constexpr uint32_t BATTLE_BUF_DIS = 1317123;
+constexpr uint32_t BATTLE_BUF = 1317124;
 constexpr uint32_t BATTLE_END = 1317125;
 constexpr uint32_t BATTLE_CHANGE_SPIRIT_ROUND = 1317126;
+constexpr uint32_t BATTLE_BUFS = 1317131;
+constexpr uint32_t COMBAT_NET_PROBE_REQ = 1317132;
+constexpr uint32_t COMBAT_NET_REPORT = 1317133;
+constexpr uint32_t COMBAT_SITE_OPTION = 1316481;
+constexpr uint32_t COMBAT_SITE_EFFECT = 1316482;
+constexpr uint32_t BATTLE_FSPK = 1317154;
 
 constexpr uint32_t SPIRIT_EQUIP_ALL_SEND = 1185809;
 constexpr uint32_t SPIRIT_EQUIP_ALL_BACK = 1316881;

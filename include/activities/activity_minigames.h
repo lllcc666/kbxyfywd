@@ -198,6 +198,20 @@ BOOL SendAct826SweepPacket();
 BOOL StartOneKeyAct826Packet(bool useSweep = false);
 void ProcessAct826Response(const GamePacket& packet);
 
+namespace Act827 {
+constexpr int ACTIVITY_ID = 827;
+constexpr int TARGET_SCORE = 1000;
+}  // namespace Act827
+
+BOOL SendAct827Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
+BOOL SendAct827OpenUIPacket();
+BOOL SendAct827StartGamePacket(int promptFlag = 0);
+BOOL SendAct827EndGamePacket(int checkCode, int score);
+BOOL SendAct827SweepInfoPacket();
+BOOL SendAct827SweepPacket();
+BOOL StartOneKeyAct827Packet(bool useSweep = false);
+void ProcessAct827Response(const GamePacket& packet);
+
 namespace Act808 {
 constexpr int ACTIVITY_ID = 808;
 constexpr int DAILY_TASK_ID = 4039001;

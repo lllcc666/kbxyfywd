@@ -48,6 +48,7 @@ constexpr int BUF_TYPE_3 = 3;
 constexpr int BUF_TYPE_4 = 4;
 constexpr int BUF_TYPE_5 = 5;
 constexpr int BUF_TYPE_6 = 6;
+constexpr int BUF_TYPE_7 = 7;
 
 constexpr int COMBAT_SITE_ADD = 1;
 constexpr int COMBAT_SITE_MD = 2;
@@ -68,6 +69,8 @@ struct BufData {
     int32_t round;
     int32_t param1;
     int32_t param2;
+    int32_t param3;
+    int32_t param4;
     int32_t leftOrRight;
     std::wstring name;
     std::wstring tipString;
@@ -80,6 +83,8 @@ struct BufData {
         , round(0)
         , param1(0)
         , param2(0)
+        , param3(0)
+        , param4(0)
         , leftOrRight(0) {}
 };
 

@@ -346,6 +346,47 @@ struct Act826State : ActivityState {
     }
 };
 
+struct Act827State : ActivityState {
+    std::atomic<int> totalBadgeNum{0};
+    std::atomic<int> promptFlag{0};
+    std::atomic<int> flag{0};
+    std::atomic<int> bestRecord{0};
+    std::atomic<int> monsterId{0};
+    std::atomic<int> checkCode{0};
+    std::atomic<int> startResult{0};
+    std::atomic<int> endResult{0};
+    std::atomic<int> sweepResult{0};
+    std::atomic<int> rewardScore{0};
+    std::atomic<int> rewardMedalNum{0};
+    std::atomic<int> rewardExp{0};
+    std::atomic<int> rewardCoin{0};
+    std::atomic<int> lastScore{0};
+    std::atomic<bool> useSweep{false};
+    std::atomic<bool> sweepSuccess{false};
+    std::vector<int> catchList;
+
+    void Reset() override {
+        ActivityState::Reset();
+        totalBadgeNum = 0;
+        promptFlag = 0;
+        flag = 0;
+        bestRecord = 0;
+        monsterId = 0;
+        checkCode = 0;
+        startResult = 0;
+        endResult = 0;
+        sweepResult = 0;
+        rewardScore = 0;
+        rewardMedalNum = 0;
+        rewardExp = 0;
+        rewardCoin = 0;
+        lastScore = 0;
+        useSweep = false;
+        sweepSuccess = false;
+        catchList.assign(2, 0);
+    }
+};
+
 struct Act631State : ActivityState {
     std::atomic<int> bubbleNum{0};
     std::atomic<int> flag{0};
@@ -565,6 +606,7 @@ public:
     Act757State& GetAct757State();
     Act822State& GetAct822State();
     Act826State& GetAct826State();
+    Act827State& GetAct827State();
     Act641State& GetAct641State();
     Act805State& GetAct805State();
     Act631State& GetAct631State();
@@ -585,6 +627,7 @@ private:
     Act757State m_act757State;
     Act822State m_act822State;
     Act826State m_act826State;
+    Act827State m_act827State;
     Act641State m_act641State;
     Act805State m_act805State;
     Act631State m_act631State;
