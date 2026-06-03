@@ -870,6 +870,19 @@ void HandleStartOneKeyAct822Command(const std::wstring& msg) {
         StartOneKeyAct822Packet);
 }
 
+void HandleStartOneKeyAct826Command(const std::wstring& msg) {
+    HandleStartOneKeyActCommand(
+        msg,
+        nullptr,
+        0,
+        0,
+        0,
+        L"圣石之战：开始扫荡...",
+        L"圣石之战：开始游戏...",
+        L"圣石之战启动失败",
+        StartOneKeyAct826Packet);
+}
+
 void HandleDecomposeLingyuIndicesCommand(const std::wstring& msg, const wchar_t* indicesKey) {
     const std::wstring jsonArray = GetJsonValue(msg, indicesKey);
     if (!jsonArray.empty()) {
@@ -1284,6 +1297,8 @@ public:
             HandleStartOneKeyAct811Command(msg);
         } else if (msg.find(L"one_key_act822") != std::wstring::npos) {
             HandleStartOneKeyAct822Command(msg);
+        } else if (msg.find(L"one_key_act826") != std::wstring::npos) {
+            HandleStartOneKeyAct826Command(msg);
         } else if (msg.find(L"one_key_horse_competition") != std::wstring::npos) {
             HandleStartOneKeyHorseCompetitionCommand();
         } else if (msg.find(L"stop_horse_competition") != std::wstring::npos) {

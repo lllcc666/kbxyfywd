@@ -2211,6 +2211,315 @@ void ProcessAct822Response(const GamePacket& packet) {
     }
 }
 
+// ============ 圣石之战功能实现 (Act826) ============
+
+#define ACT826_STATE ActivityStateManager::Instance().GetAct826State()
+
+BOOL SendAct826Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
+    return SendActivityPacket(Act826::ACTIVITY_ID, operation, bodyValues);
+}
+
+BOOL SendAct826OpenUIPacket() {
+    ACT826_STATE.waitingResponse = true;
+    return SendAct826Packet("open_ui", {});
+}
+
+BOOL SendAct826StartGamePacket(int ruleFlag) {
+    ACT826_STATE.waitingResponse = true;
+    return SendAct826Packet("start_game", {ruleFlag});
+}
+
+BOOL SendAct826EndGamePacket(int checkCode, int score) {
+    ACT826_STATE.waitingResponse = true;
+    return SendAct826Packet("end_game", {checkCode, score});
+}
+
+BOOL SendAct826SweepInfoPacket() {
+    ACT826_STATE.waitingResponse = true;
+    return SendAct826Packet("sweep_info", {});
+}
+
+BOOL SendAct826SweepPacket() {
+    ACT826_STATE.waitingResponse = true;
+    return SendAct826Packet("sweep", {});
+}
+
+static bool WaitForAct826Response() {
+    for (int i = 0; i < 30 && ACT826_STATE.waitingResponse.load(); ++i) {
+        Sleep(100);
+    }
+    const bool received = !ACT826_STATE.waitingResponse.load();
+    ACT826_STATE.waitingResponse = false;
+    return received;
+}
+
+static int BuildAct826ClientCheckCode() {
+    const int checkCode = ACT826_STATE.checkCode.load();
+    if (checkCode <= 0) {
+        return 0;
+    }
+
+    const uint32_t userId = g_userId.load();
+    return checkCode & static_cast<int>(userId % static_cast<uint32_t>(checkCode));
+}
+
+DWORD WINAPI Act826ThreadProc(LPVOID lpParam) {
+    const bool useSweep = lpParam ? *static_cast<bool*>(lpParam) : false;
+    delete static_cast<bool*>(lpParam);
+
+    ACT826_STATE.Reset();
+    ACT826_STATE.useSweep = useSweep;
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"圣石之战：正在获取活动信息...");
+
+    SendAct826OpenUIPacket();
+    if (!WaitForAct826Response()) {
+        UIBridge::Instance().UpdateHelperText(L"圣石之战：获取活动信息失败");
+        return 0;
+    }
+
+    if (ACT826_STATE.playCount.load() <= 0) {
+        UIBridge::Instance().UpdateHelperText(L"圣石之战：今日次数已用完");
+        return 0;
+    }
+
+    if (ACT826_STATE.restTime.load() > 0) {
+        UIBridge::Instance().UpdateHelperText(L"圣石之战：冷却中，请稍后再试");
+        return 0;
+    }
+
+    if (useSweep) {
+        Sleep(300);
+        UIBridge::Instance().UpdateHelperText(L"圣石之战：正在获取扫荡信息...");
+        SendAct826SweepInfoPacket();
+        if (WaitForAct826Response() && ACT826_STATE.sweepAvailable.load()) {
+            Sleep(300);
+            UIBridge::Instance().UpdateHelperText(L"圣石之战：执行扫荡...");
+            ACT826_STATE.sweepResult = -1;
+            SendAct826SweepPacket();
+            if (WaitForAct826Response() && (ACT826_STATE.sweepResult.load() == 0 || ACT826_STATE.sweepResult.load() == 4)) {
+                Sleep(300);
+                SendAct826OpenUIPacket();
+                WaitForAct826Response();
+                wchar_t msg[256];
+                swprintf_s(
+                    msg,
+                    L"圣石之战：扫荡完成，勋章=%d 经验=%d 铜钱=%d",
+                    ACT826_STATE.rewardMedal.load(),
+                    ACT826_STATE.rewardExp.load(),
+                    ACT826_STATE.rewardCoin.load());
+                UIBridge::Instance().UpdateHelperText(msg);
+                return 0;
+            }
+        }
+
+        UIBridge::Instance().UpdateHelperText(L"圣石之战：扫荡失败，改为直接完成");
+    }
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"圣石之战：开始游戏...");
+    SendAct826StartGamePacket(ACT826_STATE.ruleFlag.load());
+    if (!WaitForAct826Response()) {
+        UIBridge::Instance().UpdateHelperText(L"圣石之战：开始游戏失败");
+        return 0;
+    }
+
+    const int startResult = ACT826_STATE.startResult.load();
+    if (startResult != 0) {
+        if (startResult == 1) {
+            UIBridge::Instance().UpdateHelperText(L"圣石之战：剩余次数不足");
+        } else if (startResult == 2) {
+            UIBridge::Instance().UpdateHelperText(L"圣石之战：冷却中~~");
+        } else if (startResult == 3) {
+            UIBridge::Instance().UpdateHelperText(L"圣石之战：在游戏中");
+        } else {
+            UIBridge::Instance().UpdateHelperText(L"圣石之战：开始游戏失败");
+        }
+        return 0;
+    }
+
+    if (ACT826_STATE.checkCode.load() == 0) {
+        UIBridge::Instance().UpdateHelperText(L"圣石之战：获取校验码失败");
+        return 0;
+    }
+
+    const int finalScore = Act826::PASS_SCORE;
+    ACT826_STATE.lastScore = finalScore;
+    Sleep(500);
+    UIBridge::Instance().UpdateHelperText(L"圣石之战：直接提交结算...");
+    const int clientCheckCode = BuildAct826ClientCheckCode();
+    if (clientCheckCode == 0) {
+        UIBridge::Instance().UpdateHelperText(L"圣石之战：计算校验码失败");
+        return 0;
+    }
+
+    SendAct826EndGamePacket(clientCheckCode, finalScore);
+    if (!WaitForAct826Response()) {
+        UIBridge::Instance().UpdateHelperText(L"圣石之战：结算失败");
+        return 0;
+    }
+
+    if (ACT826_STATE.endResult.load() == 3) {
+        UIBridge::Instance().UpdateHelperText(L"圣石之战：结算失败");
+    } else {
+        wchar_t msg[256];
+        swprintf_s(
+            msg,
+            L"圣石之战：结算完成，分数=%d 勋章=%d 经验=%d 铜钱=%d",
+            ACT826_STATE.lastScore.load(),
+            ACT826_STATE.rewardMedal.load(),
+            ACT826_STATE.rewardExp.load(),
+            ACT826_STATE.rewardCoin.load());
+        UIBridge::Instance().UpdateHelperText(msg);
+    }
+
+    Sleep(300);
+    SendAct826OpenUIPacket();
+    WaitForAct826Response();
+    return 0;
+}
+
+BOOL StartOneKeyAct826Packet(bool useSweep) {
+    ACT826_STATE.useSweep = useSweep;
+    bool* pUseSweep = new bool(useSweep);
+    HANDLE hThread = CreateThread(nullptr, 0, Act826ThreadProc, pUseSweep, 0, nullptr);
+    if (hThread) {
+        CloseHandle(hThread);
+        return TRUE;
+    }
+    delete pUseSweep;
+    return FALSE;
+}
+
+void ProcessAct826Response(const GamePacket& packet) {
+    size_t offset = 0;
+    std::string operation;
+    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+        return;
+    }
+
+    const BYTE* body = packet.body.data();
+    ACT826_STATE.waitingResponse = false;
+
+    auto readInt = [&](int& value) -> bool {
+        if (offset + 4 > packet.body.size()) {
+            return false;
+        }
+        value = ReadInt32LE(body, offset);
+        return true;
+    };
+
+    if (operation == "open_ui") {
+        if (offset + 64 <= packet.body.size()) {
+            int playCount = 0;
+            int restTime = 0;
+            int ignored = 0;
+            int bubbleNum = 0;
+            int passCount = 0;
+            int ruleFlag = 0;
+            int moveControl = 0;
+            int maxScore = 0;
+            int lastScore = 0;
+            int passFlag = 0;
+            int petFlag = 0;
+            int itemFlag = 0;
+            int catchId = 0;
+            int catchLimitCur = 0;
+            int catchLimitMax = 0;
+
+            readInt(playCount);  // playCount
+            readInt(restTime);   // restTime
+            readInt(ignored);
+            readInt(bubbleNum);
+            readInt(passCount);
+            readInt(ruleFlag);
+            readInt(moveControl);
+            readInt(maxScore);
+            readInt(lastScore);
+            for (int i = 0; i < 3; ++i) {
+                readInt(ignored);
+            }
+            readInt(passFlag);
+            readInt(petFlag);
+            readInt(itemFlag);
+            readInt(catchId);
+            readInt(catchLimitCur);
+            readInt(catchLimitMax);
+
+            ACT826_STATE.playCount = playCount;
+            ACT826_STATE.restTime = restTime;
+            ACT826_STATE.bubbleNum = bubbleNum;
+            ACT826_STATE.passCount = passCount;
+            ACT826_STATE.ruleFlag = ruleFlag;
+            ACT826_STATE.isMoveControl = (moveControl == 1);
+            ACT826_STATE.maxScore = maxScore;
+            ACT826_STATE.lastScore = lastScore;
+            ACT826_STATE.passFlag = passFlag;
+            ACT826_STATE.petFlag = petFlag;
+            ACT826_STATE.itemFlag = itemFlag;
+            ACT826_STATE.catchId = catchId;
+            ACT826_STATE.catchLimitCur = catchLimitCur;
+            ACT826_STATE.catchLimitMax = catchLimitMax;
+
+            wchar_t msg[256];
+            swprintf_s(
+                msg,
+                L"圣石之战：次数=%d 冷却=%d秒 勋章=%d",
+                ACT826_STATE.playCount.load(),
+                ACT826_STATE.restTime.load(),
+                ACT826_STATE.bubbleNum.load());
+            UIBridge::Instance().UpdateHelperText(msg);
+        }
+    } else if (operation == "start_game") {
+        if (offset + 12 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT826_STATE.startResult = result;
+            if (result == 0) {
+                int ignored = 0;
+                int checkCode = 0;
+                readInt(ignored);
+                readInt(checkCode);
+                ACT826_STATE.checkCode = checkCode;
+            }
+        }
+    } else if (operation == "end_game" || operation == "sweep") {
+        if (offset + 12 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ReadInt32LE(body, offset);
+            ReadInt32LE(body, offset);
+            ACT826_STATE.endResult = result;
+            ACT826_STATE.sweepResult = result;
+
+            if (result != 3 && offset + 20 <= packet.body.size()) {
+                int ignored = ReadInt32LE(body, offset);
+                (void)ignored;
+                ACT826_STATE.lastScore = ReadInt32LE(body, offset);
+                ACT826_STATE.rewardMedal = ReadInt32LE(body, offset);
+                ACT826_STATE.rewardExp = ReadInt32LE(body, offset);
+                ACT826_STATE.rewardCoin = ReadInt32LE(body, offset);
+                ACT826_STATE.sweepSuccess = true;
+            } else if (result == 3) {
+                ACT826_STATE.sweepSuccess = false;
+            }
+        }
+    } else if (operation == "sweep_info") {
+        if (offset + 20 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ReadInt32LE(body, offset);
+            ACT826_STATE.sweepResult = result;
+            if (result == 0) {
+                ACT826_STATE.rewardMedal = ReadInt32LE(body, offset);
+                ACT826_STATE.rewardExp = ReadInt32LE(body, offset);
+                ACT826_STATE.rewardCoin = ReadInt32LE(body, offset);
+                ACT826_STATE.sweepAvailable = true;
+            } else {
+                ACT826_STATE.sweepAvailable = false;
+            }
+        }
+    }
+}
+
 // ============ 清除煞气功能实现 (Act641) ============
 
 #define ACT641_STATE ActivityStateManager::Instance().GetAct641State()
@@ -5877,8 +6186,10 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
                 currentCounter = 1;
             }
 
-            bool isSpecialBattle = (battleType == 3 || battleType == 5 || battleType == 6 || 
-                                   battleType == 14 || battleType == 15);
+            bool isSpecialBattle = (battleType == 3 || battleType == 5 || battleType == 6 ||
+                                   battleType == 14 || battleType == 15 ||
+                                   battleType == 17 || battleType == 18 ||
+                                   battleType == 19 || battleType == 20);
 
             if (isSpecialBattle) {
                 g_battleCounter = 1;
@@ -6480,6 +6791,17 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
                 ProcessShuangTaiBattleEndResponse(gp);
             }
         }
+
+        if (gp.opcode == Opcode::BATTLE_BUF ||
+            gp.opcode == Opcode::BATTLE_BUF_DIS ||
+            gp.opcode == Opcode::BATTLE_BUFS ||
+            gp.opcode == Opcode::BATTLE_FSPK ||
+            gp.opcode == Opcode::COMBAT_SITE_OPTION ||
+            gp.opcode == Opcode::COMBAT_SITE_EFFECT ||
+            gp.opcode == Opcode::COMBAT_NET_PROBE_REQ ||
+            gp.opcode == Opcode::COMBAT_NET_REPORT) {
+            return;
+        }
     };
     const ResponseHandler processLingyu = [](const GamePacket& gp) {
         PacketParser::ProcessLingyuPacket(gp);
@@ -6509,6 +6831,14 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerOpcode(Opcode::BATTLE_ROUND, processBattle);
     registerOpcode(Opcode::BATTLE_END, processBattle);
     registerOpcode(Opcode::BATTLE_CHANGE_SPIRIT_ROUND, processBattle);
+    registerOpcode(Opcode::BATTLE_BUF, processBattle);
+    registerOpcode(Opcode::BATTLE_BUF_DIS, processBattle);
+    registerOpcode(Opcode::BATTLE_BUFS, processBattle);
+    registerOpcode(Opcode::BATTLE_FSPK, processBattle);
+    registerOpcode(Opcode::COMBAT_SITE_OPTION, processBattle);
+    registerOpcode(Opcode::COMBAT_SITE_EFFECT, processBattle);
+    registerOpcode(Opcode::COMBAT_NET_PROBE_REQ, processBattle);
+    registerOpcode(Opcode::COMBAT_NET_REPORT, processBattle);
 
     registerOpcode(Opcode::LINGYU_LIST, processLingyu);
     registerOpcode(Opcode::DECOMPOSE_RESPONSE, [](const GamePacket&) { HandleDecomposeResponse(); });
@@ -6545,6 +6875,7 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act811::ACTIVITY_ID, ProcessAct811Response);
     registerParams(Opcode::ACTIVITY_LUA_V3_BACK, Act811::ACTIVITY_ID, ProcessAct811Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act822::ACTIVITY_ID, ProcessAct822Response);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act826::ACTIVITY_ID, ProcessAct826Response);
     registerParams(Opcode::HORSE_COMPETITION_BACK, HORSE_COMPETITION_ACT_ID, ProcessHorseCompetitionResponse);
 
     registerParams(Opcode::HEAVEN_FURUI_BACK, HeavenFurui::ACTIVITY_ID, ProcessHeavenFuruiResponse);
@@ -6601,13 +6932,14 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     }
 
     void ActivityStateManager::ResetAll() {
-    m_strawberryState.Reset();
-    m_trialState.Reset();
-    m_act778State.Reset();
-    m_act685State.Reset();
-    m_act666State.Reset();
-    m_act757State.Reset();
-    m_act822State.Reset();
+        m_strawberryState.Reset();
+        m_trialState.Reset();
+        m_act778State.Reset();
+        m_act685State.Reset();
+        m_act666State.Reset();
+        m_act757State.Reset();
+        m_act822State.Reset();
+        m_act826State.Reset();
         m_act641State.Reset();
         m_act805State.Reset();
         m_act631State.Reset();
@@ -6632,6 +6964,10 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
 
     Act822State& ActivityStateManager::GetAct822State() {
         return m_act822State;
+    }
+
+    Act826State& ActivityStateManager::GetAct826State() {
+        return m_act826State;
     }
 
     Act641State& ActivityStateManager::GetAct641State() {

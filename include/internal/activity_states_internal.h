@@ -299,6 +299,53 @@ struct Act822State : ActivityState {
     }
 };
 
+struct Act826State : ActivityState {
+    std::atomic<int> bubbleNum{0};
+    std::atomic<int> passCount{0};
+    std::atomic<int> ruleFlag{0};
+    std::atomic<int> maxScore{0};
+    std::atomic<int> lastScore{0};
+    std::atomic<int> passFlag{0};
+    std::atomic<int> petFlag{0};
+    std::atomic<int> itemFlag{0};
+    std::atomic<int> catchId{0};
+    std::atomic<int> catchLimitCur{0};
+    std::atomic<int> catchLimitMax{0};
+    std::atomic<int> startResult{0};
+    std::atomic<int> endResult{0};
+    std::atomic<int> sweepResult{0};
+    std::atomic<int> rewardMedal{0};
+    std::atomic<int> rewardExp{0};
+    std::atomic<int> rewardCoin{0};
+    std::atomic<bool> isMoveControl{false};
+    std::atomic<bool> useSweep{false};
+    std::atomic<bool> sweepSuccess{false};
+
+    void Reset() override {
+        ActivityState::Reset();
+        bubbleNum = 0;
+        passCount = 0;
+        ruleFlag = 0;
+        maxScore = 0;
+        lastScore = 0;
+        passFlag = 0;
+        petFlag = 0;
+        itemFlag = 0;
+        catchId = 0;
+        catchLimitCur = 0;
+        catchLimitMax = 0;
+        startResult = 0;
+        endResult = 0;
+        sweepResult = 0;
+        rewardMedal = 0;
+        rewardExp = 0;
+        rewardCoin = 0;
+        isMoveControl = false;
+        useSweep = false;
+        sweepSuccess = false;
+    }
+};
+
 struct Act631State : ActivityState {
     std::atomic<int> bubbleNum{0};
     std::atomic<int> flag{0};
@@ -517,6 +564,7 @@ public:
     Act666State& GetAct666State();
     Act757State& GetAct757State();
     Act822State& GetAct822State();
+    Act826State& GetAct826State();
     Act641State& GetAct641State();
     Act805State& GetAct805State();
     Act631State& GetAct631State();
@@ -536,6 +584,7 @@ private:
     Act666State m_act666State;
     Act757State m_act757State;
     Act822State m_act822State;
+    Act826State m_act826State;
     Act641State m_act641State;
     Act805State m_act805State;
     Act631State m_act631State;

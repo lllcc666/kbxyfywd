@@ -1911,7 +1911,7 @@
                     <button class="sub-tab-button" onclick="openSubTab(event, 'sub-boss')">BOSS专区</button>
                     <button class="sub-tab-button" onclick="openSubTab(event, 'sub-lingyu')">灵玉区</button>
                     <button class="sub-tab-button" onclick="openSubTab(event, 'sub-dungeon')">副本区</button>
-                    <button class="sub-tab-button" onclick="openSubTab(event, 'sub-battlesix')">万妖盛会</button>
+                    <button class="sub-tab-button" onclick="openSubTab(event, 'sub-battlesix')" style="display: none;">万妖盛会</button>
                     <button class="sub-tab-button" onclick="openSubTab(event, 'sub-spiritcollect')">精魄系统</button>
                 </div>
 
@@ -2114,6 +2114,16 @@
                         <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 6px;">最新活动</div>
                         <!-- 活动卡片网格布局 -->
                         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                            <div style="background: #FFFFFF; border: 1px solid #D9E4F1; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <div style="font-size: 11px; font-weight: 600; color: #333;">圣石之战</div>
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="act826-sweep" style="width: 11px; height: 11px; cursor: pointer;">
+                                        <span>扫荡</span>
+                                    </label>
+                                    <button id="one-key-act826" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
+                                </div>
+                            </div>
                             <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <div style="font-size: 11px; font-weight: 600; color: #333;">光辉穿梭大考验</div>
@@ -2446,7 +2456,7 @@
             </div>
 
             <!-- 万妖盛会标签页 -->
-            <div id="sub-battlesix" class="sub-tab-content">
+            <div id="sub-battlesix" class="sub-tab-content" style="display: none;">
                 <div style="display: flex; gap: 12px; height: 100%; padding: 4px;">
                     <!-- 左侧：功能操作区 -->
                     <div style="display: flex; flex-direction: column; gap: 6px; min-width: 160px;">
@@ -3885,6 +3895,18 @@
             }
         };
 
+        // 圣石之战 - 一键完成
+        window.oneKeyAct826 = function() {
+            var sweepCheckbox = document.getElementById('act826-sweep');
+            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({
+                    action: 'one_key_act826',
+                    sweep: useSweep
+                }));
+            }
+        };
+
         // 光辉穿梭大考验 - 一键完成
         window.oneKeyAct822 = function() {
             var sweepCheckbox = document.getElementById('act822-sweep');
@@ -4357,6 +4379,10 @@
             var act811Btn = document.getElementById('one-key-act811');
             if (act811Btn) {
                 act811Btn.addEventListener('click', window.oneKeyAct811);
+            }
+            var act826Btn = document.getElementById('one-key-act826');
+            if (act826Btn) {
+                act826Btn.addEventListener('click', window.oneKeyAct826);
             }
             var act822Btn = document.getElementById('one-key-act822');
             if (act822Btn) {
