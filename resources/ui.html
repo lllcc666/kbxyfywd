@@ -1411,7 +1411,7 @@
     <div class="title-bar">
         <div class="title-bar-left">
             <div class="title-bar-icon">卡</div>
-            <span class="title-bar-title">卡布西游浮影微端 V1.14</span>
+            <span class="title-bar-title">卡布西游浮影微端 V1.15</span>
         </div>
         <div class="title-bar-controls">
             <button class="title-bar-button" id="btn-minimize" title="最小化">
@@ -2114,6 +2114,26 @@
                         <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 6px;">最新活动</div>
                         <!-- 活动卡片网格布局 -->
                         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                            <div style="background: #FFFFFF; border: 1px solid #D9E4F1; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <div style="font-size: 11px; font-weight: 600; color: #333;">驱赶毒蚊</div>
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="act717-sweep" style="width: 11px; height: 11px; cursor: pointer;">
+                                        <span>扫荡</span>
+                                    </label>
+                                    <button id="one-key-act717" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
+                                </div>
+                            </div>
+                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 150px; flex-shrink: 0;">
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <div style="font-size: 11px; font-weight: 600; color: #333;">土幻的曙光</div>
+                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
+                                        <input type="checkbox" id="act684-sweep" style="width: 11px; height: 11px; cursor: pointer;">
+                                        <span>扫荡</span>
+                                    </label>
+                                    <button id="one-key-act684" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
+                                </div>
+                            </div>
                             <div style="background: #FFFFFF; border: 1px solid #D6E6F7; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <div style="font-size: 11px; font-weight: 600; color: #333;">齐心协力大挑战</div>
@@ -3869,6 +3889,30 @@
             }
         };
 
+        // 驱赶毒蚊 - 一键完成
+        window.oneKeyAct717 = function() {
+            var sweepCheckbox = document.getElementById('act717-sweep');
+            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({
+                    action: 'one_key_act717',
+                    sweep: useSweep
+                }));
+            }
+        };
+
+        // 土幻的曙光 - 一键完成
+        window.oneKeyAct684 = function() {
+            var sweepCheckbox = document.getElementById('act684-sweep');
+            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({
+                    action: 'one_key_act684',
+                    sweep: useSweep
+                }));
+            }
+        };
+
         // 守护梦境 - 一键完成
         window.oneKeyAct805 = function() {
             var sweepCheckbox = document.getElementById('act805-sweep');
@@ -4385,6 +4429,14 @@
             var act641Btn = document.getElementById('one-key-act641');
             if (act641Btn) {
                 act641Btn.addEventListener('click', window.oneKeyAct641);
+            }
+            var act684Btn = document.getElementById('one-key-act684');
+            if (act684Btn) {
+                act684Btn.addEventListener('click', window.oneKeyAct684);
+            }
+            var act717Btn = document.getElementById('one-key-act717');
+            if (act717Btn) {
+                act717Btn.addEventListener('click', window.oneKeyAct717);
             }
             var act805Btn = document.getElementById('one-key-act805');
             if (act805Btn) {

@@ -180,6 +180,68 @@ struct Act641State : ActivityState {
     }
 };
 
+struct Act684State : ActivityState {
+    std::atomic<int> bubbleNum{0};
+    std::atomic<int> rewardCount{0};
+    std::atomic<int> todayCount{0};
+    std::atomic<int> ruleFlag{0};
+    std::atomic<int> drawFlag{0};
+    std::atomic<int> maxScore{0};
+    std::atomic<int> targetScore{0};
+    std::atomic<int> startResult{0};
+    std::atomic<int> endResult{0};
+    std::atomic<int> rewardMedalCount{0};
+    std::atomic<int> rewardExp{0};
+    std::atomic<int> rewardCoin{0};
+    std::atomic<bool> useSweep{false};
+    std::atomic<bool> sweepSuccess{false};
+    std::vector<int> catchList;
+
+    void Reset() override {
+        ActivityState::Reset();
+        bubbleNum = 0;
+        rewardCount = 0;
+        todayCount = 0;
+        ruleFlag = 0;
+        drawFlag = 0;
+        maxScore = 0;
+        targetScore = 0;
+        startResult = 0;
+        endResult = 0;
+        rewardMedalCount = 0;
+        rewardExp = 0;
+        rewardCoin = 0;
+        useSweep = false;
+        sweepSuccess = false;
+        catchList.assign(2, 0);
+    }
+};
+
+struct Act717State : ActivityState {
+    std::atomic<int> totalBadgeNum{0};
+    std::atomic<int> promptFlag{0};
+    std::atomic<int> startResult{0};
+    std::atomic<int> endResult{0};
+    std::atomic<int> sweepResult{0};
+    std::atomic<bool> useSweep{false};
+    std::atomic<bool> sweepSuccess{false};
+    std::vector<int> catchList;
+    std::vector<std::pair<int, int>> rewardList;
+
+    void Reset() override {
+        ActivityState::Reset();
+        totalBadgeNum = 0;
+        promptFlag = 0;
+        startResult = 0;
+        endResult = 0;
+        sweepResult = 0;
+        useSweep = false;
+        sweepSuccess = false;
+        catchList.assign(2, 0);
+        rewardList.clear();
+    }
+};
+
 struct Act805State : ActivityState {
     std::atomic<int> medalNum{0};
     std::atomic<int> historyBestScore{0};
@@ -608,6 +670,8 @@ public:
     Act826State& GetAct826State();
     Act827State& GetAct827State();
     Act641State& GetAct641State();
+    Act684State& GetAct684State();
+    Act717State& GetAct717State();
     Act805State& GetAct805State();
     Act631State& GetAct631State();
     HorseCompetitionState& GetHorseCompetitionState();
@@ -629,6 +693,8 @@ private:
     Act826State m_act826State;
     Act827State m_act827State;
     Act641State m_act641State;
+    Act684State m_act684State;
+    Act717State m_act717State;
     Act805State m_act805State;
     Act631State m_act631State;
     HorseCompetitionState m_horseCompetitionState;

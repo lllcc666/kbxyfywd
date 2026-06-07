@@ -3453,6 +3453,513 @@ void ProcessAct810Response(const GamePacket& packet) {
     }
 }
 
+// ============ 土幻的曙光功能实现 (Act684) ============
+
+#define ACT684_STATE ActivityStateManager::Instance().GetAct684State()
+
+BOOL SendAct684Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
+    return SendActivityPacket(Act684::ACTIVITY_ID, operation, bodyValues);
+}
+
+BOOL SendAct684OpenUIPacket() {
+    ACT684_STATE.waitingResponse = true;
+    return SendAct684Packet("open_ui", {});
+}
+
+BOOL SendAct684StartGamePacket(int ruleFlag) {
+    ACT684_STATE.waitingResponse = true;
+    return SendAct684Packet("start_game", {ruleFlag});
+}
+
+BOOL SendAct684EndGamePacket(int score) {
+    const int checkCode = ACT684_STATE.checkCode.load();
+    if (checkCode == 0) {
+        return FALSE;
+    }
+
+    const int finalScore = std::clamp(score, Act684::PASS_SCORE, Act684::MAX_SCORE);
+    const uint32_t userId = g_userId.load();
+    const int64_t userIdPart = static_cast<int64_t>(userId % 100u) * static_cast<int64_t>(checkCode);
+    const int64_t clientCheckCode = static_cast<int64_t>(checkCode) + userIdPart + finalScore;
+
+    ACT684_STATE.waitingResponse = true;
+    return SendAct684Packet("end_game", {
+        static_cast<int32_t>(clientCheckCode),
+        finalScore
+    });
+}
+
+BOOL SendAct684SweepInfoPacket() {
+    ACT684_STATE.waitingResponse = true;
+    return SendAct684Packet("sweep_info", {});
+}
+
+BOOL SendAct684SweepPacket() {
+    ACT684_STATE.waitingResponse = true;
+    return SendAct684Packet("sweep", {});
+}
+
+DWORD WINAPI Act684ThreadProc(LPVOID lpParam) {
+    const int targetScore = lpParam ? *static_cast<int*>(lpParam) : Act684::TARGET_SCORE;
+    delete static_cast<int*>(lpParam);
+
+    const bool useSweep = ACT684_STATE.useSweep.load();
+    ACT684_STATE.Reset();
+    ACT684_STATE.useSweep = useSweep;
+    ACT684_STATE.targetScore = targetScore;
+
+    auto waitForResponse = []() -> bool {
+        for (int i = 0; i < 30 && ACT684_STATE.waitingResponse; ++i) {
+            Sleep(100);
+        }
+        const bool received = !ACT684_STATE.waitingResponse.load();
+        ACT684_STATE.waitingResponse = false;
+        return received;
+    };
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"土幻的曙光：正在获取活动信息...");
+
+    SendAct684OpenUIPacket();
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"土幻的曙光：获取活动信息失败");
+        return 0;
+    }
+
+    if (ACT684_STATE.playCount.load() <= 0) {
+        UIBridge::Instance().UpdateHelperText(L"土幻的曙光：今日次数已用完");
+        return 0;
+    }
+
+    if (ACT684_STATE.restTime.load() > 0) {
+        UIBridge::Instance().UpdateHelperText(L"土幻的曙光：冷却中，请稍后再试");
+        return 0;
+    }
+
+    if (useSweep && ACT684_STATE.maxScore.load() > 0) {
+        Sleep(300);
+        UIBridge::Instance().UpdateHelperText(L"土幻的曙光：正在获取扫荡信息...");
+        ACT684_STATE.sweepSuccess = false;
+
+        if (SendAct684SweepInfoPacket() && waitForResponse() && ACT684_STATE.sweepSuccess.load()) {
+            Sleep(300);
+            UIBridge::Instance().UpdateHelperText(L"土幻的曙光：执行扫荡...");
+
+            if (SendAct684SweepPacket() && waitForResponse() && ACT684_STATE.sweepSuccess.load()) {
+                Sleep(300);
+                SendAct684OpenUIPacket();
+                waitForResponse();
+                UIBridge::Instance().UpdateHelperText(L"土幻的曙光：扫荡完成");
+                return 0;
+            }
+        }
+
+        UIBridge::Instance().UpdateHelperText(L"土幻的曙光：扫荡失败，改为直接完成");
+    } else if (useSweep) {
+        UIBridge::Instance().UpdateHelperText(L"土幻的曙光：需要成功进行一局游戏才可以扫荡哦！");
+    }
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"土幻的曙光：开始游戏...");
+
+    int ruleFlag = ACT684_STATE.ruleFlag.load();
+    if (ruleFlag < 1) {
+        ruleFlag = 1;
+    }
+
+    if (!SendAct684StartGamePacket(ruleFlag) || !waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"土幻的曙光：开始游戏失败");
+        return 0;
+    }
+
+    const int startResult = ACT684_STATE.startResult.load();
+    if (startResult != 0) {
+        if (startResult == 10) {
+            UIBridge::Instance().UpdateHelperText(L"土幻的曙光：当前已经在游戏中");
+        } else if (startResult == 11) {
+            UIBridge::Instance().UpdateHelperText(L"土幻的曙光：冷却中，请稍后再试");
+        } else if (startResult == 12) {
+            UIBridge::Instance().UpdateHelperText(L"土幻的曙光：今日次数已用完");
+        } else if (startResult == 13) {
+            UIBridge::Instance().UpdateHelperText(L"土幻的曙光：玩家正在支付中");
+        } else {
+            UIBridge::Instance().UpdateHelperText(L"土幻的曙光：开始游戏失败");
+        }
+        return 0;
+    }
+
+    if (ACT684_STATE.checkCode.load() == 0) {
+        UIBridge::Instance().UpdateHelperText(L"土幻的曙光：获取校验码失败");
+        return 0;
+    }
+
+    Sleep(500);
+    UIBridge::Instance().UpdateHelperText(L"土幻的曙光：直接提交结算...");
+
+    if (!SendAct684EndGamePacket(targetScore) || !waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"土幻的曙光：结算失败");
+        return 0;
+    }
+
+    if (ACT684_STATE.endResult.load() == 3) {
+        UIBridge::Instance().UpdateHelperText(L"土幻的曙光：网络错误");
+        return 0;
+    }
+
+    Sleep(300);
+    SendAct684OpenUIPacket();
+    waitForResponse();
+    UIBridge::Instance().UpdateHelperText(L"土幻的曙光：完成");
+    return 0;
+}
+
+BOOL StartOneKeyAct684Packet(bool useSweep, int targetScore) {
+    ACT684_STATE.useSweep = useSweep;
+    int* pTargetScore = new int(targetScore);
+    HANDLE hThread = CreateThread(nullptr, 0, Act684ThreadProc, pTargetScore, 0, nullptr);
+    if (hThread) {
+        CloseHandle(hThread);
+        return TRUE;
+    }
+
+    delete pTargetScore;
+    return FALSE;
+}
+
+void ProcessAct684Response(const GamePacket& packet) {
+    size_t offset = 0;
+    std::string operation;
+    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+        return;
+    }
+
+    const BYTE* body = packet.body.data();
+    ACT684_STATE.waitingResponse = false;
+
+    if (operation == "open_ui") {
+        if (offset + 44 <= packet.body.size()) {
+            ACT684_STATE.playCount = ReadInt32LE(body, offset);
+            ACT684_STATE.restTime = ReadInt32LE(body, offset);
+            ACT684_STATE.bubbleNum = ReadInt32LE(body, offset);
+            ACT684_STATE.rewardCount = ReadInt32LE(body, offset);
+            ACT684_STATE.todayCount = ReadInt32LE(body, offset);
+            ACT684_STATE.ruleFlag = ReadInt32LE(body, offset);
+            ACT684_STATE.drawFlag = ReadInt32LE(body, offset);
+            ACT684_STATE.maxScore = ReadInt32LE(body, offset);
+            ReadInt32LE(body, offset);  // skip
+            if (ACT684_STATE.catchList.size() < 2) {
+                ACT684_STATE.catchList.assign(2, 0);
+            }
+            ACT684_STATE.catchList[0] = ReadInt32LE(body, offset);
+            ACT684_STATE.catchList[1] = ReadInt32LE(body, offset);
+            ACT684_STATE.sweepAvailable = (ACT684_STATE.maxScore.load() > 0);
+
+            wchar_t msg[256];
+            swprintf_s(
+                msg,
+                L"土幻的曙光：次数=%d 冷却=%d秒 能量=%d",
+                ACT684_STATE.playCount.load(),
+                ACT684_STATE.restTime.load(),
+                ACT684_STATE.bubbleNum.load());
+            UIBridge::Instance().UpdateHelperText(msg);
+        }
+    } else if (operation == "start_game") {
+        if (offset + 12 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT684_STATE.startResult = result;
+            if (result == 0) {
+                ACT684_STATE.playCount = ReadInt32LE(body, offset);
+                ACT684_STATE.checkCode = ReadInt32LE(body, offset);
+            }
+        }
+    } else if (operation == "end_game") {
+        if (offset + 36 <= packet.body.size()) {
+            const int resultType = ReadInt32LE(body, offset);
+            ACT684_STATE.endResult = resultType;
+            ACT684_STATE.playCount = ReadInt32LE(body, offset);
+            ACT684_STATE.restTime = ReadInt32LE(body, offset);
+            ACT684_STATE.todayCount = ReadInt32LE(body, offset);
+            ACT684_STATE.rewardMedalCount = ReadInt32LE(body, offset);
+            ACT684_STATE.rewardCoin = ReadInt32LE(body, offset);
+            ACT684_STATE.rewardExp = ReadInt32LE(body, offset);
+            ReadInt32LE(body, offset);  // score
+            ACT684_STATE.maxScore = ReadInt32LE(body, offset);
+            ACT684_STATE.sweepAvailable = (ACT684_STATE.maxScore.load() > 0);
+        }
+    } else if (operation == "sweep_info") {
+        if (offset + 16 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT684_STATE.sweepSuccess = (result == 0);
+            if (result == 0) {
+                ACT684_STATE.rewardMedalCount = ReadInt32LE(body, offset);
+                ACT684_STATE.rewardCoin = ReadInt32LE(body, offset);
+                ACT684_STATE.rewardExp = ReadInt32LE(body, offset);
+                ACT684_STATE.sweepAvailable = true;
+            }
+        }
+    } else if (operation == "sweep") {
+        if (offset + 36 <= packet.body.size()) {
+            const int resultType = ReadInt32LE(body, offset);
+            ACT684_STATE.endResult = resultType;
+            ACT684_STATE.sweepSuccess = (resultType == 0);
+            ACT684_STATE.playCount = ReadInt32LE(body, offset);
+            ACT684_STATE.restTime = ReadInt32LE(body, offset);
+            ACT684_STATE.todayCount = ReadInt32LE(body, offset);
+            ACT684_STATE.rewardMedalCount = ReadInt32LE(body, offset);
+            ACT684_STATE.rewardCoin = ReadInt32LE(body, offset);
+            ACT684_STATE.rewardExp = ReadInt32LE(body, offset);
+            ReadInt32LE(body, offset);  // score
+            ACT684_STATE.maxScore = ReadInt32LE(body, offset);
+            ACT684_STATE.sweepAvailable = (ACT684_STATE.maxScore.load() > 0);
+        }
+    }
+}
+
+// ============ 驱赶毒蚊功能实现 (Act717) ============
+
+#define ACT717_STATE ActivityStateManager::Instance().GetAct717State()
+
+BOOL SendAct717Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
+    return SendActivityPacket(Act717::ACTIVITY_ID, operation, bodyValues);
+}
+
+BOOL SendAct717OpenUIPacket() {
+    ACT717_STATE.waitingResponse = true;
+    return SendAct717Packet("open_ui", {});
+}
+
+BOOL SendAct717StartGamePacket(int promptFlag) {
+    ACT717_STATE.waitingResponse = true;
+    return SendAct717Packet("start_game", {promptFlag});
+}
+
+BOOL SendAct717EndGamePacket(int score) {
+    ACT717_STATE.waitingResponse = true;
+    return SendAct717Packet("end_game", {std::clamp(score, 0, Act717::TARGET_SCORE)});
+}
+
+BOOL SendAct717SweepInfoPacket() {
+    ACT717_STATE.waitingResponse = true;
+    return SendAct717Packet("sweep_info", {});
+}
+
+BOOL SendAct717SweepPacket() {
+    ACT717_STATE.waitingResponse = true;
+    return SendAct717Packet("sweep", {});
+}
+
+DWORD WINAPI Act717ThreadProc(LPVOID lpParam) {
+    const int targetScore = lpParam ? *static_cast<int*>(lpParam) : Act717::TARGET_SCORE;
+    delete static_cast<int*>(lpParam);
+
+    const bool useSweep = ACT717_STATE.useSweep.load();
+    ACT717_STATE.Reset();
+    ACT717_STATE.useSweep = useSweep;
+
+    auto waitForResponse = []() -> bool {
+        for (int i = 0; i < 30 && ACT717_STATE.waitingResponse; ++i) {
+            Sleep(100);
+        }
+        const bool received = !ACT717_STATE.waitingResponse.load();
+        ACT717_STATE.waitingResponse = false;
+        return received;
+    };
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：正在获取活动信息...");
+
+    SendAct717OpenUIPacket();
+    if (!waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：获取活动信息失败");
+        return 0;
+    }
+
+    if (ACT717_STATE.playCount.load() <= 0) {
+        UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：今日次数已用完");
+        return 0;
+    }
+
+    if (ACT717_STATE.restTime.load() > 0) {
+        UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：冷却中，请稍后再试");
+        return 0;
+    }
+
+    if (useSweep && ACT717_STATE.sweepAvailable.load()) {
+        Sleep(300);
+        UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：正在获取扫荡信息...");
+        ACT717_STATE.sweepSuccess = false;
+
+        if (SendAct717SweepInfoPacket() && waitForResponse() && ACT717_STATE.sweepSuccess.load()) {
+            Sleep(300);
+            UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：执行扫荡...");
+
+            if (SendAct717SweepPacket() && waitForResponse() && ACT717_STATE.sweepSuccess.load()) {
+                Sleep(300);
+                SendAct717OpenUIPacket();
+                waitForResponse();
+                UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：扫荡完成");
+                return 0;
+            }
+        }
+
+        UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：扫荡失败，改为直接完成");
+    } else if (useSweep) {
+        UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：需要先完成一局游戏才可以扫荡哦！");
+    }
+
+    Sleep(300);
+    UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：开始游戏...");
+
+    if (!SendAct717StartGamePacket(ACT717_STATE.promptFlag.load()) || !waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：开始游戏失败");
+        return 0;
+    }
+
+    const int startResult = ACT717_STATE.startResult.load();
+    if (startResult != 0) {
+        if (startResult == 10) {
+            UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：当前已经在游戏中");
+        } else if (startResult == 11) {
+            UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：冷却中，请稍后再试");
+        } else if (startResult == 12) {
+            UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：今日次数已用完");
+        } else if (startResult == 13) {
+            UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：玩家正在支付中");
+        } else {
+            UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：开始游戏失败");
+        }
+        return 0;
+    }
+
+    const int finalScore = std::clamp(targetScore, 0, Act717::TARGET_SCORE);
+    Sleep(500);
+    UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：直接提交结算...");
+
+    if (!SendAct717EndGamePacket(finalScore) || !waitForResponse()) {
+        UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：结算失败");
+        return 0;
+    }
+
+    if (ACT717_STATE.endResult.load() == 1) {
+        UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：结算失败");
+        return 0;
+    }
+
+    Sleep(300);
+    SendAct717OpenUIPacket();
+    waitForResponse();
+
+    wchar_t msg[256];
+    swprintf_s(msg, L"驱赶毒蚊：结算完成，分数=%d", finalScore);
+    UIBridge::Instance().UpdateHelperText(msg);
+    return 0;
+}
+
+BOOL StartOneKeyAct717Packet(bool useSweep, int targetScore) {
+    ACT717_STATE.useSweep = useSweep;
+    int* pTargetScore = new int(targetScore);
+    HANDLE hThread = CreateThread(nullptr, 0, Act717ThreadProc, pTargetScore, 0, nullptr);
+    if (hThread) {
+        CloseHandle(hThread);
+        return TRUE;
+    }
+
+    delete pTargetScore;
+    return FALSE;
+}
+
+void ProcessAct717Response(const GamePacket& packet) {
+    size_t offset = 0;
+    std::string operation;
+    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+        return;
+    }
+
+    const BYTE* body = packet.body.data();
+    ACT717_STATE.waitingResponse = false;
+
+    auto parseRewardList = [&](size_t& currentOffset) {
+        std::vector<std::pair<int, int>> rewardList;
+        if (currentOffset + 4 > packet.body.size()) {
+            return rewardList;
+        }
+
+        const int len = ReadInt32LE(body, currentOffset);
+        rewardList.reserve(len);
+        for (int i = 0; i < len && currentOffset + 8 <= packet.body.size(); ++i) {
+            const int id = ReadInt32LE(body, currentOffset);
+            const int num = ReadInt32LE(body, currentOffset);
+            rewardList.emplace_back(id, num);
+        }
+        return rewardList;
+    };
+
+    if (operation == "open_ui") {
+        if (offset + 32 <= packet.body.size()) {
+            ACT717_STATE.playCount = ReadInt32LE(body, offset);
+            ACT717_STATE.restTime = ReadInt32LE(body, offset);
+            ACT717_STATE.totalBadgeNum = ReadInt32LE(body, offset);
+            ACT717_STATE.promptFlag = ReadInt32LE(body, offset);
+            const int isSweep = ReadInt32LE(body, offset);
+            ReadInt32LE(body, offset);  // skip
+            if (ACT717_STATE.catchList.size() < 2) {
+                ACT717_STATE.catchList.assign(2, 0);
+            }
+            ACT717_STATE.catchList[0] = ReadInt32LE(body, offset);
+            ACT717_STATE.catchList[1] = ReadInt32LE(body, offset);
+            ACT717_STATE.sweepAvailable = (isSweep != 0);
+
+            wchar_t msg[256];
+            swprintf_s(
+                msg,
+                L"驱赶毒蚊：次数=%d 冷却=%d秒 勋章=%d",
+                ACT717_STATE.playCount.load(),
+                ACT717_STATE.restTime.load(),
+                ACT717_STATE.totalBadgeNum.load());
+            UIBridge::Instance().UpdateHelperText(msg);
+        }
+    } else if (operation == "start_game") {
+        if (offset + 8 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT717_STATE.startResult = result;
+            if (result == 0) {
+                ACT717_STATE.playCount = ReadInt32LE(body, offset);
+            }
+        }
+    } else if (operation == "end_game") {
+        if (offset + 12 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT717_STATE.endResult = result;
+            ACT717_STATE.playCount = ReadInt32LE(body, offset);
+            ACT717_STATE.restTime = ReadInt32LE(body, offset);
+            if (result != 1) {
+                ACT717_STATE.rewardList = parseRewardList(offset);
+                ACT717_STATE.sweepSuccess = true;
+            }
+        }
+    } else if (operation == "sweep_info") {
+        if (offset + 4 <= packet.body.size()) {
+            const int type = ReadInt32LE(body, offset);
+            ACT717_STATE.sweepResult = type;
+            ACT717_STATE.sweepSuccess = (type != 3);
+            if (type != 3) {
+                ACT717_STATE.rewardList = parseRewardList(offset);
+            }
+        }
+    } else if (operation == "sweep") {
+        if (offset + 12 <= packet.body.size()) {
+            const int result = ReadInt32LE(body, offset);
+            ACT717_STATE.sweepResult = result;
+            ACT717_STATE.sweepSuccess = (result != 1);
+            ACT717_STATE.playCount = ReadInt32LE(body, offset);
+            ACT717_STATE.restTime = ReadInt32LE(body, offset);
+            if (result != 1) {
+                ACT717_STATE.rewardList = parseRewardList(offset);
+            }
+        }
+    }
+}
+
 // ============ 守护梦境功能实现 (Act805) ============
 
 #define ACT805_STATE ActivityStateManager::Instance().GetAct805State()
@@ -6350,7 +6857,7 @@ void ProcessEnterWorldPacket(const GamePacket& gp) {
     std::wstring kabuName = Utf8ToWide(nameUtf8);
     
     // 更新窗口标题
-    std::wstring newTitle = L"卡布西游浮影微端 V1.14 - " + 
+    std::wstring newTitle = L"卡布西游浮影微端 V1.15 - " + 
                            std::to_wstring(kabuId) + L" " + kabuName;
     SetWindowTextW(g_hWnd, newTitle.c_str());
 }
@@ -7164,6 +7671,8 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act666::ACTIVITY_ID, ProcessAct666Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act757::ACTIVITY_ID, ProcessAct757Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act641::ACTIVITY_ID, ProcessAct641Response);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act684::ACTIVITY_ID, ProcessAct684Response);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act717::ACTIVITY_ID, ProcessAct717Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act808::ACTIVITY_ID, ProcessAct808Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act805::ACTIVITY_ID, ProcessAct805Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act631::ACTIVITY_ID, ProcessAct631Response);
@@ -7242,6 +7751,8 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
         m_act826State.Reset();
         m_act827State.Reset();
         m_act641State.Reset();
+        m_act684State.Reset();
+        m_act717State.Reset();
         m_act805State.Reset();
         m_act631State.Reset();
         m_horseCompetitionState.Reset();
@@ -7277,6 +7788,14 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
 
     Act641State& ActivityStateManager::GetAct641State() {
         return m_act641State;
+    }
+
+    Act684State& ActivityStateManager::GetAct684State() {
+        return m_act684State;
+    }
+
+    Act717State& ActivityStateManager::GetAct717State() {
+        return m_act717State;
     }
 
     Act805State& ActivityStateManager::GetAct805State() {

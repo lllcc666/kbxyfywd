@@ -71,7 +71,7 @@ void* g_realGetTickCount = nullptr;
 void* g_realQueryPerformanceCounter = nullptr;
 
 // 版本检查相关常量
-constexpr float CURRENT_VERSION = 1.14f;  // 当前版本：1.14
+constexpr float CURRENT_VERSION = 1.15f;  // 当前版本：1.15
 constexpr wchar_t VERSION_CHECK_URL[] = L"https://gitee.com/deepmoutains/kxby-release-detection/raw/master/data.txt";
 constexpr wchar_t UPDATE_DOWNLOAD_URL[] = L"https://wwbov.lanzout.com/b03ancytve";
 

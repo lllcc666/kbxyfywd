@@ -714,6 +714,19 @@ void HandleStartOneKeyActCommand(const std::wstring& msg,
     }
 }
 
+void HandleStartOneKeyAct717Command(const std::wstring& msg) {
+    HandleStartOneKeyActCommand(
+        msg,
+        L"score",
+        Act717::TARGET_SCORE,
+        0,
+        9999,
+        L"驱赶毒蚊：开始扫荡...",
+        L"驱赶毒蚊：开始游戏...",
+        L"驱赶毒蚊启动失败",
+        StartOneKeyAct717Packet);
+}
+
 void HandleStartOneKeyAct685Command(const std::wstring& msg) {
     HandleStartOneKeyActCommand(
         msg,
@@ -777,6 +790,19 @@ void HandleStartOneKeyAct641Command(const std::wstring& msg) {
         L"清除煞气：开始游戏...",
         L"清除煞气启动失败",
         StartOneKeyAct641Packet);
+}
+
+void HandleStartOneKeyAct684Command(const std::wstring& msg) {
+    HandleStartOneKeyActCommand(
+        msg,
+        L"score",
+        Act684::TARGET_SCORE,
+        Act684::PASS_SCORE,
+        Act684::MAX_SCORE,
+        L"土幻的曙光：开始扫荡...",
+        L"土幻的曙光：开始游戏...",
+        L"土幻的曙光启动失败",
+        StartOneKeyAct684Packet);
 }
 
 void HandleStartOneKeyAct805Command(const std::wstring& msg) {
@@ -1288,6 +1314,8 @@ public:
             HandleStopDungeonJumpCommand();
         } else if (msg.find(L"one_key_act666") != std::wstring::npos) {
             HandleStartOneKeyAct666Command(msg);
+        } else if (msg.find(L"one_key_act717") != std::wstring::npos) {
+            HandleStartOneKeyAct717Command(msg);
         } else if (msg.find(L"one_key_act685") != std::wstring::npos) {
             HandleStartOneKeyAct685Command(msg);
         } else if (msg.find(L"one_key_act757") != std::wstring::npos) {
@@ -1296,6 +1324,8 @@ public:
             HandleStartOneKeyAct808Command(msg);
         } else if (msg.find(L"one_key_act641") != std::wstring::npos) {
             HandleStartOneKeyAct641Command(msg);
+        } else if (msg.find(L"one_key_act684") != std::wstring::npos) {
+            HandleStartOneKeyAct684Command(msg);
         } else if (msg.find(L"one_key_act805") != std::wstring::npos) {
             HandleStartOneKeyAct805Command(msg);
         } else if (msg.find(L"one_key_act631") != std::wstring::npos) {

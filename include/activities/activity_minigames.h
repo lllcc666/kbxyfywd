@@ -66,6 +66,36 @@ BOOL SendAct641SweepPacket();
 BOOL StartOneKeyAct641Packet(bool useSweep = false, int targetScore = Act641::TARGET_SCORE);
 void ProcessAct641Response(const GamePacket& packet);
 
+namespace Act684 {
+constexpr int ACTIVITY_ID = 684;
+constexpr int PASS_SCORE = 2000;
+constexpr int MAX_SCORE = 3000;
+constexpr int TARGET_SCORE = PASS_SCORE;
+}  // namespace Act684
+
+BOOL SendAct684Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
+BOOL SendAct684OpenUIPacket();
+BOOL SendAct684StartGamePacket(int ruleFlag = 0);
+BOOL SendAct684EndGamePacket(int score);
+BOOL SendAct684SweepInfoPacket();
+BOOL SendAct684SweepPacket();
+BOOL StartOneKeyAct684Packet(bool useSweep = false, int targetScore = Act684::TARGET_SCORE);
+void ProcessAct684Response(const GamePacket& packet);
+
+namespace Act717 {
+constexpr int ACTIVITY_ID = 717;
+constexpr int TARGET_SCORE = 200;
+}  // namespace Act717
+
+BOOL SendAct717Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
+BOOL SendAct717OpenUIPacket();
+BOOL SendAct717StartGamePacket(int promptFlag = 0);
+BOOL SendAct717EndGamePacket(int score);
+BOOL SendAct717SweepInfoPacket();
+BOOL SendAct717SweepPacket();
+BOOL StartOneKeyAct717Packet(bool useSweep = false, int targetScore = Act717::TARGET_SCORE);
+void ProcessAct717Response(const GamePacket& packet);
+
 namespace Act805 {
 constexpr int ACTIVITY_ID = 805;
 constexpr int TARGET_SCORE = 350;
