@@ -18,9 +18,7 @@
 #include <map>
 #include <unordered_map>
 #include <fstream>
-#include <cstdarg>
 #include <thread>
-#include <queue>
 #include <random>
 #include <cctype>
 #include <chrono>
@@ -132,68 +130,6 @@ struct Md5FaceEntry {
     const char* md5;
     int face;
 };
-
-bool TryParseUInt32Decimal(const std::string& text, uint32_t& value) {
-    if (text.empty()) {
-        return false;
-    }
-
-    size_t start = 0;
-    while (start < text.size() && std::isspace(static_cast<unsigned char>(text[start]))) {
-        ++start;
-    }
-    if (start >= text.size()) {
-        return false;
-    }
-
-    char* end = nullptr;
-    const char* begin = text.c_str() + start;
-    unsigned long parsed = std::strtoul(begin, &end, 10);
-    if (end == begin) {
-        return false;
-    }
-
-    while (*end != '\0' && std::isspace(static_cast<unsigned char>(*end))) {
-        ++end;
-    }
-    if (*end != '\0' && *end != ',' && *end != '}' && *end != ']') {
-        return false;
-    }
-
-    value = static_cast<uint32_t>(parsed);
-    return true;
-}
-
-bool TryParseIntDecimal(const std::string& text, int& value) {
-    if (text.empty()) {
-        return false;
-    }
-
-    size_t start = 0;
-    while (start < text.size() && std::isspace(static_cast<unsigned char>(text[start]))) {
-        ++start;
-    }
-    if (start >= text.size()) {
-        return false;
-    }
-
-    char* end = nullptr;
-    const char* begin = text.c_str() + start;
-    long parsed = std::strtol(begin, &end, 10);
-    if (end == begin) {
-        return false;
-    }
-
-    while (*end != '\0' && std::isspace(static_cast<unsigned char>(*end))) {
-        ++end;
-    }
-    if (*end != '\0' && *end != ',' && *end != '}' && *end != ']') {
-        return false;
-    }
-
-    value = static_cast<int>(parsed);
-    return true;
-}
 
 // ============================================================================
 // 内部命名空间 - 封装实现细节
@@ -410,19 +346,6 @@ static std::vector<int> g_act811AwardList;
 // -------------------------
 // 调试日志函数
 // -------------------------
-
-static bool ReadLengthPrefixedString(const std::vector<BYTE>& body, size_t& offset, std::string& value) {
-    if (offset + 2 > body.size()) return false;
-
-    const BYTE* data = body.data();
-    uint16_t len = static_cast<uint16_t>(data[offset] | (data[offset + 1] << 8));
-    offset += 2;
-    if (offset + len > body.size()) return false;
-
-    value.assign(reinterpret_cast<const char*>(data + offset), len);
-    offset += len;
-    return true;
-}
 
 static BOOL SendActivityPacket(uint32_t activityId, const std::string& operation, const std::vector<int32_t>& bodyValues = {}) {
     std::vector<BYTE> packet = BuildActivityPacket(Opcode::ACTIVITY_QINGYANG_NEW_SEND, activityId, operation, bodyValues);
@@ -1340,7 +1263,7 @@ BOOL StartOneKeyAct685Packet(bool useSweep) {
 void ProcessAct685Response(const GamePacket& packet) {
     size_t offset = 0;
     std::string operation;
-    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+    if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, operation)) {
         return;
     }
 
@@ -1610,7 +1533,7 @@ BOOL StartOneKeyAct666Packet(bool useSweep) {
 void ProcessAct666Response(const GamePacket& packet) {
     size_t offset = 0;
     std::string operation;
-    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+    if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, operation)) {
         return;
     }
 
@@ -1962,7 +1885,7 @@ BOOL StartOneKeyAct822Packet(bool useSweep, int targetScore) {
 void ProcessAct822Response(const GamePacket& packet) {
     size_t offset = 0;
     std::string operation;
-    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+    if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, operation)) {
         return;
     }
 
@@ -2395,7 +2318,7 @@ BOOL StartOneKeyAct826Packet(bool useSweep) {
 void ProcessAct826Response(const GamePacket& packet) {
     size_t offset = 0;
     std::string operation;
-    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+    if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, operation)) {
         return;
     }
 
@@ -2705,7 +2628,7 @@ BOOL StartOneKeyAct827Packet(bool useSweep) {
 void ProcessAct827Response(const GamePacket& packet) {
     size_t offset = 0;
     std::string operation;
-    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+    if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, operation)) {
         return;
     }
 
@@ -2984,7 +2907,7 @@ BOOL StartOneKeyAct641Packet(bool useSweep, int targetScore) {
 void ProcessAct641Response(const GamePacket& packet) {
     size_t offset = 0;
     std::string operation;
-    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+    if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, operation)) {
         return;
     }
 
@@ -3341,7 +3264,7 @@ BOOL StartOneKeyAct810Packet(bool useSweep) {
 void ProcessAct810Response(const GamePacket& packet) {
     size_t offset = 0;
     std::string operation;
-    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+    if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, operation)) {
         return;
     }
 
@@ -3629,7 +3552,7 @@ BOOL StartOneKeyAct684Packet(bool useSweep, int targetScore) {
 void ProcessAct684Response(const GamePacket& packet) {
     size_t offset = 0;
     std::string operation;
-    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+    if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, operation)) {
         return;
     }
 
@@ -3871,7 +3794,7 @@ BOOL StartOneKeyAct717Packet(bool useSweep, int targetScore) {
 void ProcessAct717Response(const GamePacket& packet) {
     size_t offset = 0;
     std::string operation;
-    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+    if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, operation)) {
         return;
     }
 
@@ -4125,7 +4048,7 @@ BOOL StartOneKeyAct805Packet(bool useSweep, int targetScore) {
 void ProcessAct805Response(const GamePacket& packet) {
     size_t offset = 0;
     std::string operation;
-    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+    if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, operation)) {
         return;
     }
 
@@ -4470,7 +4393,7 @@ BOOL StartOneKeyAct757Packet(bool useSweep) {
 void ProcessAct757Response(const GamePacket& packet) {
     size_t offset = 0;
     std::string operation;
-    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+    if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, operation)) {
         return;
     }
 
@@ -4858,7 +4781,7 @@ BOOL StartOneKeyAct631Packet(bool useSweep) {
 void ProcessAct631Response(const GamePacket& packet) {
     size_t offset = 0;
     std::string operation;
-    if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+    if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, operation)) {
         return;
     }
 
@@ -5289,7 +5212,7 @@ void ProcessAct631Response(const GamePacket& packet) {
     void ProcessAct808Response(const GamePacket& packet) {
         size_t offset = 0;
         std::string operation;
-        if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+        if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, operation)) {
             return;
         }
 
@@ -5584,7 +5507,7 @@ void ProcessAct631Response(const GamePacket& packet) {
     void ProcessAct782Response(const GamePacket& packet) {
         size_t offset = 0;
         std::string operation;
-        if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+        if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, operation)) {
             return;
         }
 
@@ -5879,7 +5802,7 @@ void ProcessAct631Response(const GamePacket& packet) {
     void ProcessAct804Response(const GamePacket& packet) {
         size_t offset = 0;
         std::string operation;
-        if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+        if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, operation)) {
             return;
         }
 
@@ -5948,7 +5871,7 @@ void ProcessAct631Response(const GamePacket& packet) {
                 g_act804SweepAvailable = (score > 0);
                 if (g_act804SweepAvailable.load()) {
                     std::string jsonStr;
-                    ReadLengthPrefixedString(packet.body, offset, jsonStr);
+                    ReadPacketString(packet.body.data(), packet.body.size(), offset, jsonStr);
                     UIBridge::Instance().UpdateHelperText(L"逆流的试炼：扫荡预览已获取");
                 } else {
                     UIBridge::Instance().UpdateHelperText(L"逆流的试炼：当前不可扫荡");
@@ -5963,7 +5886,7 @@ void ProcessAct631Response(const GamePacket& packet) {
                 const int score = ReadInt32LE(body, offset);
                 const int coin = ReadInt32LE(body, offset);
                 std::string jsonStr;
-                if (ReadLengthPrefixedString(packet.body, offset, jsonStr)) {
+                if (ReadPacketString(packet.body.data(), packet.body.size(), offset, jsonStr)) {
                     (void)jsonStr;
                 }
                 g_act804PlayCount = restPlayCount;
@@ -6259,7 +6182,7 @@ void ProcessAct631Response(const GamePacket& packet) {
     void ProcessAct811Response(const GamePacket& packet) {
         size_t offset = 0;
         std::string operation;
-        if (!ReadLengthPrefixedString(packet.body, offset, operation)) {
+        if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, operation)) {
             return;
         }
 
@@ -6509,7 +6432,7 @@ void ProcessAct631Response(const GamePacket& packet) {
     void ProcessAct778Response(const GamePacket& packet) {
         size_t offset = 0;
         std::string operation;
-        if (!ReadLengthPrefixedString(packet.body, offset, operation)) return;
+        if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, operation)) return;
         const BYTE* body = packet.body.data();
         
         ACT778_STATE.waitingResponse = false;
@@ -8153,7 +8076,7 @@ DWORD WINAPI DecomposeThreadProc(LPVOID lpParam) {
 
         // 将字符串索引转换为整数
         int indexValue = 0;
-        if (!TryParseIntDecimal(indexStr, indexValue)) {
+        if (!TryParseInt32Decimal(indexStr, indexValue)) {
             allSuccess = FALSE;
             continue;
         }

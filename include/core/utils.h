@@ -38,6 +38,9 @@ std::string WideToUtf8(const std::wstring& wide);
  */
 std::wstring MultiToWide(const std::string& bytes, unsigned int codepage);
 
+bool TryParseInt32Decimal(const std::string& text, int32_t& value);
+bool TryParseUInt32Decimal(const std::string& text, uint32_t& value);
+
 // ============================================================================
 // RAII 临界区锁
 // ============================================================================

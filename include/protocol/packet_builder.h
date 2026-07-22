@@ -153,8 +153,6 @@ private:
     // Body 缓冲区
     std::vector<uint8_t> m_body;  ///< Body 数据
 
-    // 状态标志
-    bool m_headerSet;     ///< 头部是否已设置
 };
 
 // ================================

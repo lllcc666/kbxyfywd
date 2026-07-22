@@ -12,6 +12,7 @@
 
 #include <map>
 
+#include "window_messages.h"
 #include "packet_types.h"
 
 typedef struct _PACKET {
@@ -54,13 +55,13 @@ constexpr DWORD TIMEOUT_RETRY_INTERVAL = 500;
 
 }
 
-#define WM_EXECUTE_JS           (WM_USER + 101)
+#define WM_EXECUTE_JS           AppMessage::kExecuteJs
 
-#define WM_DECOMPOSE_COMPLETE   (WM_USER + 102)
+#define WM_DECOMPOSE_COMPLETE   AppMessage::kDecomposeComplete
 
-#define WM_DECOMPOSE_HEX_PACKET (WM_USER + 103)
+#define WM_DECOMPOSE_HEX_PACKET AppMessage::kDecomposeHexPacket
 
-#define WM_DAILY_TASK_COMPLETE  (WM_USER + 104)
+#define WM_DAILY_TASK_COMPLETE  AppMessage::kDailyTaskComplete
 
 BOOL InitializeHooks();
 

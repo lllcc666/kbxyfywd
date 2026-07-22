@@ -2,6 +2,8 @@
 #include <windows.h>
 #include <string>
 #include <vector>
+#include <cctype>
+#include <cstdlib>
 
 // 将UTF-8字符串转换为宽字符字符串
 std::wstring Utf8ToWide(const std::string& utf8)
@@ -81,4 +83,48 @@ std::wstring MultiToWide(const std::string& bytes, unsigned int codepage)
         return std::wstring();
     }
     return std::wstring(wideBuffer.data());
+}
+
+namespace {
+
+template <typename ParsedType, typename ParseFunction>
+bool TryParseDecimal(const std::string& text, ParsedType& value, ParseFunction parseFunction) {
+    if (text.empty()) {
+        return false;
+    }
+
+    size_t start = 0;
+    while (start < text.size() && std::isspace(static_cast<unsigned char>(text[start]))) {
+        ++start;
+    }
+    if (start == text.size()) {
+        return false;
+    }
+
+    char* end = nullptr;
+    const char* begin = text.c_str() + start;
+    const auto parsed = parseFunction(begin, &end, 10);
+    if (end == begin) {
+        return false;
+    }
+
+    while (*end != '\0' && std::isspace(static_cast<unsigned char>(*end))) {
+        ++end;
+    }
+    if (*end != '\0' && *end != ',' && *end != '}' && *end != ']') {
+        return false;
+    }
+
+    value = static_cast<ParsedType>(parsed);
+    return true;
+}
+
+}  // namespace
+
+bool TryParseInt32Decimal(const std::string& text, int32_t& value) {
+    return TryParseDecimal(text, value, std::strtol);
+}
+
+bool TryParseUInt32Decimal(const std::string& text, uint32_t& value) {
+    return TryParseDecimal(text, value, std::strtoul);
 }

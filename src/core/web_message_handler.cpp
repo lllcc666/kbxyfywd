@@ -7,6 +7,7 @@
 #include <atomic>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "battle_six.h"
@@ -192,34 +193,9 @@ void ClearPacketListView() {
 void ParseIndicesArray(const std::wstring& msg, std::vector<DWORD>& indices);
 void ParseUInt32Array(const std::wstring& msg, const std::wstring& key, std::vector<uint32_t>& values);
 
-struct SendRawPacketThreadData {
-    std::vector<BYTE> data;
-};
-
-template <typename ThreadData>
-HANDLE LaunchDetachedWorkerThread(ThreadData* data, LPTHREAD_START_ROUTINE worker) {
-    HANDLE hThread = CreateThread(nullptr, 0, worker, data, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
-    } else {
-        delete data;
-    }
-    return hThread;
-}
-
 template <typename Func, typename... Args>
 void LaunchDetachedStdThread(Func func, Args... args) {
-    std::thread(func, args...).detach();
-}
-
-DWORD WINAPI HandleSendRawPacketWorker(LPVOID lpParam) {
-    SendRawPacketThreadData* pD = static_cast<SendRawPacketThreadData*>(lpParam);
-    BOOL result = SendPacket(0, pD->data.data(), static_cast<DWORD>(pD->data.size()));
-    if (!result) {
-        SetHelperText(L"封包发送失败：未连接到游戏服务器");
-    }
-    delete pD;
-    return 0;
+    std::thread(std::move(func), std::forward<Args>(args)...).detach();
 }
 
 void HandleSendRawPacketCommand(const std::wstring& msg) {
@@ -229,8 +205,13 @@ void HandleSendRawPacketCommand(const std::wstring& msg) {
         return;
     }
 
-    SendRawPacketThreadData* pData = new SendRawPacketThreadData{StringToHex(WideToUtf8(hexW))};
-    LaunchDetachedWorkerThread(pData, HandleSendRawPacketWorker);
+    auto data = StringToHex(WideToUtf8(hexW));
+    LaunchDetachedStdThread([data = std::move(data)]() {
+        const BOOL result = SendPacket(0, data.data(), static_cast<DWORD>(data.size()));
+        if (!result) {
+            SetHelperText(L"封包发送失败：未连接到游戏服务器");
+        }
+    });
 }
 
 void HandlePacketWindowVisibilityChanged(const std::wstring& msg) {
@@ -544,8 +525,6 @@ void HandleStartOneKeyXuanttaCommand() {
         L"一键玄塔启动失败，可能已经在运行或未进入游戏");
 }
 
-DWORD WINAPI HandleBattleSixAutoMatchWorker(LPVOID param);
-
 void HandleStartBattleSixAutoMatchCommand(const std::wstring& msg) {
     const std::wstring matchCountStr = GetTrimmedJsonValue(msg, L"matchCount");
     int matchCount = 1;
@@ -553,8 +532,9 @@ void HandleStartBattleSixAutoMatchCommand(const std::wstring& msg) {
     wchar_t startMsg[128];
     swprintf_s(startMsg, L"万妖盛会：开始匹配（共%d次）...", matchCount);
     SetHelperText(startMsg);
-    int* pMatchCount = new int(matchCount);
-    LaunchDetachedWorkerThread(pMatchCount, HandleBattleSixAutoMatchWorker);
+    LaunchDetachedStdThread([matchCount]() {
+        StartOneKeyBattleSixPacket(matchCount);
+    });
 }
 
 void HandleSetBattleSixAutoBattleEnabledCommand(const std::wstring& msg) {
@@ -565,36 +545,19 @@ void HandleSetBattleSixAutoBattleEnabledCommand(const std::wstring& msg) {
     SetHelperText(enabled ? L"万妖盛会：自动战斗已启用" : L"万妖盛会：自动战斗已禁用");
 }
 
-DWORD WINAPI HandleBattleSixAutoMatchWorker(LPVOID param) {
-    int* matchCount = static_cast<int*>(param);
-    int count = *matchCount;
-    delete matchCount;
-    StartOneKeyBattleSixPacket(count);
-    return 0;
-}
-
-DWORD WINAPI HandleDungeonJumpWorker(LPVOID param);
-
 void HandleStartDungeonJumpCommand(const std::wstring& msg) {
     const std::wstring layerStr = GetTrimmedJsonValue(msg, L"targetLayer");
     int targetLayer = 1;
     TryParseIntInRangeLocal(layerStr, 1, 9999, 1, targetLayer);
     UpdateDungeonJumpStatus(std::wstring(L"副本跳层：准备跳转到第") + std::to_wstring(targetLayer) + L"层...");
-    int* pTargetLayer = new int(targetLayer);
-    LaunchDetachedWorkerThread(pTargetLayer, HandleDungeonJumpWorker);
+    LaunchDetachedStdThread([targetLayer]() {
+        StartOneKeyDungeonJumpPacket(targetLayer);
+    });
 }
 
 void HandleStopDungeonJumpCommand() {
     StopDungeonJump();
     UpdateDungeonJumpStatus(L"副本跳层：已停止");
-}
-
-DWORD WINAPI HandleDungeonJumpWorker(LPVOID param) {
-    int* targetLayer = static_cast<int*>(param);
-    int layer = *targetLayer;
-    delete targetLayer;
-    StartOneKeyDungeonJumpPacket(layer);
-    return 0;
 }
 
 void HandleHorseCompetitionProgressCommand(const std::wstring& progress) {

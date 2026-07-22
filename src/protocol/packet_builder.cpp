@@ -15,7 +15,6 @@ PacketBuilder::PacketBuilder()
     : m_magic(PacketProtocol::MAGIC_NORMAL)  // 默认 0x5344 "SD"
     , m_opcode(0)
     , m_params(0)
-    , m_headerSet(false)
 {
     m_body.reserve(256);  // 预分配空间
 }
@@ -26,19 +25,16 @@ PacketBuilder::PacketBuilder()
 
 PacketBuilder& PacketBuilder::SetMagic(uint16_t magic) {
     m_magic = magic;
-    m_headerSet = true;
     return *this;
 }
 
 PacketBuilder& PacketBuilder::SetOpcode(uint32_t opcode) {
     m_opcode = opcode;
-    m_headerSet = true;
     return *this;
 }
 
 PacketBuilder& PacketBuilder::SetParams(uint32_t params) {
     m_params = params;
-    m_headerSet = true;
     return *this;
 }
 
@@ -148,7 +144,6 @@ void PacketBuilder::Reset() {
     m_opcode = 0;
     m_params = 0;
     m_body.clear();
-    m_headerSet = false;
 }
 
 // ============================================================================

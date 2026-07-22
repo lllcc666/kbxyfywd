@@ -3,14 +3,13 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <cctype>
-#include <cstdlib>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "activity_states_internal.h"
 #include "packet_builder.h"
+#include "utils.h"
 
 extern bool PostScriptToUI(const std::wstring& jsCode);
 
@@ -20,68 +19,6 @@ namespace {
 std::thread g_horseGameThread;
 std::atomic<bool> g_horseGameRunning{false};
 HorseProgressCallback g_horseProgressCallback = nullptr;
-
-bool TryParseUInt32Decimal(const std::string& text, uint32_t& value) {
-    if (text.empty()) {
-        return false;
-    }
-
-    size_t start = 0;
-    while (start < text.size() && std::isspace(static_cast<unsigned char>(text[start]))) {
-        ++start;
-    }
-    if (start >= text.size()) {
-        return false;
-    }
-
-    char* end = nullptr;
-    const char* begin = text.c_str() + start;
-    const unsigned long parsed = std::strtoul(begin, &end, 10);
-    if (end == begin) {
-        return false;
-    }
-
-    while (*end != '\0' && std::isspace(static_cast<unsigned char>(*end))) {
-        ++end;
-    }
-    if (*end != '\0' && *end != ',' && *end != '}' && *end != ']') {
-        return false;
-    }
-
-    value = static_cast<uint32_t>(parsed);
-    return true;
-}
-
-bool TryParseIntDecimal(const std::string& text, int& value) {
-    if (text.empty()) {
-        return false;
-    }
-
-    size_t start = 0;
-    while (start < text.size() && std::isspace(static_cast<unsigned char>(text[start]))) {
-        ++start;
-    }
-    if (start >= text.size()) {
-        return false;
-    }
-
-    char* end = nullptr;
-    const char* begin = text.c_str() + start;
-    const long parsed = std::strtol(begin, &end, 10);
-    if (end == begin) {
-        return false;
-    }
-
-    while (*end != '\0' && std::isspace(static_cast<unsigned char>(*end))) {
-        ++end;
-    }
-    if (*end != '\0' && *end != ',' && *end != '}' && *end != ']') {
-        return false;
-    }
-
-    value = static_cast<int>(parsed);
-    return true;
-}
 
 void NotifyHorseProgress(const std::wstring& msg) {
     if (g_horseProgressCallback) {
@@ -363,7 +300,7 @@ int ExtractJsonInt(const std::string& json, const std::string& key) {
     const size_t pos = json.find("\"" + key + "\":");
     if (pos != std::string::npos) {
         int value = 0;
-        if (TryParseIntDecimal(json.substr(pos + key.length() + 3), value)) {
+        if (TryParseInt32Decimal(json.substr(pos + key.length() + 3), value)) {
             return value;
         }
     }
@@ -457,7 +394,7 @@ std::vector<int> ExtractItemDistances(const std::string& json) {
         }
 
         int value = 0;
-        if (TryParseIntDecimal(json.substr(pos + 11), value) && value > 0 && value < HorseCompetitionState::ROUTE_DISTANCE) {
+        if (TryParseInt32Decimal(json.substr(pos + 11), value) && value > 0 && value < HorseCompetitionState::ROUTE_DISTANCE) {
             distances.push_back(value);
         }
         searchPos = pos + 11;

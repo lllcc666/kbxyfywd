@@ -43,9 +43,6 @@ private:
 // Response dispatcher
 // ============================================================================
 
-using ResponseHandler = void (*)(const GamePacket&);
-using PacketProgressCallback = void (*)(DWORD, DWORD, const std::string&);
-
 class ResponseDispatcher {
 public:
     static ResponseDispatcher& Instance();
