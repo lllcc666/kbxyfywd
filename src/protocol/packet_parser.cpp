@@ -8,7 +8,10 @@
 #include "utils.h"
 #include <wininet.h>
 #include <cstdlib>
+#include <functional>
+#include <limits>
 #include <mutex>
+#include <sstream>
 #include <unordered_map>
 
 // 轻量级ZIP解压辅助函数（纯内存，使用已加载的zlib）
@@ -43,7 +46,11 @@ static PFN_INFLATEEND g_inflateEnd = nullptr;
 
 // minizip module and functions
 BattleData PacketParser::g_currentBattle;
-std::vector<uint8_t> PacketParser::g_recvBuffer;
+std::mutex PacketParser::g_battleMutex;
+std::unordered_map<uintptr_t, std::vector<uint8_t>> PacketParser::g_recvBuffers;
+std::unordered_map<uintptr_t, bool> PacketParser::g_lastReceiveCanRewrite;
+static std::mutex g_recvBuffersMutex;
+static std::mutex g_parserLifecycleMutex;
 
 // 全局数据映射表的互斥锁
 static std::mutex g_dataMapsMutex;
@@ -60,6 +67,59 @@ static std::unordered_map<int, std::wstring> g_bufNames;       // Buff 名称映
 static std::unordered_map<int, std::wstring> g_bufDescs;       // Buff 描述映射
 static std::wstring g_lastItemName;
 static std::wstring g_pendingRoundTip;
+
+class BoundedReader {
+public:
+    BoundedReader(const uint8_t* data, size_t size) : m_data(data), m_size(size), m_offset(0) {}
+
+    bool ReadI32(int32_t& value) {
+        if (!CanRead(sizeof(int32_t))) return false;
+        value = ReadInt32LE(m_data, m_offset);
+        return true;
+    }
+
+    bool ReadU32(uint32_t& value) {
+        if (!CanRead(sizeof(uint32_t))) return false;
+        value = ReadUInt32LE(m_data, m_offset);
+        return true;
+    }
+
+    bool ReadU16(uint16_t& value) {
+        if (!CanRead(sizeof(uint16_t))) return false;
+        value = ReadUInt16LE(m_data, m_offset);
+        return true;
+    }
+
+    bool Skip(size_t count) {
+        if (!CanRead(count)) return false;
+        m_offset += count;
+        return true;
+    }
+
+    bool CanRead(size_t count) const {
+        return count <= m_size - m_offset;
+    }
+
+    size_t Remaining() const { return m_size - m_offset; }
+    size_t Offset() const { return m_offset; }
+
+    bool ReadUtf8(std::wstring& value) {
+        uint16_t byteLength = 0;
+        if (!ReadU16(byteLength) || !CanRead(byteLength)) return false;
+        value = Utf8ToWide(std::string(reinterpret_cast<const char*>(m_data + m_offset), byteLength));
+        m_offset += byteLength;
+        return true;
+    }
+
+private:
+    const uint8_t* m_data;
+    size_t m_size;
+    size_t m_offset;
+};
+
+static bool IsBattleObserver() {
+    return g_userId.load() == 0;
+}
 
 // BOSS列表结构体和全局变量
 struct BossInfo {
@@ -355,6 +415,15 @@ static void ApplyBattleBufToPet(BattleEntity& pet, const BufData& sourceBuf) {
     buf.name = GetBufName(buf.bufId, buf.param1);
     buf.tipString = GetBufTipString(buf.bufId, buf.param1, buf.param2);
 
+    // Standalone type 4/5 are blood/recover events, not persistent Buff rows.
+    // Types 3/6 are PP append events and are likewise kept in the round record.
+    if (buf.addOrRemove == BufDataType::BUF_TYPE_3 ||
+        buf.addOrRemove == BufDataType::BUF_TYPE_4 ||
+        buf.addOrRemove == BufDataType::BUF_TYPE_5 ||
+        buf.addOrRemove == BufDataType::BUF_TYPE_6) {
+        return;
+    }
+
     if (buf.addOrRemove == BufDataType::BUF_TYPE_0) {
         for (auto it = pet.bufArr.begin(); it != pet.bufArr.end(); ) {
             if (it->bufId == buf.bufId) {
@@ -378,36 +447,8 @@ static void ApplyBattleBufToPet(BattleEntity& pet, const BufData& sourceBuf) {
         pet.bufArr.push_back(buf);
     }
 
-    if (buf.addOrRemove == BufDataType::BUF_TYPE_2 && buf.param1 != 0) {
-        bool isBloodChange = false;
-        for (int id : BufDataType::DEALADD_BLOOD_1) {
-            if (id == buf.bufId) {
-                isBloodChange = true;
-                break;
-            }
-        }
-        if (!isBloodChange) {
-            for (int id : BufDataType::DEALADD_BLOOD_2) {
-                if (id == buf.bufId) {
-                    isBloodChange = true;
-                    break;
-                }
-            }
-        }
-        if (isBloodChange) {
-            bool isDamage = false;
-            for (int id : BufDataType::DEALADD_BLOOD_1) {
-                if (id == buf.bufId) {
-                    isDamage = true;
-                    break;
-                }
-            }
-            int hpChange = isDamage ? -buf.param1 : buf.param1;
-            pet.hp += hpChange;
-            if (pet.hp < 0) pet.hp = 0;
-            if (pet.hp > pet.maxHp) pet.hp = pet.maxHp;
-        }
-    }
+    // HP changes are authoritative only when the protocol carries the resulting HP
+    // fields (for example BATTLE_ROUND). Do not derive HP from a Buff id/parameter.
 }
 
 static void RemoveBattleBufFromPet(BattleEntity& pet, int32_t bufId) {
@@ -424,6 +465,87 @@ static void ApplyBattleBufFromSid(int32_t sid, const BufData& bufData) {
     if (BattleEntity* pet = FindBattleEntityBySid(sid)) {
         ApplyBattleBufToPet(*pet, bufData);
     }
+}
+
+static BattleEntity* FindBattleEntityBySid(BattleData& battle, int32_t sid) {
+    for (auto& pet : battle.myPets) {
+        if (pet.sid == sid) return &pet;
+    }
+    for (auto& pet : battle.otherPets) {
+        if (pet.sid == sid) return &pet;
+    }
+    return nullptr;
+}
+
+static const BattleEntity* FindBattleEntityBySid(const BattleData& battle, int32_t sid) {
+    for (const auto& pet : battle.myPets) {
+        if (pet.sid == sid) return &pet;
+    }
+    for (const auto& pet : battle.otherPets) {
+        if (pet.sid == sid) return &pet;
+    }
+    return nullptr;
+}
+
+static void ApplyBattleBufToBattle(BattleData& battle, int32_t sid, const BufData& bufData) {
+    if (BattleEntity* pet = FindBattleEntityBySid(battle, sid)) {
+        ApplyBattleBufToPet(*pet, bufData);
+    }
+}
+
+static void RemoveBattleBufFromBattle(BattleData& battle, int32_t sid, int32_t bufId) {
+    if (BattleEntity* pet = FindBattleEntityBySid(battle, sid)) {
+        RemoveBattleBufFromPet(*pet, bufId);
+    }
+}
+
+static bool ReadBattleEntityAfterState(BoundedReader& reader, int32_t rawState, BattleEntity& pet) {
+    pet.rawState = rawState;
+    if (!reader.ReadI32(pet.sid) ||
+        !reader.ReadI32(pet.groupType) ||
+        !reader.ReadI32(pet.hp) ||
+        !reader.ReadI32(pet.maxHp) ||
+        !reader.ReadI32(pet.level) ||
+        !reader.ReadI32(pet.elem) ||
+        !reader.ReadI32(pet.spiritId) ||
+        !reader.ReadI32(pet.uniqueId) ||
+        !reader.ReadI32(pet.userId) ||
+        !reader.ReadI32(pet.skillNum)) {
+        return false;
+    }
+
+    if (pet.skillNum < 0 || pet.skillNum > 128) return false;
+    pet.state = (pet.rawState == 2) ? 1 : pet.rawState;
+    pet.skills.clear();
+    pet.skills.reserve(static_cast<size_t>(pet.skillNum));
+    for (int32_t i = 0; i < pet.skillNum; ++i) {
+        BattleSkill skill;
+        if (!reader.ReadU32(skill.id) ||
+            !reader.ReadI32(skill.time) ||
+            !reader.ReadI32(skill.maxTime)) {
+            return false;
+        }
+        skill.pp = skill.time;
+        skill.maxPp = skill.maxTime;
+        {
+            std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+            auto it = g_skillNames.find(static_cast<int>(skill.id));
+            if (it != g_skillNames.end()) skill.name = it->second;
+        }
+        pet.skills.push_back(std::move(skill));
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+        auto it = g_petNames.find(pet.spiritId);
+        if (it != g_petNames.end()) pet.name = it->second;
+    }
+    return true;
+}
+
+static bool ReadBattleEntity(BoundedReader& reader, BattleEntity& pet) {
+    int32_t rawState = 0;
+    return reader.ReadI32(rawState) && ReadBattleEntityAfterState(reader, rawState, pet);
 }
 
 static void ParseBattleBufList(const uint8_t* data, size_t& offset, size_t size) {
@@ -764,6 +886,7 @@ static void ParseMonsterNatureXml(const std::string& xml) {
 static void LoadHttpData();
 
 bool PacketParser::Initialize() {
+    std::lock_guard<std::mutex> lifecycleLock(g_parserLifecycleMutex);
     if (g_zlibModule) return true;
 
     // 内存加载 zlib.dll
@@ -797,6 +920,19 @@ bool PacketParser::Initialize() {
 }
 
 void PacketParser::Cleanup() {
+    std::lock_guard<std::mutex> lifecycleLock(g_parserLifecycleMutex);
+    {
+        std::lock_guard<std::mutex> lock(g_recvBuffersMutex);
+        g_recvBuffers.clear();
+        g_lastReceiveCanRewrite.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_battleMutex);
+        g_currentBattle = BattleData{};
+    }
+    g_pendingRoundTip.clear();
+    g_lastItemName.clear();
+    g_battleStarted = false;
     if (g_zlibModule) {
         MemoryFreeLibrary(g_zlibModule);
         g_zlibModule = nullptr;
@@ -860,110 +996,137 @@ bool PacketParser::UncompressBody(const std::vector<uint8_t>& compressed, std::v
     return false;
 }
 
-bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend, std::vector<GamePacket>& outPackets) {
+bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
+                                std::vector<GamePacket>& outPackets,
+                                uintptr_t streamId) {
+    outPackets.clear();
+    if (!data || size == 0) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lifecycleLock(g_parserLifecycleMutex);
+
+    auto decodePacketBody = [](GamePacket& packet) {
+        packet.bodyDecoded = true;
+        packet.body = packet.rawBody;
+        if (packet.magic != MAGIC_NUMBER_C) {
+            return;
+        }
+
+        std::vector<uint8_t> decompressed;
+        if (PacketParser::UncompressBody(packet.rawBody, decompressed)) {
+            packet.body = std::move(decompressed);
+            return;
+        }
+
+        // Framing is still valid, but semantic parsing must not consume compressed bytes.
+        packet.body.clear();
+        packet.bodyDecoded = false;
+    };
+
     if (bSend) {
         if (size < PacketProtocol::HEADER_SIZE) {
             return false;
         }
 
-        size_t hOffset = 0;
-        const uint16_t magic = ReadInt16LE(data, hOffset);
-        const uint16_t len = ReadInt16LE(data, hOffset);
+        const uint16_t magic = static_cast<uint16_t>(data[0]) |
+                               (static_cast<uint16_t>(data[1]) << 8);
+        const uint16_t bodyLength = static_cast<uint16_t>(data[2]) |
+                                    (static_cast<uint16_t>(data[3]) << 8);
         if (magic != MAGIC_NUMBER_D && magic != MAGIC_NUMBER_C) {
             return false;
         }
-        if (size < PacketProtocol::HEADER_SIZE + len) {
+        const size_t packetSize = PacketProtocol::HEADER_SIZE + bodyLength;
+        if (packetSize > size) {
             return false;
         }
 
         GamePacket packet;
         packet.magic = magic;
-        packet.length = len;
-        packet.bSend = bSend;
-        packet.opcode = ReadInt32LE(data, hOffset);
-        packet.params = ReadInt32LE(data, hOffset);
-        packet.body.assign(data + hOffset, data + hOffset + len);
-        packet.rawBody = packet.body;
-
-        if (magic == MAGIC_NUMBER_C) {
-            std::vector<uint8_t> decompressed;
-            if (UncompressBody(packet.body, decompressed)) {
-                packet.body = std::move(decompressed);
-            }
-        }
-
+        packet.length = bodyLength;
+        packet.bSend = TRUE;
+        size_t offset = 4;
+        packet.opcode = static_cast<uint32_t>(ReadInt32LE(data, offset));
+        packet.params = static_cast<uint32_t>(ReadInt32LE(data, offset));
+        packet.rawBody.assign(data + offset, data + offset + bodyLength);
+        decodePacketBody(packet);
         outPackets.push_back(std::move(packet));
         return true;
     }
 
-    if (size == 0) {
+    constexpr size_t kMaxReceiveBuffer = 4 * 1024 * 1024;
+    std::lock_guard<std::mutex> lock(g_recvBuffersMutex);
+    std::vector<uint8_t>& buffer = g_recvBuffers[streamId];
+    const bool hadPendingBytes = !buffer.empty();
+
+    if (buffer.size() > kMaxReceiveBuffer || size > kMaxReceiveBuffer ||
+        buffer.size() + size > kMaxReceiveBuffer) {
+        buffer.clear();
+        g_lastReceiveCanRewrite[streamId] = false;
         return false;
     }
-
-    const size_t newSize = g_recvBuffer.size() + size;
-    if (g_recvBuffer.capacity() < newSize) {
-        g_recvBuffer.reserve((std::max)(newSize, g_recvBuffer.capacity() * 2));
-    }
-    g_recvBuffer.insert(g_recvBuffer.end(), data, data + size);
-
-    if (g_recvBuffer.size() < PacketProtocol::HEADER_SIZE) {
-        return false;
-    }
+    buffer.insert(buffer.end(), data, data + size);
 
     size_t readOffset = 0;
-    const size_t dataSize = g_recvBuffer.size();
     bool foundAny = false;
-
-    while (readOffset + PacketProtocol::HEADER_SIZE <= dataSize) {
-        const uint16_t magic = static_cast<uint16_t>(g_recvBuffer[readOffset]) |
-                               (static_cast<uint16_t>(g_recvBuffer[readOffset + 1]) << 8);
+    while (buffer.size() - readOffset >= PacketProtocol::HEADER_SIZE) {
+        const uint16_t magic = static_cast<uint16_t>(buffer[readOffset]) |
+                               (static_cast<uint16_t>(buffer[readOffset + 1]) << 8);
         if (magic != MAGIC_NUMBER_D && magic != MAGIC_NUMBER_C) {
-            g_recvBuffer.clear();
+            // AS3 PacketBuffer.getPackets() drops the accumulated buffer on an
+            // invalid frame magic; it does not scan forward for a later magic.
+            buffer.clear();
+            g_lastReceiveCanRewrite[streamId] = false;
             return foundAny;
         }
 
-        const uint16_t len = static_cast<uint16_t>(g_recvBuffer[readOffset + 2]) |
-                             (static_cast<uint16_t>(g_recvBuffer[readOffset + 3]) << 8);
-        const size_t packetSize = PacketProtocol::HEADER_SIZE + len;
-        if (readOffset + packetSize > dataSize) {
+        const uint16_t bodyLength = static_cast<uint16_t>(buffer[readOffset + 2]) |
+                                    (static_cast<uint16_t>(buffer[readOffset + 3]) << 8);
+        const size_t packetSize = PacketProtocol::HEADER_SIZE + bodyLength;
+        if (buffer.size() - readOffset < packetSize) {
             break;
         }
 
         GamePacket packet;
         packet.magic = magic;
-        packet.length = len;
+        packet.length = bodyLength;
         packet.bSend = FALSE;
-        packet.opcode = static_cast<uint32_t>(g_recvBuffer[readOffset + 4]) |
-                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 5]) << 8) |
-                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 6]) << 16) |
-                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 7]) << 24);
-        packet.params = static_cast<uint32_t>(g_recvBuffer[readOffset + 8]) |
-                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 9]) << 8) |
-                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 10]) << 16) |
-                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 11]) << 24);
-
+        packet.opcode = static_cast<uint32_t>(buffer[readOffset + 4]) |
+                        (static_cast<uint32_t>(buffer[readOffset + 5]) << 8) |
+                        (static_cast<uint32_t>(buffer[readOffset + 6]) << 16) |
+                        (static_cast<uint32_t>(buffer[readOffset + 7]) << 24);
+        packet.params = static_cast<uint32_t>(buffer[readOffset + 8]) |
+                        (static_cast<uint32_t>(buffer[readOffset + 9]) << 8) |
+                        (static_cast<uint32_t>(buffer[readOffset + 10]) << 16) |
+                        (static_cast<uint32_t>(buffer[readOffset + 11]) << 24);
         const size_t bodyStart = readOffset + PacketProtocol::HEADER_SIZE;
-        const size_t bodyEnd = bodyStart + len;
-        packet.rawBody.assign(g_recvBuffer.begin() + bodyStart, g_recvBuffer.begin() + bodyEnd);
-        packet.body = packet.rawBody;
-
-        if (magic == MAGIC_NUMBER_C) {
-            std::vector<uint8_t> decompressed;
-            if (UncompressBody(packet.body, decompressed)) {
-                packet.body = std::move(decompressed);
-            }
-        }
-
+        packet.rawBody.assign(buffer.begin() + bodyStart,
+                              buffer.begin() + bodyStart + bodyLength);
+        decodePacketBody(packet);
         outPackets.push_back(std::move(packet));
         foundAny = true;
         readOffset += packetSize;
     }
 
     if (readOffset > 0) {
-        g_recvBuffer.erase(g_recvBuffer.begin(), g_recvBuffer.begin() + readOffset);
+        buffer.erase(buffer.begin(), buffer.begin() + readOffset);
     }
 
+    g_lastReceiveCanRewrite[streamId] = !hadPendingBytes && buffer.empty() &&
+                                        readOffset == size;
     return foundAny;
+}
+
+bool PacketParser::CanRewriteReceive(uintptr_t streamId) {
+    std::lock_guard<std::mutex> lock(g_recvBuffersMutex);
+    const auto it = g_lastReceiveCanRewrite.find(streamId);
+    return it != g_lastReceiveCanRewrite.end() && it->second;
+}
+
+void PacketParser::ResetReceiveStream(uintptr_t streamId) {
+    std::lock_guard<std::mutex> lock(g_recvBuffersMutex);
+    g_recvBuffers.erase(streamId);
+    g_lastReceiveCanRewrite.erase(streamId);
 }
 
 void PacketParser::SendToUI(const std::wstring& type, const std::wstring& data) {
@@ -1092,6 +1255,7 @@ std::wstring GetMapName(int mapId) {
 }
 
 void PacketParser::UpdateUIBattleData() {
+    std::lock_guard<std::mutex> battleLock(g_battleMutex);
     if (!g_hWnd) {
         // 使用正确的窗口类名
         g_hWnd = FindWindowW(L"WebView2DemoWindowClass", nullptr);
@@ -1118,6 +1282,10 @@ void PacketParser::UpdateUIBattleData() {
                   L",\"userId\":" + std::to_wstring(p.userId) +
                   L",\"groupType\":" + std::to_wstring(p.groupType) +
                   L",\"state\":" + std::to_wstring(p.state) +
+                  L",\"rawState\":" + std::to_wstring(p.rawState) +
+                  L",\"mNum\":" + std::to_wstring(p.mNum) +
+                  L",\"hasMNum\":" + std::wstring(p.hasMNum ? L"true" : L"false") +
+                  L",\"placeholder\":" + std::wstring(p.placeholder ? L"true" : L"false") +
                   L",\"hp\":" + std::to_wstring(p.hp) + 
                   L",\"maxHp\":" + std::to_wstring(p.maxHp) + 
                   L",\"level\":" + std::to_wstring(p.level) + 
@@ -1161,6 +1329,10 @@ void PacketParser::UpdateUIBattleData() {
                   L",\"userId\":" + std::to_wstring(p.userId) +
                   L",\"groupType\":" + std::to_wstring(p.groupType) +
                   L",\"state\":" + std::to_wstring(p.state) +
+                  L",\"rawState\":" + std::to_wstring(p.rawState) +
+                  L",\"mNum\":" + std::to_wstring(p.mNum) +
+                  L",\"hasMNum\":" + std::wstring(p.hasMNum ? L"true" : L"false") +
+                  L",\"placeholder\":" + std::wstring(p.placeholder ? L"true" : L"false") +
                   L",\"hp\":" + std::to_wstring(p.hp) + 
                   L",\"maxHp\":" + std::to_wstring(p.maxHp) + 
                   L",\"level\":" + std::to_wstring(p.level) + 
@@ -1300,7 +1472,854 @@ void PacketParser::ProcessLingyuPacket(const GamePacket& packet) {
     UIBridge::Instance().ExecuteJS(jsCode);
 }
 
+void PacketParser::ReplaceCurrentBattle(BattleData battle) {
+    std::lock_guard<std::mutex> lock(g_battleMutex);
+    g_currentBattle = std::move(battle);
+}
+
+void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
+    if (packet.bSend || !packet.bodyDecoded) return;
+
+    const int32_t params = static_cast<int32_t>(packet.params);
+    const uint8_t* data = packet.body.data();
+    const size_t size = packet.body.size();
+
+    auto entityLabel = [](const BattleEntity& pet) {
+        if (pet.placeholder) return std::wstring(L"待揭示妖怪");
+        return pet.name.empty() ? (std::wstring(L"妖怪") + std::to_wstring(pet.spiritId)) : pet.name;
+    };
+    auto entityLabelBySid = [&](const BattleData& battle, int32_t sid) {
+        if (const BattleEntity* pet = FindBattleEntityBySid(battle, sid)) {
+            return entityLabel(*pet);
+        }
+        return sid == 0 ? std::wstring(L"未知妖怪") : (std::wstring(L"妖怪") + std::to_wstring(sid));
+    };
+    auto skillLabel = [](int32_t skillId) {
+        std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+        const auto it = g_skillNames.find(skillId);
+        return it != g_skillNames.end() ? it->second : (std::wstring(L"技能") + std::to_wstring(skillId));
+    };
+    auto flushPendingTip = []() {
+        if (!g_pendingRoundTip.empty()) {
+            PacketParser::SendToUI(L"回合", g_pendingRoundTip);
+            g_pendingRoundTip.clear();
+        }
+    };
+    auto sendJson = [](const wchar_t* type, const std::wstring& json) {
+        PacketParser::SendToUI(type, json);
+    };
+    auto sendPrompt = [](const wchar_t* type, const std::wstring& prompt) {
+        if (!prompt.empty()) PacketParser::SendToUI(type, prompt);
+    };
+    auto setHpBySid = [](BattleData& battle, int32_t sid, int32_t hp) {
+        if (BattleEntity* pet = FindBattleEntityBySid(battle, sid)) {
+            pet->hp = hp;
+        }
+    };
+    if (packet.opcode == OPCODE_BATTLE_START) {
+        if (params < 0) return;
+
+        const int32_t localUserId = static_cast<int32_t>(g_userId.load());
+        const bool observer = localUserId == 0;
+        BattleData parsedBattle;
+        bool parsed = false;
+        std::function<bool(BoundedReader, int32_t, BattleData)> parseEntities;
+        parseEntities = [&](BoundedReader reader, int32_t state, BattleData battle) -> bool {
+            if (state == -1) {
+                int32_t escape = 0;
+                if (!reader.ReadI32(escape) || reader.Remaining() != 0) return false;
+                battle.escape = escape;
+                parsedBattle = std::move(battle);
+                return true;
+            }
+            if (battle.myPets.size() + battle.otherPets.size() >= 256) return false;
+
+            BattleEntity pet;
+            if (!ReadBattleEntityAfterState(reader, state, pet)) return false;
+            const bool isMy = observer ? pet.groupType == 1 : pet.userId == localUserId;
+            pet.mySpirit = isMy;
+
+            BattleData base = std::move(battle);
+            auto appendPet = [&](BattleData candidate, const BattleEntity& entity) {
+                if (entity.state == 1) {
+                    if (entity.mySpirit) {
+                        candidate.myActiveIndex = static_cast<int32_t>(candidate.myPets.size());
+                    } else {
+                        candidate.otherActiveIndex = static_cast<int32_t>(candidate.otherPets.size());
+                    }
+                }
+                if (entity.mySpirit) candidate.myPets.push_back(entity);
+                else candidate.otherPets.push_back(entity);
+                return candidate;
+            };
+            auto appendMNumPlaceholders = [](BattleData candidate, const BattleEntity& entity) {
+                if (!entity.hasMNum || entity.mNum <= 1) return candidate;
+                std::vector<BattleEntity>& team = entity.mySpirit ? candidate.myPets : candidate.otherPets;
+                const int32_t placeholderCount = entity.mNum - 1;
+                if (placeholderCount > 1024 || team.size() + static_cast<size_t>(placeholderCount) > 256) {
+                    return BattleData{};
+                }
+                for (int32_t i = 0; i < placeholderCount; ++i) {
+                    BattleEntity placeholder;
+                    placeholder.placeholder = true;
+                    placeholder.mySpirit = entity.mySpirit;
+                    placeholder.groupType = entity.groupType;
+                    team.push_back(std::move(placeholder));
+                }
+                return candidate;
+            };
+            auto continueWith = [&](BoundedReader nextReader, BattleData candidate) {
+                int32_t nextState = 0;
+                if (!nextReader.ReadI32(nextState)) return false;
+                return parseEntities(nextReader, nextState, std::move(candidate));
+            };
+
+            const bool normalMNum = !observer && !isMy && pet.rawState == 2 && pet.skillNum == 0;
+            const bool observerMNum = observer && pet.skillNum == 0;
+            if (normalMNum) {
+                if (!reader.ReadI32(pet.mNum) || pet.mNum < 0 || pet.mNum > 1024) return false;
+                pet.hasMNum = true;
+                BattleData candidate = appendMNumPlaceholders(appendPet(std::move(base), pet), pet);
+                if (candidate.myPets.empty() && candidate.otherPets.empty()) return false;
+                return continueWith(reader, std::move(candidate));
+            }
+
+            if (observerMNum) {
+                // The AS3 observer parser has two wire layouts: the default look mode
+                // carries mNum, while newLookType==2 does not. Try the no-mNum layout
+                // first and accept only a complete entity list plus escape field.
+                if (continueWith(reader, appendPet(base, pet))) return true;
+
+                BoundedReader withMNumReader = reader;
+                BattleEntity withMNumPet = pet;
+                if (!withMNumReader.ReadI32(withMNumPet.mNum) ||
+                    withMNumPet.mNum < 0 || withMNumPet.mNum > 1024) {
+                    return false;
+                }
+                withMNumPet.hasMNum = true;
+                BattleData candidate = appendMNumPlaceholders(appendPet(std::move(base), withMNumPet), withMNumPet);
+                if (candidate.myPets.empty() && candidate.otherPets.empty()) return false;
+                return continueWith(withMNumReader, std::move(candidate));
+            }
+
+            return continueWith(reader, appendPet(std::move(base), pet));
+        };
+
+        BoundedReader reader(data, size);
+        int32_t firstState = 0;
+        if (!reader.ReadI32(firstState)) return;
+        BattleData initial;
+        initial.battleType = params;
+        initial.active = true;
+        parsed = parseEntities(reader, firstState, std::move(initial));
+        if (!parsed) return;
+
+        flushPendingTip();
+        ReplaceCurrentBattle(std::move(parsedBattle));
+        g_battleStarted = true;
+        UpdateUIBattleData();
+
+        const BattleData battle = GetCurrentBattleSnapshot();
+        std::wstring myName;
+        std::wstring otherName;
+        if (battle.myActiveIndex >= 0 &&
+            battle.myActiveIndex < static_cast<int32_t>(battle.myPets.size())) {
+            myName = entityLabel(battle.myPets[battle.myActiveIndex]);
+        }
+        if (battle.otherActiveIndex >= 0 &&
+            battle.otherActiveIndex < static_cast<int32_t>(battle.otherPets.size())) {
+            otherName = entityLabel(battle.otherPets[battle.otherActiveIndex]);
+        }
+        sendJson(L"战斗开始", L"{\"battleType\":" + std::to_wstring(params) +
+                 L",\"escape\":" + std::to_wstring(battle.escape) +
+                 L",\"my\":\"" + UIBridge::EscapeJsonString(myName) +
+                 L"\",\"other\":\"" + UIBridge::EscapeJsonString(otherName) + L"\"}");
+        sendPrompt(L"战斗开始", L"我方" + myName + L" vs 敌方" + otherName);
+        return;
+    }
+
+    if (packet.opcode == OPCODE_BATTLE_ROUND_START) {
+        BattleData next = GetCurrentBattleSnapshot();
+        if (!next.active) return;
+        ++next.round;
+        const int32_t roundNumber = next.round;
+        ReplaceCurrentBattle(std::move(next));
+        UpdateUIBattleData();
+        sendJson(L"回合开始", L"{\"round\":" + std::to_wstring(roundNumber) +
+                 L",\"params\":" + std::to_wstring(params) + L"}");
+        sendPrompt(L"回合开始", L"第" + std::to_wstring(roundNumber) + L"回合开始");
+        return;
+    }
+
+    if (packet.opcode == Opcode::BATTLE_CHANGE_SPIRIT_ROUND) {
+        if (params < 0 || params > 128) return;
+        BoundedReader reader(data, size);
+        std::vector<int32_t> sids;
+        sids.reserve(static_cast<size_t>(params));
+        for (int32_t i = 0; i < params; ++i) {
+            int32_t sid = 0;
+            if (!reader.ReadI32(sid)) return;
+            sids.push_back(sid);
+        }
+        int32_t waitTime = 0;
+        if (!reader.ReadI32(waitTime)) return;
+
+        BattleData next = GetCurrentBattleSnapshot();
+        next.roundChangeSids = std::move(sids);
+        next.roundWaitTime = waitTime;
+        ReplaceCurrentBattle(std::move(next));
+        sendJson(L"回合开始", L"{\"changeCount\":" + std::to_wstring(params) +
+                 L",\"waitTime\":" + std::to_wstring(waitTime) + L"}");
+        sendPrompt(L"回合开始", L"进入换宠回合，等待" + std::to_wstring(waitTime) + L"秒");
+        return;
+    }
+
+    if (packet.opcode == OPCODE_BATTLE_BUF) {
+        BoundedReader reader(data, size);
+        BufData buf;
+        if (!reader.ReadI32(buf.addOrRemove) || !reader.ReadI32(buf.bufId) ||
+            !reader.ReadI32(buf.defId) || !reader.ReadI32(buf.param1) ||
+            !reader.ReadI32(buf.param2)) {
+            return;
+        }
+        if (buf.addOrRemove == BufDataType::BUF_TYPE_7) {
+            if (!reader.ReadI32(buf.param3) || !reader.ReadI32(buf.param4)) return;
+        }
+        buf.name = GetBufName(buf.bufId, buf.param1);
+        buf.tipString = GetBufTipString(buf.bufId, buf.param1, buf.param2);
+
+        BattleData next = GetCurrentBattleSnapshot();
+        const std::wstring targetName = entityLabelBySid(next, buf.defId);
+        if (buf.addOrRemove == BufDataType::BUF_TYPE_0) {
+            RemoveBattleBufFromBattle(next, buf.defId, buf.bufId);
+        } else if (buf.addOrRemove == BufDataType::BUF_TYPE_1 ||
+                   buf.addOrRemove == BufDataType::BUF_TYPE_2 ||
+                   buf.addOrRemove == BufDataType::BUF_TYPE_7) {
+            ApplyBattleBufToBattle(next, buf.defId, buf);
+        }
+        ReplaceCurrentBattle(std::move(next));
+        UpdateUIBattleData();
+
+        const wchar_t* eventType = buf.addOrRemove == BufDataType::BUF_TYPE_4 ? L"战斗血量事件" :
+                                    (buf.addOrRemove == BufDataType::BUF_TYPE_5 ? L"战斗恢复事件" : L"战斗状态");
+        sendJson(eventType,
+                 L"{\"addOrRemove\":" + std::to_wstring(buf.addOrRemove) +
+                 L",\"bufId\":" + std::to_wstring(buf.bufId) +
+                 L",\"defId\":" + std::to_wstring(buf.defId) +
+                 L",\"param1\":" + std::to_wstring(buf.param1) +
+                 L",\"param2\":" + std::to_wstring(buf.param2) +
+                 L",\"param3\":" + std::to_wstring(buf.param3) +
+                 L",\"param4\":" + std::to_wstring(buf.param4) + L"}");
+        std::wstring prompt;
+        if (buf.addOrRemove == BufDataType::BUF_TYPE_0) {
+            prompt = targetName + L"移除状态：" + buf.name;
+        } else if (buf.addOrRemove == BufDataType::BUF_TYPE_4) {
+            prompt = targetName + L"发生血量变化：" + buf.name;
+        } else if (buf.addOrRemove == BufDataType::BUF_TYPE_5) {
+            prompt = targetName + L"恢复状态：" + buf.name;
+        } else {
+            prompt = targetName + L"状态变化：" + buf.name;
+            if (buf.round > 0) prompt += L"（" + std::to_wstring(buf.round) + L"回合）";
+        }
+        sendPrompt(eventType, prompt);
+        return;
+    }
+
+    if (packet.opcode == OPCODE_BATTLE_BUF_DIS) {
+        BoundedReader reader(data, size);
+        int32_t bufId = 0;
+        int32_t defId = 0;
+        if (!reader.ReadI32(bufId) || !reader.ReadI32(defId)) return;
+        BattleData next = GetCurrentBattleSnapshot();
+        const std::wstring targetName = entityLabelBySid(next, defId);
+        const std::wstring bufName = GetBufName(bufId);
+        RemoveBattleBufFromBattle(next, defId, bufId);
+        ReplaceCurrentBattle(std::move(next));
+        UpdateUIBattleData();
+        sendJson(L"战斗状态", L"{\"addOrRemove\":0,\"bufId\":" + std::to_wstring(bufId) +
+                 L",\"defId\":" + std::to_wstring(defId) + L"}");
+        sendPrompt(L"战斗状态", targetName + L"移除状态：" + bufName);
+        return;
+    }
+
+    if (packet.opcode == OPCODE_BATTLE_BUFS) {
+        BoundedReader reader(data, size);
+        BattleData next = GetCurrentBattleSnapshot();
+        int32_t sid = 0;
+        if (!reader.ReadI32(sid)) return;
+        int count = 0;
+        std::wstring bulkTip;
+        while (sid != -1 && sid < 1000) {
+            if (++count > 1024) return;
+            BufData buf;
+            buf.defId = sid;
+            buf.addOrRemove = BufDataType::BUF_TYPE_1;
+            if (!reader.ReadI32(buf.bufId) || !reader.ReadI32(buf.param1) ||
+                !reader.ReadI32(buf.param2)) return;
+            buf.name = GetBufName(buf.bufId, buf.param1);
+            buf.tipString = GetBufTipString(buf.bufId, buf.param1, buf.param2);
+            if (!bulkTip.empty()) bulkTip += L"，";
+            bulkTip += entityLabelBySid(next, buf.defId) + L"：" + buf.name;
+            ApplyBattleBufToBattle(next, buf.defId, buf);
+            if (!reader.ReadI32(sid)) return;
+        }
+        ReplaceCurrentBattle(std::move(next));
+        UpdateUIBattleData();
+        sendJson(L"战斗状态", L"{\"bulkCount\":" + std::to_wstring(count) + L"}");
+        sendPrompt(L"战斗状态", bulkTip.empty() ? L"状态同步完成" : L"状态同步：" + bulkTip);
+        return;
+    }
+
+    if (packet.opcode == OPCODE_BATTLE_ROUND) {
+        if (params < 0 || params > 5) return;
+        BattleData next = GetCurrentBattleSnapshot();
+        BattleRoundData round;
+        round.cmdType = params;
+        BoundedReader reader(data, size);
+
+        if (params == 0) {
+            if (!reader.ReadI32(round.haveBattle)) return;
+            if (round.haveBattle == 1) {
+                if (!reader.ReadI32(round.atkId) || !reader.ReadI32(round.skillId) ||
+                    !reader.ReadI32(round.defId) || !reader.ReadI32(round.miss)) return;
+                if (round.miss == 0) {
+                    if (!reader.ReadI32(round.brust) || !reader.ReadI32(round.atkHp) ||
+                        !reader.ReadI32(round.defHp) || !reader.ReadI32(round.reboundHp)) return;
+                    setHpBySid(next, round.atkId, round.atkHp);
+                    setHpBySid(next, round.defId, round.defHp);
+                }
+            }
+
+            int32_t haveBuf = 0;
+            if (!reader.ReadI32(haveBuf)) return;
+            while (haveBuf != 0) {
+                if (haveBuf < 0) return;
+                BufData buf;
+                buf.bufId = haveBuf;
+                if (!reader.ReadI32(buf.addOrRemove)) return;
+                switch (buf.addOrRemove) {
+                    case BufDataType::BUF_TYPE_0:
+                        if (!reader.ReadI32(buf.defId)) return;
+                        buf.name = GetBufName(buf.bufId);
+                        buf.tipString = GetBufTipString(buf.bufId, 0, 0);
+                        RemoveBattleBufFromBattle(next, buf.defId, buf.bufId);
+                        round.bufs.push_back(buf);
+                        break;
+                    case BufDataType::BUF_TYPE_1:
+                        if (!reader.ReadI32(buf.atkId) || !reader.ReadI32(buf.defId) ||
+                            !reader.ReadI32(buf.round) || !reader.ReadI32(buf.param1) ||
+                            !reader.ReadI32(buf.param2)) return;
+                        buf.name = GetBufName(buf.bufId, buf.param1);
+                        buf.tipString = GetBufTipString(buf.bufId, buf.param1, buf.param2);
+                        ApplyBattleBufToBattle(next, buf.defId, buf);
+                        round.bufs.push_back(buf);
+                        break;
+                    case BufDataType::BUF_TYPE_2:
+                        if (!reader.ReadI32(buf.atkId) || !reader.ReadI32(buf.defId) ||
+                            !reader.ReadI32(buf.param1) || !reader.ReadI32(buf.param2)) return;
+                        buf.name = GetBufName(buf.bufId, buf.param1);
+                        buf.tipString = GetBufTipString(buf.bufId, buf.param1, buf.param2);
+                        ApplyBattleBufToBattle(next, buf.defId, buf);
+                        round.bufs.push_back(buf);
+                        break;
+                    case BufDataType::BUF_TYPE_3:
+                    case BufDataType::BUF_TYPE_6: {
+                        int32_t value = 0;
+                        if (!reader.ReadI32(value)) return;
+                        BattleRoundAppend append;
+                        append.type = buf.addOrRemove;
+                        append.paramKey = static_cast<int32_t>(buf.bufId);
+                        append.paramValue = value;
+                        // AS3 does not carry a target SID for append entries.
+                        round.appends.push_back(append);
+                        break;
+                    }
+                    case BufDataType::BUF_TYPE_4: {
+                        BattleRoundAppend append;
+                        append.type = buf.addOrRemove;
+                        append.paramKey = static_cast<int32_t>(buf.bufId);
+                        if (!reader.ReadI32(append.skillId) || !reader.ReadI32(append.paramValue)) return;
+                        buf.param1 = append.paramValue;
+                        buf.name = GetBufName(buf.bufId);
+                        round.appends.push_back(append);
+                        round.bufs.push_back(buf);
+                        break;
+                    }
+                    case BufDataType::BUF_TYPE_5:
+                        // AS3 has no payload read for type 5; it is retained in bufArr.
+                        buf.name = GetBufName(buf.bufId);
+                        round.bufs.push_back(buf);
+                        break;
+                    default:
+                        // No payload length is known for an unconfirmed round Buff type.
+                        return;
+                }
+                if (!reader.ReadI32(haveBuf)) return;
+            }
+        } else if (params == 1) {
+            if (!reader.ReadI32(round.sid) || !reader.ReadI32(round.uniqueId) ||
+                !reader.ReadI32(round.sta)) return;
+
+            BattleEntity* oldEntity = FindBattleEntityBySid(next, round.sid);
+            bool isMySide = oldEntity ? oldEntity->mySpirit : false;
+            if (round.sta == 1 && !IsBattleObserver()) {
+                int32_t rawState = 0;
+                if (!reader.ReadI32(rawState)) return;
+                if (!ReadBattleEntityAfterState(reader, rawState, round.switchEntity)) return;
+                round.switchEntity.mySpirit = isMySide ||
+                    (g_userId.load() > 0 && round.switchEntity.userId == static_cast<int32_t>(g_userId.load()));
+                round.hasSwitchEntity = true;
+
+                std::vector<BattleEntity>& team = round.switchEntity.mySpirit ? next.myPets : next.otherPets;
+                int32_t& activeIndex = round.switchEntity.mySpirit ? next.myActiveIndex : next.otherActiveIndex;
+                int found = -1;
+                for (size_t i = 0; i < team.size(); ++i) {
+                    if (round.switchEntity.uniqueId != 0 && team[i].uniqueId == round.switchEntity.uniqueId) {
+                        found = static_cast<int>(i);
+                        break;
+                    }
+                }
+                if (found < 0) {
+                    for (size_t i = 0; i < team.size(); ++i) {
+                        if (team[i].sid == round.sid || team[i].placeholder) {
+                            found = static_cast<int>(i);
+                            break;
+                        }
+                    }
+                }
+                if (found < 0) {
+                    team.push_back(round.switchEntity);
+                    found = static_cast<int>(team.size() - 1);
+                } else {
+                    team[found] = round.switchEntity;
+                }
+                activeIndex = found;
+            } else if (round.sta == 1) {
+                for (auto& pet : next.myPets) if (pet.uniqueId == round.uniqueId) next.myActiveIndex = static_cast<int32_t>(&pet - next.myPets.data());
+                for (auto& pet : next.otherPets) if (pet.uniqueId == round.uniqueId) next.otherActiveIndex = static_cast<int32_t>(&pet - next.otherPets.data());
+            }
+        } else if (params == 2) {
+            if (!reader.ReadI32(round.atkId) || !reader.ReadI32(round.itemId) ||
+                !reader.ReadI32(round.defId) || !reader.ReadI32(round.param0) ||
+                !reader.ReadI32(round.param1)) return;
+            if ((round.itemId & 64) != 0 && round.param0 == 1) {
+                int32_t* fields[] = {
+                    &round.catchData.spiritId, &round.catchData.spiritType, &round.catchData.spiritHp,
+                    &round.catchData.spiritAtk, &round.catchData.spiritDef, &round.catchData.spiritMagAtk,
+                    &round.catchData.spiritMagDef, &round.catchData.spiritSpeed, &round.catchData.spiritLevel,
+                    &round.catchData.spiritSid, &round.catchData.spiritPackId, &round.catchData.spiritSex,
+                    &round.catchData.attackGeniusValue, &round.catchData.defenceGeniusValue,
+                    &round.catchData.magicGeniusValue, &round.catchData.resistanceGeniusValue,
+                    &round.catchData.hpGeniusValue, &round.catchData.speedGeniusValue
+                };
+                for (int32_t* field : fields) if (!reader.ReadI32(*field)) return;
+                round.hasCatchData = true;
+            }
+        } else if (params == 3) {
+            if (!reader.ReadI32(round.atkId) || !reader.ReadI32(round.avail)) return;
+        } else if (params == 5) {
+            if (!reader.ReadI32(round.status) ||
+                (round.status != 1 && round.status != 2)) {
+                // The AS3 client only dispatches the two documented restriction codes.
+                return;
+            }
+        }
+
+        std::wstring roundPrompt;
+        if (params == 0) {
+            if (round.haveBattle == 1) {
+                const std::wstring atkName = entityLabelBySid(next, round.atkId);
+                const std::wstring defName = entityLabelBySid(next, round.defId);
+                const std::wstring skillName = skillLabel(round.skillId);
+                if (round.miss != 0) {
+                    roundPrompt = defName + L"闪避了" + atkName + L"的" + skillName;
+                } else {
+                    roundPrompt = atkName + L"使用" + skillName + L"，" + defName +
+                                  L"当前生命：" + std::to_wstring(round.defHp);
+                    if (const BattleEntity* target = FindBattleEntityBySid(next, round.defId)) {
+                        roundPrompt += L"/" + std::to_wstring(target->maxHp);
+                    }
+                }
+            } else {
+                roundPrompt = L"本回合没有发生攻击";
+            }
+            for (const auto& buf : round.bufs) {
+                if (!roundPrompt.empty()) roundPrompt += L"；";
+                const std::wstring targetName = entityLabelBySid(next, buf.defId);
+                if (buf.addOrRemove == BufDataType::BUF_TYPE_0) {
+                    roundPrompt += targetName + L"移除状态：" + buf.name;
+                } else {
+                    roundPrompt += targetName + L"状态变化：" + buf.name;
+                    if (buf.round > 0) roundPrompt += L"（" + std::to_wstring(buf.round) + L"回合）";
+                }
+            }
+            if (!round.appends.empty()) {
+                if (!roundPrompt.empty()) roundPrompt += L"；";
+                roundPrompt += L"战斗附加数据已由服务端更新";
+            }
+        } else if (params == 1) {
+            if (round.hasSwitchEntity) {
+                roundPrompt = std::wstring(round.switchEntity.mySpirit ? L"我方" : L"敌方") +
+                              L"上场" + entityLabel(round.switchEntity);
+            } else {
+                roundPrompt = L"切换宠物：" + entityLabelBySid(next, round.sid);
+            }
+        } else if (params == 2) {
+            std::wstring itemName;
+            {
+                std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+                const auto it = g_toolNames.find(round.itemId);
+                if (it != g_toolNames.end()) itemName = it->second;
+            }
+            if (itemName.empty()) itemName = L"道具" + std::to_wstring(round.itemId);
+            roundPrompt = entityLabelBySid(next, round.atkId) + L"使用" + itemName +
+                          L"作用于" + entityLabelBySid(next, round.defId);
+            if (round.hasCatchData) roundPrompt += L"，捕捉数据已返回";
+        } else if (params == 3) {
+            roundPrompt = entityLabelBySid(next, round.atkId) + L"的战斗操作状态为" +
+                          (round.avail != 0 ? L"可用" : L"不可用");
+        } else if (params == 5) {
+            roundPrompt = round.status == 1 ? L"该场战斗不能使用培元金丹" :
+                          L"你已使用6次药剂，无法再使用";
+        }
+
+        next.lastCmdType = params;
+        next.lastRound = round;
+        ReplaceCurrentBattle(std::move(next));
+        UpdateUIBattleData();
+
+        std::wstring event = L"{\"cmdType\":" + std::to_wstring(params);
+        if (params == 0) {
+            event += L",\"haveBattle\":" + std::to_wstring(round.haveBattle) +
+                     L",\"atkId\":" + std::to_wstring(round.atkId) +
+                     L",\"skillId\":" + std::to_wstring(round.skillId) +
+                     L",\"defId\":" + std::to_wstring(round.defId) +
+                     L",\"miss\":" + std::to_wstring(round.miss) +
+                     L",\"atkHp\":" + std::to_wstring(round.atkHp) +
+                     L",\"defHp\":" + std::to_wstring(round.defHp);
+        } else if (params == 1) {
+            event += L",\"sid\":" + std::to_wstring(round.sid) +
+                     L",\"uniqueId\":" + std::to_wstring(round.uniqueId) +
+                     L",\"sta\":" + std::to_wstring(round.sta);
+        } else if (params == 2) {
+            event += L",\"atkId\":" + std::to_wstring(round.atkId) +
+                     L",\"itemId\":" + std::to_wstring(round.itemId) +
+                     L",\"defId\":" + std::to_wstring(round.defId) +
+                     L",\"param0\":" + std::to_wstring(round.param0) +
+                     L",\"param1\":" + std::to_wstring(round.param1);
+            if (round.hasCatchData) {
+                const BattleCatchData& catchData = round.catchData;
+                event += L",\"catchData\":{\"spiritId\":" + std::to_wstring(catchData.spiritId) +
+                         L",\"spiritType\":" + std::to_wstring(catchData.spiritType) +
+                         L",\"spiritHp\":" + std::to_wstring(catchData.spiritHp) +
+                         L",\"spiritAtk\":" + std::to_wstring(catchData.spiritAtk) +
+                         L",\"spiritDef\":" + std::to_wstring(catchData.spiritDef) +
+                         L",\"spiritMagAtk\":" + std::to_wstring(catchData.spiritMagAtk) +
+                         L",\"spiritMagDef\":" + std::to_wstring(catchData.spiritMagDef) +
+                         L",\"spiritSpeed\":" + std::to_wstring(catchData.spiritSpeed) +
+                         L",\"spiritLevel\":" + std::to_wstring(catchData.spiritLevel) +
+                         L",\"spiritSid\":" + std::to_wstring(catchData.spiritSid) +
+                         L",\"spiritPackId\":" + std::to_wstring(catchData.spiritPackId) +
+                         L",\"spiritSex\":" + std::to_wstring(catchData.spiritSex) +
+                         L",\"attackGeniusValue\":" + std::to_wstring(catchData.attackGeniusValue) +
+                         L",\"defenceGeniusValue\":" + std::to_wstring(catchData.defenceGeniusValue) +
+                         L",\"magicGeniusValue\":" + std::to_wstring(catchData.magicGeniusValue) +
+                         L",\"resistanceGeniusValue\":" + std::to_wstring(catchData.resistanceGeniusValue) +
+                         L",\"hpGeniusValue\":" + std::to_wstring(catchData.hpGeniusValue) +
+                         L",\"speedGeniusValue\":" + std::to_wstring(catchData.speedGeniusValue) + L"}";
+            }
+        } else if (params == 3) {
+            event += L",\"atkId\":" + std::to_wstring(round.atkId) +
+                     L",\"avail\":" + std::to_wstring(round.avail);
+        } else if (params == 5) {
+            event += L",\"status\":" + std::to_wstring(round.status);
+        }
+        if (!round.bufs.empty()) {
+            event += L",\"bufs\":[";
+            for (size_t i = 0; i < round.bufs.size(); ++i) {
+                if (i) event += L",";
+                const auto& buf = round.bufs[i];
+                event += L"{\"bufId\":" + std::to_wstring(buf.bufId) +
+                         L",\"addOrRemove\":" + std::to_wstring(buf.addOrRemove) +
+                         L",\"atkId\":" + std::to_wstring(buf.atkId) +
+                         L",\"defId\":" + std::to_wstring(buf.defId) +
+                         L",\"round\":" + std::to_wstring(buf.round) +
+                         L",\"param1\":" + std::to_wstring(buf.param1) +
+                         L",\"param2\":" + std::to_wstring(buf.param2) +
+                         L",\"param3\":" + std::to_wstring(buf.param3) +
+                         L",\"param4\":" + std::to_wstring(buf.param4) + L"}";
+            }
+            event += L"]";
+        }
+        if (!round.appends.empty()) {
+            event += L",\"appends\":[";
+            for (size_t i = 0; i < round.appends.size(); ++i) {
+                if (i) event += L",";
+                const auto& append = round.appends[i];
+                event += L"{\"type\":" + std::to_wstring(append.type) +
+                         L",\"paramKey\":" + std::to_wstring(append.paramKey) +
+                         L",\"paramValue\":" + std::to_wstring(append.paramValue) +
+                         L",\"skillId\":" + std::to_wstring(append.skillId) + L"}";
+            }
+            event += L"]";
+        }
+        event += L"}";
+        const wchar_t* eventType = params == 1 ? L"切换宠物" :
+                                    (params == 2 ? L"使用道具" : (params == 5 ? L"战斗限制" : L"回合"));
+        sendJson(eventType, event);
+        sendPrompt(eventType, roundPrompt);
+        return;
+    }
+
+    if (packet.opcode == OPCODE_BATTLE_END) {
+        BoundedReader reader(data, size);
+        std::vector<BattleEndResult> results;
+        if (params == 1) {
+            int32_t count = 0;
+            if (!reader.ReadI32(count) || count < 0 || count > 1024) return;
+            results.reserve(static_cast<size_t>(count));
+            for (int32_t i = 0; i < count; ++i) {
+                BattleEndResult result;
+                if (!reader.ReadI32(result.sid) || !reader.ReadI32(result.result)) return;
+                results.push_back(result);
+            }
+        }
+
+        flushPendingTip();
+        std::wstring event = L"{\"param\":" + std::to_wstring(params) + L",\"results\":[";
+        for (size_t i = 0; i < results.size(); ++i) {
+            if (i) event += L",";
+            event += L"{\"sid\":" + std::to_wstring(results[i].sid) +
+                     L",\"res\":" + std::to_wstring(results[i].result) + L"}";
+        }
+        event += L"]}";
+        sendJson(L"战斗结束", event);
+        sendPrompt(L"战斗结束", results.empty() ? L"双方战斗结束" :
+                   L"双方战斗结束，服务端返回" + std::to_wstring(results.size()) + L"条结算记录");
+
+        // Keep the result in the event above, then reset every session-owned field.
+        ReplaceCurrentBattle(BattleData{});
+        g_battleStarted = false;
+        UpdateUIBattleData();
+        return;
+    }
+
+    if (packet.opcode == Opcode::BATTLE_FSPK) {
+        BoundedReader reader(data, size);
+        BattleFspkData fspk;
+        fspk.params = params;
+        if (!reader.ReadI32(fspk.win)) return;
+        fspk.hasReward = fspk.win >= 0;
+        if (fspk.hasReward && (!reader.ReadI32(fspk.xianli) || !reader.ReadI32(fspk.zhangong))) return;
+        BattleData next = GetCurrentBattleSnapshot();
+        next.hasFspk = true;
+        next.fspk = fspk;
+        ReplaceCurrentBattle(std::move(next));
+        sendJson(L"战斗结算", L"{\"params\":" + std::to_wstring(params) +
+                 L",\"win\":" + std::to_wstring(fspk.win) +
+                 L",\"xianli\":" + std::to_wstring(fspk.xianli) +
+                 L",\"zhangong\":" + std::to_wstring(fspk.zhangong) + L"}");
+        std::wstring fspkPrompt = L"战斗结算：胜负标记" + std::to_wstring(fspk.win);
+        if (fspk.hasReward) {
+            fspkPrompt += L"，仙力" + std::to_wstring(fspk.xianli) +
+                          L"，战功" + std::to_wstring(fspk.zhangong);
+        }
+        sendPrompt(L"战斗结算", fspkPrompt);
+        return;
+    }
+
+    if (packet.opcode == Opcode::COMBAT_SITE_OPTION) {
+        BattleSiteData site;
+        site.params = params;
+        BoundedReader reader(data, size);
+        if (params == BufDataType::COMBAT_SITE_ADD) {
+            if (!reader.ReadI32(site.sn) || !reader.ReadI32(site.id) || !reader.ReadI32(site.round)) return;
+        } else if (params == BufDataType::COMBAT_SITE_MD) {
+            if (!reader.ReadI32(site.id) || !reader.ReadI32(site.round)) return;
+        } else if (params == BufDataType::COMBAT_SITE_DEL) {
+            if (!reader.ReadI32(site.id)) return;
+        }
+        BattleData next = GetCurrentBattleSnapshot();
+        next.hasSite = true;
+        next.site = site;
+        ReplaceCurrentBattle(std::move(next));
+        sendJson(L"战斗场地", L"{\"params\":" + std::to_wstring(params) +
+                 L",\"sn\":" + std::to_wstring(site.sn) +
+                 L",\"id\":" + std::to_wstring(site.id) +
+                 L",\"round\":" + std::to_wstring(site.round) + L"}");
+        sendPrompt(L"战斗场地", L"战斗场地状态已更新");
+        return;
+    }
+
+    if (packet.opcode == Opcode::COMBAT_SITE_EFFECT) {
+        if (params != 1) return;
+        BoundedReader reader(data, size);
+        BattleSiteData site;
+        site.params = params;
+        BufData buf;
+        buf.addOrRemove = BufDataType::BUF_TYPE_2;
+        buf.bufId = BufDataType::SITE_RECOVER_ID;
+        buf.param2 = 0;
+        if (!reader.ReadI32(site.siteId) || !reader.ReadI32(buf.defId) || !reader.ReadI32(buf.param1)) return;
+        buf.name = GetBufName(buf.bufId, buf.param1);
+        buf.tipString = GetBufTipString(buf.bufId, buf.param1, buf.param2);
+        BattleData next = GetCurrentBattleSnapshot();
+        const std::wstring targetName = entityLabelBySid(next, buf.defId);
+        // Site effects are transient BATTLE_BUF events in AS3; do not persist
+        // the recovery marker as a normal Buff row.
+        next.hasSite = true;
+        next.site = site;
+        ReplaceCurrentBattle(std::move(next));
+        UpdateUIBattleData();
+        sendJson(L"战斗场地", L"{\"params\":1,\"siteId\":" + std::to_wstring(site.siteId) +
+                 L",\"defId\":" + std::to_wstring(buf.defId) +
+                 L",\"param1\":" + std::to_wstring(buf.param1) + L"}");
+        sendPrompt(L"战斗场地", targetName + L"受到场地效果：" + buf.name);
+        return;
+    }
+
+    if (packet.opcode == Opcode::COMBAT_NET_PROBE_REQ) {
+        BoundedReader reader(data, size);
+        int32_t remote = 0, world = 0, gateway = 0;
+        if (!reader.ReadI32(remote) || !reader.ReadI32(world) || !reader.ReadI32(gateway)) return;
+        sendJson(L"战斗网络", L"{\"remote\":" + std::to_wstring(remote) +
+                 L",\"world\":" + std::to_wstring(world) +
+                 L",\"gateway\":" + std::to_wstring(gateway) + L"}");
+        return;
+    }
+
+    if (packet.opcode == Opcode::COMBAT_NET_REPORT) {
+        BoundedReader reader(data, size);
+        int32_t report = 0;
+        if (!reader.ReadI32(report)) return;
+        sendJson(L"战斗网络", L"{\"report\":" + std::to_wstring(report) + L"}");
+        return;
+    }
+
+    if (packet.opcode == Opcode::BATTLE_WITH || packet.opcode == Opcode::BATTLE_REQ_ON_SKILL) {
+        sendJson(L"战斗关联", L"{\"opcode\":" + std::to_wstring(packet.opcode) +
+                 L",\"params\":" + std::to_wstring(params) +
+                 L",\"bodyBytes\":" + std::to_wstring(size) + L"}");
+        return;
+    }
+
+    if (packet.opcode == Opcode::SPIRIT_LEVEL_UP) {
+        BoundedReader reader(data, size);
+        std::vector<int32_t> values;
+        values.reserve(17);
+        for (int i = 0; i < 17; ++i) {
+            int32_t value = 0;
+            if (!reader.ReadI32(value)) return;
+            values.push_back(value);
+        }
+        std::vector<std::pair<int32_t, int32_t>> skills;
+        int32_t skillId = 0;
+        if (!reader.ReadI32(skillId)) return;
+        while (skillId > 0) {
+            if (skills.size() >= 128) return;
+            int32_t time = 0;
+            if (!reader.ReadI32(time)) return;
+            skills.emplace_back(skillId, time);
+            if (!reader.ReadI32(skillId)) return;
+        }
+        if (!skills.empty()) {
+            int32_t key = 0, count = 0;
+            if (!reader.ReadI32(key) || !reader.ReadI32(count) || count < 0 || count > 128) return;
+            for (int32_t i = 0; i < count; ++i) {
+                int32_t id = 0, time = 0;
+                if (!reader.ReadI32(id) || !reader.ReadI32(time)) return;
+            }
+            int32_t mod = 0, attr = 0;
+            if (!reader.ReadI32(mod) || !reader.ReadI32(attr)) return;
+        }
+        sendJson(L"战斗升级", L"{\"uniqueId\":" + std::to_wstring(values[0]) +
+                 L",\"spiritId\":" + std::to_wstring(values[1]) +
+                 L",\"level\":" + std::to_wstring(values[10]) +
+                 L",\"maxHp\":" + std::to_wstring(values[11]) +
+                 L",\"skillCount\":" + std::to_wstring(skills.size()) + L"}");
+        return;
+    }
+
+    if (packet.opcode == Opcode::BATTLE_NEWEXP) {
+        BoundedReader reader(data, size);
+        uint32_t win = 0;
+        if (!reader.ReadU32(win)) return;
+        int goodsCount = 0;
+        int learnCount = 0;
+        int expCount = 0;
+
+        int32_t goodId = 0;
+        if (!reader.ReadI32(goodId)) return;
+        while (goodId != 0) {
+            if (++goodsCount > 1024) return;
+            int32_t amount = 0;
+            if (!reader.ReadI32(amount) || !reader.ReadI32(goodId)) return;
+        }
+
+        int32_t spiritId = 0;
+        if (!reader.ReadI32(spiritId)) return;
+        while (spiritId != 0) {
+            if (++learnCount > 1024) return;
+            for (int i = 0; i < 7; ++i) {
+                int32_t value = 0;
+                if (!reader.ReadI32(value)) return;
+            }
+            if (!reader.ReadI32(spiritId)) return;
+        }
+
+        int32_t expType = 0;
+        if (!reader.ReadI32(expType)) return;
+        while (expType != 0) {
+            if (++expCount > 1024) return;
+            if (expType == 1) {
+                for (int i = 0; i < 8; ++i) {
+                    int32_t value = 0;
+                    if (!reader.ReadI32(value)) return;
+                }
+            } else if (expType == 2) {
+                for (int i = 0; i < 18; ++i) {
+                    int32_t value = 0;
+                    if (!reader.ReadI32(value)) return;
+                }
+                int32_t skillFlag = 0;
+                if (!reader.ReadI32(skillFlag)) return;
+                int skillCount = 0;
+                while (skillFlag > 0) {
+                    if (++skillCount > 128) return;
+                    int32_t time = 0;
+                    if (!reader.ReadI32(time) || !reader.ReadI32(skillFlag)) return;
+                }
+                if (skillCount > 0) {
+                    int32_t key = 0, count = 0;
+                    if (!reader.ReadI32(key) || !reader.ReadI32(count) || count < 0 || count > 128) return;
+                    for (int32_t i = 0; i < count; ++i) {
+                        int32_t id = 0, time = 0;
+                        if (!reader.ReadI32(id) || !reader.ReadI32(time)) return;
+                    }
+                    int32_t mod = 0, attr = 0;
+                    if (!reader.ReadI32(mod) || !reader.ReadI32(attr)) return;
+                }
+            } else {
+                return;
+            }
+            if (!reader.ReadI32(expType)) return;
+        }
+        int32_t saveExp = 0;
+        if (!reader.ReadI32(saveExp)) return;
+        sendJson(L"战斗经验", L"{\"type\":" + std::to_wstring(params) +
+                 L",\"win\":" + std::to_wstring(win) +
+                 L",\"goods\":" + std::to_wstring(goodsCount) +
+                 L",\"learnPowers\":" + std::to_wstring(learnCount) +
+                 L",\"spiritExp\":" + std::to_wstring(expCount) +
+                 L",\"saveExp\":" + std::to_wstring(saveExp) + L"}");
+    }
+}
+
 void PacketParser::ProcessBattlePacket(const GamePacket& packet) {
+    ProcessBattlePacketSafe(packet);
+    return;
+#if 0
+    // Retained only as historical reference; the bounded parser above is the sole runtime path.
     if (packet.bSend) return;
 
     // Only process specific Opcodes as battle packets
@@ -1333,12 +2352,13 @@ void PacketParser::ProcessBattlePacket(const GamePacket& packet) {
         g_currentBattle.escape = 0;
         g_currentBattle.round = 0;
 
+        int state = 0;
+        int spiritDebugIndex = 0;  // 调试计数
         if (offset + 4 > size) goto start_done;
         g_currentBattle.battleType = static_cast<int32_t>(packet.params);
-        int state = (int)ReadInt32LE(data, offset);
+        state = (int)ReadInt32LE(data, offset);
         
         // SWF: for(; state != -1; state = msgpack.body.readInt())
-        int spiritDebugIndex = 0;  // 调试计数
         while (state != -1 && offset + 4 <= size) {
             BattleEntity pet;
             if (state == 2) pet.state = 1;
@@ -2366,6 +3386,7 @@ round_done:
         // 注意：BattleSix 的私有结算、补发与自动匹配续跑在 wpe_hook.cpp 中处理，
         // 这里仅清理公共战斗数据，避免重复 EndBattle()。
     }
+#endif
 }
 
 void PacketParser::ProcessMonsterPacket(const GamePacket& packet) {

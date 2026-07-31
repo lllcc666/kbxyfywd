@@ -6863,8 +6863,23 @@ std::vector<BYTE> BuildReceivedPacketBytes(const GamePacket& packet) {
 
 int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
     int result = OriginalRecv(s, buf, len, flags);
+    const uintptr_t streamId = static_cast<uintptr_t>(s);
 
-    if (result <= 0 || !g_bInitialized) {
+    if (result == 0) {
+        PacketParser::ResetReceiveStream(streamId);
+        return 0;
+    }
+    if (result < 0) {
+        const int error = WSAGetLastError();
+        if (error == WSAECONNRESET || error == WSAECONNABORTED ||
+            error == WSAENETRESET || error == WSAENOTCONN ||
+            error == WSAESHUTDOWN || error == WSAENOTSOCK ||
+            error == WSAEINVAL) {
+            PacketParser::ResetReceiveStream(streamId);
+        }
+        return result;
+    }
+    if (!g_bInitialized) {
         return result;
     }
 
@@ -6876,7 +6891,8 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
     // ========================================================================
     std::vector<GamePacket> gamePackets;
     // 解析封包
-    bool hasValidPackets = PacketParser::ParsePackets(pData, dwSize, FALSE, gamePackets);
+    bool hasValidPackets = PacketParser::ParsePackets(pData, dwSize, FALSE, gamePackets, streamId);
+    const bool canRewriteReceive = PacketParser::CanRewriteReceive(streamId);
     
     // ========================================================================
     // 第二步：封包级别过滤（支持黏包）
@@ -6888,7 +6904,7 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
     
     for (size_t i = 0; i < gamePackets.size(); i++) {
         const auto& gp = gamePackets[i];
-        const auto& packetBody = gp.rawBody.empty() ? gp.body : gp.rawBody;
+        const auto& packetBody = gp.body;
         
         // 0. 默认屏蔽检查（无条件屏蔽，无需用户勾选）
         if (IsDefaultBlockedPacket(gp.opcode, gp.params,
@@ -6927,7 +6943,6 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
                 g_battleCounter = newCounter & 65535;
             }
 
-            g_battleStarted = true;
 
             // 屏蔽战斗功能
             if (g_blockBattle.load()) {
@@ -7002,7 +7017,7 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
     // ========================================================================
     // 第三步：重构封包缓冲区（过滤掉需要屏蔽的封包）
     // ========================================================================
-    if (!packetsToFilter.empty() && hasValidPackets) {
+    if (!packetsToFilter.empty() && hasValidPackets && canRewriteReceive) {
         // 创建新的封包缓冲区
         std::vector<BYTE> newBuffer;
         newBuffer.reserve(dwSize);
@@ -7023,19 +7038,18 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
             }
         }
         
-        // 如果所有封包都被过滤
-        if (newBuffer.empty()) {
-            memset(buf, 0, result);
-            return 0;
-        }
-        
-        // 复制新缓冲区到原始缓冲区
-        size_t newSize = newBuffer.size();
-        if (newSize <= result) {
-            memset(buf, 0, result);
-            memcpy(buf, newBuffer.data(), newSize);
-            // 更新返回值为新大小
-            result = static_cast<int>(newSize);
+        // Never return 0 for a successful recv: that is EOF to the game. If every
+        // complete packet was selected for filtering, preserve the original bytes
+        // and keep the connection semantics intact.
+        if (!newBuffer.empty()) {
+            // 复制新缓冲区到原始缓冲区
+            size_t newSize = newBuffer.size();
+            if (newSize <= result) {
+                memset(buf, 0, result);
+                memcpy(buf, newBuffer.data(), newSize);
+                // 更新返回值为新大小
+                result = static_cast<int>(newSize);
+            }
         }
     }
 
@@ -7057,8 +7071,20 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
         }
     }
     
+    std::vector<GamePacket> packetsForDispatch;
+    if (canRewriteReceive && !packetsToFilter.empty()) {
+        packetsForDispatch.reserve(gamePackets.size() - packetsToFilter.size());
+        for (size_t i = 0; i < gamePackets.size(); ++i) {
+            if (std::find(packetsToFilter.begin(), packetsToFilter.end(), i) == packetsToFilter.end()) {
+                packetsForDispatch.push_back(gamePackets[i]);
+            }
+        }
+    } else {
+        packetsForDispatch = gamePackets;
+    }
+
     if (hasValidPackets) {
-        ProcessReceivedGamePackets(pData, dwSize, gamePackets);
+        ProcessReceivedGamePackets(pData, dwSize, packetsForDispatch);
     }
 
     // ========================================================================
@@ -7564,6 +7590,10 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerOpcode(Opcode::BATTLE_BUF_DIS, processBattle);
     registerOpcode(Opcode::BATTLE_BUFS, processBattle);
     registerOpcode(Opcode::BATTLE_FSPK, processBattle);
+    registerOpcode(Opcode::BATTLE_NEWEXP, processBattle);
+    registerOpcode(Opcode::SPIRIT_LEVEL_UP, processBattle);
+    registerOpcode(Opcode::BATTLE_WITH, processBattle);
+    registerOpcode(Opcode::BATTLE_REQ_ON_SKILL, processBattle);
     registerOpcode(Opcode::COMBAT_SITE_OPTION, processBattle);
     registerOpcode(Opcode::COMBAT_SITE_EFFECT, processBattle);
     registerOpcode(Opcode::COMBAT_NET_PROBE_REQ, processBattle);
@@ -10957,7 +10987,7 @@ static BOOL RunEightTrigramsBattleLoop(unsigned long long sessionId) {
             return FALSE;
         }
 
-        BattleData& battle = PacketParser::GetCurrentBattle();
+        const BattleData battle = PacketParser::GetCurrentBattleSnapshot();
         if ((battle.myPets.empty() || battle.otherPets.empty()) &&
             !g_battleSixAuto.IsInBattle()) {
             break;
@@ -11090,7 +11120,7 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
                     if (g_taskZoneSession.load() != sessionId) {
                         break;
                     }
-                    BattleData& battle = PacketParser::GetCurrentBattle();
+                    const BattleData battle = PacketParser::GetCurrentBattleSnapshot();
                     if (!battle.myPets.empty() && !battle.otherPets.empty()) {
                         break;
                     }
@@ -12940,9 +12970,9 @@ int BattleSixAutoBattle::SelectBestSkill() {
     auto& spirit = m_mySpirits[m_currentSpiritIndex];
 
     // 选技前用通用战斗层的当前实时 PP 同步本地缓存。
-    // 通用解析会处理 PP 扣减以及 BufType 3/4/6 这类 PP 变化，本地 BattleSix 只维护最小状态，
-    // 因此最终决策应以当前出战妖怪的通用战斗数据为准。
-    BattleData& battleData = PacketParser::GetCurrentBattle();
+    // 通用解析只采用封包中明确给出的 PP 字段；回合附加事件仅保留为展示数据，
+    // 不根据增减值推演 PP，避免自动化层消费非权威状态。
+    const BattleData battleData = PacketParser::GetCurrentBattleSnapshot();
     if (battleData.myActiveIndex >= 0 &&
         battleData.myActiveIndex < static_cast<int>(battleData.myPets.size())) {
         const auto& activePet = battleData.myPets[battleData.myActiveIndex];
@@ -14044,7 +14074,7 @@ void ShuangTaiAutoBattle::SendSkillAttackPacket() {
         std::to_wstring(m_attackRound + 1) + L"/" + std::to_wstring(m_maxAttackCount.load()) + L"...");
 
     int targetSid = 0;
-    BattleData& battleData = PacketParser::GetCurrentBattle();
+    const BattleData battleData = PacketParser::GetCurrentBattleSnapshot();
     if (battleData.otherActiveIndex >= 0 &&
         battleData.otherActiveIndex < static_cast<int>(battleData.otherPets.size())) {
         targetSid = battleData.otherPets[battleData.otherActiveIndex].sid;

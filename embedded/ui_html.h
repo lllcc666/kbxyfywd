@@ -5367,8 +5367,9 @@ R"HTML(ound + ')';
             
             // 首先处理去重：同类型 Buff 只保留最新的
             bufArr.forEach(buf => {
-                // 跳过 PP 相关的类型 (3, 4, 6)，这些不显示为状态标签
-                if (buf.addOrRemove === 3 || buf.addOrRemove === 4 || buf.addOrRemove === 6) {
+                // 跳过瞬时/PP 事件 (3, 4, 5, 6)，这些不显示为状态标签
+                if (buf.addOrRemove === 3 || buf.addOrRemove === 4 ||
+                    buf.addOrRemove === 5 || buf.addOrRemove === 6) {
                     return;
                 }
 
@@ -5376,10 +5377,10 @@ R"HTML(ound + ')';
                 if (buf.addOrRemove === 0) {
                     if (buf.bufId) {
                         bufMap.delete(buf.bufId);
-                    }
+           )HTML" \
+R"HTML(         }
                     return;
-        )HTML" \
-R"HTML(        }
+                }
 
                 // 添加/更新类型（addOrRemove 为 1 或 2）：放入 Map
                 // 注意：回合开始时 addOrRemove 可能保持为 1，这表示已存在的 buf
@@ -5404,9 +5405,9 @@ R"HTML(        }
                 
                 // 根据 bufId 判断是增益还是减益
                 const buffIds = [2, 9, 17, 24, 29, 33, 34, 59, 95, 36, 37, 46, 45, 62, 9999];
-                const isBuff = buffIds.includes(buf.bufId) || 
-                               (buf.name && ()HTML" \
-R"HTML(
+                const isBuff = buffIds.includes(buf.bufId) ||)HTML" \
+R"HTML( 
+                               (buf.name && (
                                    buf.name.includes('攻击') && !buf.name.includes('降') && !buf.name.includes('减') ||
                                    buf.name.includes('防御') && !buf.name.includes('降') && !buf.name.includes('减') ||
                                    buf.name.includes('速度') && !buf.name.includes('降') && !buf.name.includes('减') ||
@@ -5421,10 +5422,10 @@ R"HTML(
                 const debuffKeywords = ['灼烧', '中毒', '流血', '麻痹', '冰冻', '睡眠', '混乱', '恐惧', '诅咒', '虚弱', '减速', '降低'];
                 const isDebuff = debuffKeywords.some(kw => buf.name && buf.name.includes(kw));
 
-                // 设置样式
+           )HTML" \
+R"HTML(     // 设置样式
                 if (isDebuff) {
-  )HTML" \
-R"HTML(                  tag.style.background = 'rgba(244, 67, 54, 0.15)';
+                    tag.style.background = 'rgba(244, 67, 54, 0.15)';
                     tag.style.color = '#d32f2f';
                     tag.style.border = '1px solid rgba(244, 67, 54, 0.3)';
                 } else if (isBuff) {
@@ -5442,11 +5443,11 @@ R"HTML(                  tag.style.background = 'rgba(244, 67, 54, 0.15)';
                 tag.style.borderRadius = '2px';
                 tag.style.cursor = 'pointer';
                 tag.style.whiteSpace = 'nowrap';
-                tag.style.flexShrink = '0';  // 防止标签被压缩
+                tag.style.flexShrink = '0';  // 防止标签被压)HTML" \
+R"HTML(缩
 
                 // 简化显示名称
-                co)HTML" \
-R"HTML(nst displayText = simplifyBufName(buf.name, buf.round);
+                const displayText = simplifyBufName(buf.name, buf.round);
                 tag.textContent = displayText;
 
                 // 构建 tooltip 内容（显示完整信息）
@@ -5468,9 +5469,9 @@ R"HTML(nst displayText = simplifyBufName(buf.name, buf.round);
                     tag.title = tooltipContent.replace(/<br>/g, '\n').replace(/<[^>]*>/g, '');
                     tag.setAttribute('data-tooltip', tooltipContent);
                     
-                    // 添加悬停事件显示详细 tooltip
-                    tag.a)HTML" \
-R"HTML(ddEventListener('mouseenter', function(e) {
+                    )HTML" \
+R"HTML(// 添加悬停事件显示详细 tooltip
+                    tag.addEventListener('mouseenter', function(e) {
                         showBufTooltip(e, this);
                     });
                     tag.addEventListener('mouseleave', function() {
@@ -5494,9 +5495,9 @@ R"HTML(ddEventListener('mouseenter', function(e) {
                 totalWidth += gapCount * gapWidth;
                 
                 const containerWidth = container.clientWidth;
-                console.log('buf宽度计算 - 总宽度:', totalWidth, '容器宽度:', containerWidth, '标签数量:', tags.length);
-   )HTML" \
-R"HTML(             
+                console.log('buf宽度计算 - 总宽度:', totalWidth, '容器宽)HTML" \
+R"HTML(度:', containerWidth, '标签数量:', tags.length);
+                
                 // 只有当总宽度超过容器宽度时才显示滚动条
                 if (totalWidth > containerWidth) {
                     container.style.overflowX = 'auto';
@@ -5522,10 +5523,10 @@ R"HTML(
                 position: fixed;
                 background: rgba(40, 40, 40, 0.95);
                 color: #fff;
-                padding: 8px 10px;
+                padding: 8px 1)HTML" \
+R"HTML(0px;
                 border-radius: 4px;
-      )HTML" \
-R"HTML(          font-size: 10px;
+                font-size: 10px;
                 line-height: 1.5;
                 max-width: 200px;
                 z-index: 10000;
@@ -5554,11 +5555,11 @@ R"HTML(          font-size: 10px;
             }
 
             tooltip.style.left = left + 'px';
-            tooltip.style.top = top + 'px';
+        )HTML" \
+R"HTML(    tooltip.style.top = top + 'px';
         }
 
-)HTML" \
-R"HTML(        /**
+        /**
          * 隐藏 Buff Tooltip
          */
         function hideBufTooltip() {
@@ -5584,9 +5585,9 @@ R"HTML(        /**
             if (data.myPets && data.myPets.length > 0) {
                 const myActive = data.myPets[data.myActiveIndex] || data.myPets[0];
                 document.getElementById('my-spirit-id').textContent = myActive.spiritId;
-                document.getElementById('my-hp').textContent = myActive.hp + '/' + myActive.maxHp;
-                document.getEleme)HTML" \
-R"HTML(ntById('my-name').textContent = myActive.name ? myActive.name : ('妖怪' + myActive.spiritId);
+                document.getElementById('my-hp').textContent = myActive.hp + '/' + my)HTML" \
+R"HTML(Active.maxHp;
+                document.getElementById('my-name').textContent = myActive.name ? myActive.name : ('妖怪' + myActive.spiritId);
 
                 // 更新技能列表
                 const mySkillList = document.getElementById('my-skill-list');
@@ -5602,9 +5603,9 @@ R"HTML(ntById('my-name').textContent = myActive.name ? myActive.name : ('妖怪'
                 });
 
                 // 更新我方 Buff 标签
-                const myBufList = document.getElementById('my-buf-list');
-                if)HTML" \
-R"HTML( (myBufList) {
+                const myBufList = document.ge)HTML" \
+R"HTML(tElementById('my-buf-list');
+                if (myBufList) {
                     renderBufList(myActive.bufArr, myBufList);
                 }
 
@@ -5623,9 +5624,9 @@ R"HTML( (myBufList) {
                 // Clear UI
                 document.getElementById('my-spirit-id').textContent = '0';
                 document.getElementById('my-hp').textContent = '0/0';
-                document.getElementById('my-name').textContent = '未知';
-                document.getElement)HTML" \
-R"HTML(ById('my-skill-list').innerHTML = '';
+                document.getElementById('my-name').textCont)HTML" \
+R"HTML(ent = '未知';
+                document.getElementById('my-skill-list').innerHTML = '';
                 document.getElementById('my-pet-select').innerHTML = '<option value="0">妖怪1</option>';
                 const myBufList = document.getElementById('my-buf-list');
                 if (myBufList) myBufList.innerHTML = '';
@@ -5640,9 +5641,9 @@ R"HTML(ById('my-skill-list').innerHTML = '';
 
                 // 更新技能列表
                 const otherSkillList = document.getElementById('other-skill-list');
-                otherSkillList.innerHTML = '';
-                (Array.isArray(oth)HTML" \
-R"HTML(erActive.skills) ? otherActive.skills : []).forEach(skill => {
+                otherSkillList.inn)HTML" \
+R"HTML(erHTML = '';
+                (Array.isArray(otherActive.skills) ? otherActive.skills : []).forEach(skill => {
                     const row = document.createElement('div');
                     row.className = 'skill-row';
                     row.innerHTML = `
@@ -5659,10 +5660,10 @@ R"HTML(erActive.skills) ? otherActive.skills : []).forEach(skill => {
                 }
 
                 // 更新敌方组合框
-                const otherSelect = document.getElementById('other-pet-select');
+                const otherSelect = document.getElementById('other-pet-select');)HTML" \
+R"HTML(
                 otherSelect.innerHTML = '';
-  )HTML" \
-R"HTML(              data.otherPets.forEach((pet, index) => {
+                data.otherPets.forEach((pet, index) => {
                     const option = document.createElement('option');
                     option.value = index;
                     option.textContent = pet.name ? pet.name : ('妖怪' + pet.spiritId);
@@ -5677,8 +5678,8 @@ R"HTML(              data.otherPets.forEach((pet, index) => {
                 document.getElementById('other-name').textContent = '未知';
                 document.getElementById('other-skill-list').innerHTML = '';
                 document.getElementById('other-pet-select').innerHTML = '<option value="0">敌方妖怪1</option>';
-                const otherBufList = document.getElementById('other-b)HTML" \
-R"HTML(uf-list');
+                const )HTML" \
+R"HTML(otherBufList = document.getElementById('other-buf-list');
                 if (otherBufList) otherBufList.innerHTML = '';
             }
         };
@@ -5700,9 +5701,9 @@ R"HTML(uf-list');
             var otherSelectEl = document.getElementById('other-pet-select');
             if (otherSelectEl) {
                 otherSelectEl.addEventListener('change', function() {
-                    var d = window._battleData;
-    )HTML" \
-R"HTML(                if (!d || !Array.isArray(d.otherPets) || d.otherPets.length === 0) return;
+     )HTML" \
+R"HTML(               var d = window._battleData;
+                    if (!d || !Array.isArray(d.otherPets) || d.otherPets.length === 0) return;
                     var idx = parseInt(this.value, 10);
                     if (isNaN(idx)) idx = 0;
                     if (idx < 0) idx = 0;
@@ -5727,8 +5728,8 @@ R"HTML(                if (!d || !Array.isArray(d.otherPets) || d.otherPets.leng
             if (!battleTab) return;
 
             // 示例：更新辅助提示区域
-            var helperText = document.getElementById('helper-)HTML" \
-R"HTML(text');
+            va)HTML" \
+R"HTML(r helperText = document.getElementById('helper-text');
             if (helperText) {
                 helperText.textContent = "[" + type + "] " + data;
                 helperText.classList.remove('slide-in');
@@ -5755,10 +5756,10 @@ R"HTML(text');
             '抗性': '#1abc9c', '体力': '#e67e22', '速度': '#2ecc71'
         };
 
-        /**
+        /)HTML" \
+R"HTML(**
          * 更新妖怪背包UI
-         * @param {Objec)HTML" \
-R"HTML(t|string} data - 妖怪数据对象或JSON字符串
+         * @param {Object|string} data - 妖怪数据对象或JSON字符串
          */
         window.updateMonsterUI = function(data) {
             try {
@@ -5781,9 +5782,9 @@ R"HTML(t|string} data - 妖怪数据对象或JSON字符串
             
             listContainer.innerHTML = '';
             if (!monsters || monsters.length === 0) {
-                listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--color-text-tertiary);">暂无妖怪数据，请打开游戏妖怪背包</div>';
-             )HTML" \
-R"HTML(   if (countElement) countElement.textContent = '0';
+                listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--color-text-ter)HTML" \
+R"HTML(tiary);">暂无妖怪数据，请打开游戏妖怪背包</div>';
+                if (countElement) countElement.textContent = '0';
                 return;
             }
             
@@ -5803,9 +5804,9 @@ R"HTML(   if (countElement) countElement.textContent = '0';
                 if (window.selectedMonsterIndex === index) {
                     row.style.backgroundColor = 'rgba(0, 120, 212, 0.1)';
                 }
-                
-                row.onclick = () =)HTML" \
-R"HTML(> window.selectMonster(index);
+    )HTML" \
+R"HTML(            
+                row.onclick = () => window.selectMonster(index);
                 row.onmouseover = () => {
                     if (window.selectedMonsterIndex !== index) {
                         row.style.backgroundColor = 'var(--color-background-hover)';
@@ -5827,9 +5828,9 @@ R"HTML(> window.selectMonster(index);
                 
                 // 获取性别名称
                 const sexNames = ['未知', '雌', '雄', '无'];
-                const sexName = sexNames[monster.sex] || '未知';
-  )HTML" \
-R"HTML(              const sexColor = monster.sex === 1 ? '#e91e63' : (monster.sex === 2 ? '#2196f3' : 'var(--color-text-secondary)');
+                co)HTML" \
+R"HTML(nst sexName = sexNames[monster.sex] || '未知';
+                const sexColor = monster.sex === 1 ? '#e91e63' : (monster.sex === 2 ? '#2196f3' : 'var(--color-text-secondary)');
                 
                 // 格式化技能列表 - 显示所有技能，用/分隔
                 let skillNames = '';
@@ -5845,9 +5846,9 @@ R"HTML(              const sexColor = monster.sex === 1 ? '#e91e63' : (monster.s
                 const firstBadge = isFirst ? '<span style="background: var(--color-primary); color: white; padding: 0 2px; border-radius: 2px; font-size: 7px; margin-left: 2px;">首</span>' : '';
                 
                 // 系别颜色
-                const elemColor = {
-                    '金': '#FFD700)HTML" \
-R"HTML(', '木': '#228B22', '水': '#1E90FF', '火': '#FF4500', '土': '#8B4513',
+                const )HTML" \
+R"HTML(elemColor = {
+                    '金': '#FFD700', '木': '#228B22', '水': '#1E90FF', '火': '#FF4500', '土': '#8B4513',
                     '妖': '#9400D3', '魔': '#4B0082', '毒': '#32CD32', '圣': '#FFD700', '翼': '#87CEEB',
                     '雷': '#FFD700', '幻': '#DA70D6', '怪': '#696969', '风': '#00CED1', '灵': '#00FA9A'
                 };
@@ -5862,8 +5863,8 @@ R"HTML(', '木': '#228B22', '水': '#1E90FF', '火': '#FF4500', '土': '#8B4513'
                 if (monster.geniusList && monster.geniusList.length >= 6) {
                     const hp = monster.geniusList[4].value;      // 体力
                     const atk = monster.geniusList[0].value;     // 攻击
-                    const def = monster.geniusList[1].v)HTML" \
-R"HTML(alue;     // 防御
+        )HTML" \
+R"HTML(            const def = monster.geniusList[1].value;     // 防御
                     const mag = monster.geniusList[2].value;     // 法术
                     const res = monster.geniusList[3].value;     // 抗性
                     const spd = monster.geniusList[5].value;     // 速度
@@ -5875,8 +5876,8 @@ R"HTML(alue;     // 防御
                     <div style="text-align: center; ${nameStyle} white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${monster.name || '未知'}">${monster.name || '未知'}</div>
                     <div style="text-align: center; color: var(--color-text-secondary); font-size: 8.5px;">${monster.iid || 0}</div>
                     <div style="text-align: center; color: ${sexColor};">${sexName}</div>
-                    <div style="text-align: center; color: var(--color-tex)HTML" \
-R"HTML(t-primary);">${monster.level || 1}</div>
+                    <div st)HTML" \
+R"HTML(yle="text-align: center; color: var(--color-text-primary);">${monster.level || 1}</div>
                     <div style="text-align: center; color: #e74c3c;">${monster.hp || 0}</div>
                     <div style="text-align: center; color: ${typeColor}; font-weight: 500;">${monster.typeName || '未知'}</div>
                     <div style="text-align: center; color: #9b59b6;">${geniusName}</div>
@@ -5892,9 +5893,9 @@ R"HTML(t-primary);">${monster.level || 1}</div>
          * 选择妖怪并显示详情
          */
         window.selectMonster = function(index) {
-            window.selectedMonsterIndex = index;
-            const monsters = window.currentMon)HTML" \
-R"HTML(sterData.monsters || [];
+            window.selectedMonsterIndex = index;)HTML" \
+R"HTML(
+            const monsters = window.currentMonsterData.monsters || [];
             const monster = monsters[index];
             
             if (!monster) return;
@@ -5919,8 +5920,8 @@ R"HTML(sterData.monsters || [];
             if (monster.skills && monster.skills.length > 0) {
                 monster.skills.forEach(skill => {
                     skillsHtml += `
-                        <div style="display: flex; justi)HTML" \
-R"HTML(fy-content: space-between; padding: 2px 4px; background: var(--color-background-hover); border-radius: 2px; margin-bottom: 2px; font-size: 9.5px;">
+         )HTML" \
+R"HTML(               <div style="display: flex; justify-content: space-between; padding: 2px 4px; background: var(--color-background-hover); border-radius: 2px; margin-bottom: 2px; font-size: 9.5px;">
                             <span style="font-weight: 500;">${skill.name || ('技能' + skill.id)}</span>
                             <span style="color: var(--color-text-secondary);">PP: ${skill.pp || 0}/${skill.maxPp || 0}</span>
                         </div>
@@ -5934,9 +5935,9 @@ R"HTML(fy-content: space-between; padding: 2px 4px; background: var(--color-back
             let symmHtml = '';
             if (monster.symmList && monster.symmList.length > 0) {
                 monster.symmList.forEach(symm => {
-                    symmHtml += `<span style="display: inline-block; background: #e8f5e8; color: #2e7d32; padding: 1px 4px; border-radius: 2px; margin: 1px; font-size: 8.5px;">${symm.name || ('灵玉' + symm.id)}</span>`;
- )HTML" \
-R"HTML(               });
+                    symmHtml += `<span style="display: inline-block; background: #e8f5e8; color: #2e7d32; padding: 1px 4px; border-radius: 2px; margin: 1px; font-size: 8.5p)HTML" \
+R"HTML(x;">${symm.name || ('灵玉' + symm.id)}</span>`;
+                });
             } else {
                 symmHtml = '<span style="color: var(--color-text-tertiary);">无</span>';
             }
@@ -5947,9 +5948,9 @@ R"HTML(               });
                         <span style="font-size: 12.5px; font-weight: 600; color: ${isFirst ? 'var(--color-primary)' : 'var(--color-text-primary)'};">${monster.name || '未知'}</span>
                         ${isFirst ? '<span style="background: var(--color-primary); color: white; padding: 1px 4px; border-radius: 2px; font-size: 8.5px;">首发</span>' : ''}
                     </div>
-                    <div style="color: var(--color-text-secondary); font-size: 9.5px;">配置ID: ${monster.iid || 0} | 唯一ID: ${monster.id || 0}</div>
-                    <div style="color: var(--)HTML" \
-R"HTML(color-text-secondary); font-size: 9.5px;">系别: ${monster.typeName || '未知'} | 性别: ${sexName} | 资质: ${aptitudeName}</div>
+                    <div style="color: var(--color-text-secondary); font-size: 9.5px;">配置ID: ${monster.iid || 0} | 唯一ID: ${monster.id || 0}</div)HTML" \
+R"HTML(>
+                    <div style="color: var(--color-text-secondary); font-size: 9.5px;">系别: ${monster.typeName || '未知'} | 性别: ${sexName} | 资质: ${aptitudeName}</div>
                 </div>
                 
                 <div style="margin-bottom: 6px;">
@@ -5958,9 +5959,9 @@ R"HTML(color-text-secondary); font-size: 9.5px;">系别: ${monster.typeName || '
                         <div>等级: <span style="font-weight: 500;">Lv${monster.level || 1}</span></div>
                         <div>经验: <span style="font-weight: 500;">${monster.exp || 0}/${monster.needExp || 0}</span></div>
                         <div style="color: #e74c3c;">血量: <span style="font-weight: 500;">${monster.hp || 0}</span></div>
-                        <div style="color: #e67e22;">攻击: <span style="font-weight: 500;">${monster.attack || 0}</span></div>
-                        <div )HTML" \
-R"HTML(style="color: #3498db;">防御: <span style="font-weight: 500;">${monster.defence || 0}</span></div>
+                        <div style="color: #e67e22;">攻击: <span style="font-weight: 500;">${monster.attack |)HTML" \
+R"HTML(| 0}</span></div>
+                        <div style="color: #3498db;">防御: <span style="font-weight: 500;">${monster.defence || 0}</span></div>
                         <div style="color: #9b59b6;">法术: <span style="font-weight: 500;">${monster.magic || 0}</span></div>
                         <div style="color: #1abc9c;">抗性: <span style="font-weight: 500;">${monster.resistance || 0}</span></div>
                         <div style="color: #2ecc71;">速度: <span style="font-weight: 500;">${monster.speed || 0}</span></div>
@@ -5972,8 +5973,8 @@ R"HTML(style="color: #3498db;">防御: <span style="font-weight: 500;">${monster
                 </div>
                 
                 <div style="margin-bottom: 6px;">
-                    <div style="font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; border-bottom: 1px )HTML" \
-R"HTML(solid var(--color-border); padding-bottom: 2px;">资质: ${aptitudeName}</div>
+                    <div style="font-weight: 600; color: var(--color-text-pr)HTML" \
+R"HTML(imary); margin-bottom: 2px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">资质: ${aptitudeName}</div>
                     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; font-size: 9px;">
                         ${(() => {
                             if (!monster.geniusList || monster.geniusList.length === 0) return '<div style="color: var(--color-text-tertiary);">无资质数据</div>';
@@ -5984,9 +5985,9 @@ R"HTML(solid var(--color-border); padding-bottom: 2px;">资质: ${aptitudeName}<
                             return displayOrder.map(idx => {
                                 const g = monster.geniusList[idx];
                                 const level = g.level - 1; // 星级1-5（减1）
-                                const stars = '★'.repeat(level) + '☆'.repeat(5 - level);
-                  )HTML" \
-R"HTML(              return `<div style="padding: 1px 2px; background: var(--color-background-hover); border-radius: 2px;">
+                                const stars = '★'.repeat(lev)HTML" \
+R"HTML(el) + '☆'.repeat(5 - level);
+                                return `<div style="padding: 1px 2px; background: var(--color-background-hover); border-radius: 2px;">
                                     <span style="color: var(--color-text-secondary);">${g.name}:</span>
                                     <span style="font-weight: 500; color: ${starColors[level] || 'var(--color-text-primary)'};">${g.value}</span>
                                     <span style="color: ${starColors[level] || 'var(--color-text-tertiary)'}; font-size: 7px;">${stars}</span>
@@ -5997,9 +5998,9 @@ R"HTML(              return `<div style="padding: 1px 2px; background: var(--col
                 </div>
                 
                 <div style="margin-bottom: 6px;">
-                    <div style="font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">技能 (${monster.skills ? monster.skills.length : 0}个)</div>
-                    ${skillsHtm)HTML" \
-R"HTML(l}
+                    <div style="font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">技能 (${monster.skills ? monster.skills.leng)HTML" \
+R"HTML(th : 0}个)</div>
+                    ${skillsHtml}
                 </div>
                 
                 <div>
@@ -6024,10 +6025,10 @@ R"HTML(l}
         window.selectedItemId = 0;      // 当前选中的道具ID
         window.selectedItemName = '';   // 当前选中的道具名称
         window.selectedItemValue = 0;   // 当前选中的道具效果值
-        window.itemCountMap = {};       // 道具数量映射表
+        window)HTML" \
+R"HTML(.itemCountMap = {};       // 道具数量映射表
 
-        /)HTML" \
-R"HTML(**
+        /**
          * 刷新背包物品
          */
         window.refreshPackItems = function() {
@@ -6054,9 +6055,9 @@ R"HTML(**
                 if (count === 0) {
                     el.style.color = '#e53935';
                 } else {
-                    el.style.color = '';
-           )HTML" \
-R"HTML(     }
+     )HTML" \
+R"HTML(               el.style.color = '';
+                }
             });
         };
 
@@ -6082,10 +6083,10 @@ R"HTML(     }
             });
             
             // 高亮当前选中的按钮
-            const currentBtn = document.querySelector('.item-btn[data-id="' + itemId + '"]');
+            const currentBtn = document.querySelector('.item-btn[data-id="' + itemId + '")HTML" \
+R"HTML(]');
             if (currentBtn) {
-            )HTML" \
-R"HTML(    currentBtn.style.background = '#e3f2fd';
+                currentBtn.style.background = '#e3f2fd';
                 currentBtn.style.color = '#1976d2';
                 currentBtn.style.borderColor = '#1976d2';
                 currentBtn.style.fontWeight = '600';
@@ -6107,8 +6108,8 @@ R"HTML(    currentBtn.style.background = '#e3f2fd';
          */
         window.buySelectedItem = function() {
             if (!window.selectedItemId) {
-                window.updateHelperText('请先选择要购买的道具'))HTML" \
-R"HTML(;
+      )HTML" \
+R"HTML(          window.updateHelperText('请先选择要购买的道具');
                 return;
             }
             
@@ -6135,10 +6136,10 @@ R"HTML(;
             }
             
             const countInput = document.getElementById('item-count-input');
-            const count = countInput ? parseInt(countInput.value) || 1 : 1;
+            const count = countInput ? parseInt)HTML" \
+R"HTML((countInput.value) || 1 : 1;
             
-     )HTML" \
-R"HTML(       if (window.chrome && window.chrome.webview) {
+            if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage({
                     type: 'use_item',
                     itemId: window.selectedItemId,
@@ -6162,9 +6163,9 @@ R"HTML(       if (window.chrome && window.chrome.webview) {
                 // 支持数组格式或对象格式
                 window.bossList = Array.isArray(bossData) ? bossData : (bossData.bosses || []);
                 window.renderBossSelect();
-            } catch (e) {
-                console.error('解析BOSS数据)HTML" \
-R"HTML(失败:', e);
+            } catc)HTML" \
+R"HTML(h (e) {
+                console.error('解析BOSS数据失败:', e);
             }
         };
 
@@ -6196,9 +6197,9 @@ R"HTML(失败:', e);
             // 添加BOSS选项
             window.bossList.forEach(boss => {
                 const option = document.createElement('option');
-                option.value = boss.id;
-                option.textContent = `${boss.n)HTML" \
-R"HTML(ame} (ID: ${boss.id})`;
+                option.value = boss.id;)HTML" \
+R"HTML(
+                option.textContent = `${boss.name} (ID: ${boss.id})`;
                 select.appendChild(option);
             });
 
@@ -6228,9 +6229,9 @@ R"HTML(ame} (ID: ${boss.id})`;
             // 添加默认选项
             const defaultOption = document.createElement('option');
             defaultOption.value = '0';
-            defaultOption.textContent = '-- 请选择BOSS --';
-    )HTML" \
-R"HTML(        select.appendChild(defaultOption);
+            de)HTML" \
+R"HTML(faultOption.textContent = '-- 请选择BOSS --';
+            select.appendChild(defaultOption);
 
             // 过滤并添加BOSS选项
             const filteredBosses = keyword
@@ -6258,10 +6259,10 @@ R"HTML(        select.appendChild(defaultOption);
          */
         window.selectBoss = function(bossId) {
             const bossIdNum = parseInt(bossId, 10);
-            window.selectedBossId = bossIdNum;
+      )HTML" \
+R"HTML(      window.selectedBossId = bossIdNum;
 
-     )HTML" \
-R"HTML(       const info = document.getElementById('selected-boss-info');
+            const info = document.getElementById('selected-boss-info');
 
             if (bossIdNum === 0) {
                 if (info) info.textContent = '请选择一个BOSS';
@@ -6287,9 +6288,9 @@ R"HTML(       const info = document.getElementById('selected-boss-info');
                 // 重新渲染完整的BOSS列表
                 const select = document.getElementById('boss-select');
                 if (select) {
-                    select.innerHTML = '';
-      )HTML" \
-R"HTML(              
+  )HTML" \
+R"HTML(                  select.innerHTML = '';
+                    
                     // 添加默认选项
                     const defaultOption = document.createElement('option');
                     defaultOption.value = '0';
@@ -6318,9 +6319,9 @@ R"HTML(
         /**
          * 进入BOSS战斗
          */
-        window.enterBossBattle = function() {
-  )HTML" \
-R"HTML(          if (window.selectedBossId === 0) {
+ )HTML" \
+R"HTML(       window.enterBossBattle = function() {
+            if (window.selectedBossId === 0) {
                 if (window.updateHelperText) {
                     window.updateHelperText('请先选择一个BOSS');
                 }
@@ -6345,8 +6346,8 @@ R"HTML(          if (window.selectedBossId === 0) {
          */
         window.showUpdateDialog = function(updateInfo) {
             const overlay = document.getElementById('update-dialog-overlay');
-            const announcement = document.getElementById('update-dialog)HTML" \
-R"HTML(-announcement');
+            const announ)HTML" \
+R"HTML(cement = document.getElementById('update-dialog-announcement');
             const content = document.getElementById('update-dialog-content');
             const confirmBtn = document.getElementById('update-dialog-confirm');
             const cancelBtn = document.getElementById('update-dialog-cancel');
@@ -6368,9 +6369,9 @@ R"HTML(-announcement');
             // 绑定确定按钮事件 - 使用系统默认浏览器打开
             confirmBtn.onclick = function() {
                 if (window.chrome && window.chrome.webview) {
-                    window.chrome.webview.postMessage({
-            )HTML" \
-R"HTML(            type: 'open-url',
+                    w)HTML" \
+R"HTML(indow.chrome.webview.postMessage({
+                        type: 'open-url',
                         url: updateInfo.downloadUrl
                     });
                 }
@@ -6403,9 +6404,9 @@ R"HTML(            type: 'open-url',
          */
         function showKeyLoginDialog() {
             const overlay = document.getElementById('key-login-overlay');
-            const input = document.getElementById('key-login-input');
-)HTML" \
-R"HTML(            const confirmBtn = document.getElementById('key-login-confirm');
+            const input)HTML" \
+R"HTML( = document.getElementById('key-login-input');
+            const confirmBtn = document.getElementById('key-login-confirm');
             const cancelBtn = document.getElementById('key-login-cancel');
 
             if (!overlay || !input || !confirmBtn || !cancelBtn) {
@@ -6430,10 +6431,10 @@ R"HTML(            const confirmBtn = document.getElementById('key-login-confirm
                             type: 'key-login',
                             key: key
                         });
-                    }
+       )HTML" \
+R"HTML(             }
                 }
-              )HTML" \
-R"HTML(  hideKeyLoginDialog();
+                hideKeyLoginDialog();
             };
 
             // 绑定取消按钮事件
@@ -6465,10 +6466,10 @@ R"HTML(  hideKeyLoginDialog();
         // 副本跳层功能
         function startDungeonJump() {
             const layerInput = document.getElementById('dungeon-layer-input');
-            const targetLayer = layerInput ? parseInt(layerInput.value) || 1 : 1;
+            const targetLayer = layerInput ? parseInt(layerInput.valu)HTML" \
+R"HTML(e) || 1 : 1;
             
-            if (targe)HTML" \
-R"HTML(tLayer < 1 || targetLayer > 9999) {
+            if (targetLayer < 1 || targetLayer > 9999) {
                 updateDungeonStatus('错误：层数必须在1-9999之间', 'error');
                 return;
             }
@@ -6494,8 +6495,8 @@ R"HTML(tLayer < 1 || targetLayer > 9999) {
         }
         
         function updateDungeonStatus(text, type) {
-            const statusText = document.getElementById('dungeon-s)HTML" \
-R"HTML(tatus-text');
+            const )HTML" \
+R"HTML(statusText = document.getElementById('dungeon-status-text');
             if (statusText) {
                 statusText.textContent = text;
                 
@@ -6525,10 +6526,10 @@ R"HTML(tatus-text');
             weeklyOut: 0,
             spiritList: [],
             selectedSpirit: null,
-            lastRecordType: 0
+            lastRecor)HTML" \
+R"HTML(dType: 0
         };
-        let spiritPendingGi)HTML" \
-R"HTML(ft = null;
+        let spiritPendingGift = null;
 
         function getSpiritDisplayName(spirit) {
             if (!spirit) {
@@ -6558,9 +6559,9 @@ R"HTML(ft = null;
                 return '未知时间';
             }
             return date.getFullYear() + '-' +
-                String(date.getMonth() + 1).padStart(2, '0') + '-' +
-                String(date.getDa)HTML" \
-R"HTML(te()).padStart(2, '0');
+                String(date.getMonth() + 1).padStart(2,)HTML" \
+R"HTML( '0') + '-' +
+                String(date.getDate()).padStart(2, '0');
         }
 
         function getSpiritSkillSummary(spirit) {
@@ -6584,11 +6585,11 @@ R"HTML(te()).padStart(2, '0');
 
         function getSpiritHistoryNameById(spiritId) {
             const matched = spiritState.spiritList.find(spirit => spirit.eggIid === spiritId);
-            return matched && matched.name ? matched.name : ('ID:' + spiritId);
+            return matched && matched.name ? matched)HTML" \
+R"HTML(.name : ('ID:' + spiritId);
         }
 
-        )HTML" \
-R"HTML(function escapeSpiritHtml(text) {
+        function escapeSpiritHtml(text) {
             return String(text == null ? '' : text)
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
@@ -6612,9 +6613,9 @@ R"HTML(function escapeSpiritHtml(text) {
         function requestSpiritOpenUi() {
             if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
                 window.chrome.webview.postMessage({
-                    type: 'spiritCollect',
-                    action: 'open_ui)HTML" \
-R"HTML('
+                    type: 'spiri)HTML" \
+R"HTML(tCollect',
+                    action: 'open_ui'
                 });
             }
         }
@@ -6647,9 +6648,9 @@ R"HTML('
             const container = document.getElementById('spirit-list');
             if (!container) return;
 
-            if (!spiritState.spiritList.length) {
-                spiritS)HTML" \
-R"HTML(tate.selectedSpirit = null;
+            if (!spiritSta)HTML" \
+R"HTML(te.spiritList.length) {
+                spiritState.selectedSpirit = null;
                 document.getElementById('spirit-selected').textContent = '无';
                 container.innerHTML = '<div class="spirit-list-empty">暂无精魄</div>';
                 return;
@@ -6667,8 +6668,8 @@ R"HTML(tate.selectedSpirit = null;
             let html = '<div class="spirit-list-grid">';
             spiritState.spiritList.forEach(spirit => {
                 const isSelected = spiritState.selectedSpirit && spiritState.selectedSpirit.eggId === spirit.eggId;
-                html += '<div class="spirit-item' + (isSelected ? ' selected' : '') + '" onclick=)HTML" \
-R"HTML("selectSpirit(' + spirit.eggId + ')">' +
+                html += '<div class="spirit-item' )HTML" \
+R"HTML(+ (isSelected ? ' selected' : '') + '" onclick="selectSpirit(' + spirit.eggId + ')">' +
                     '<div class="spirit-item-top">' +
                         '<span class="spirit-item-name">' + escapeSpiritHtml(getSpiritDisplayName(spirit)) + '</span>' +
                         '<span class="spirit-item-tag">#' + spirit.eggId + '</span>' +
@@ -6679,9 +6680,9 @@ R"HTML("selectSpirit(' + spirit.eggId + ')">' +
                         '<span class="spirit-mini-chip">' + escapeSpiritHtml(getSpiritCharacterName(spirit)) + '</span>' +
                         '<span class="spirit-mini-chip">' + escapeSpiritHtml('获得 ' + formatSpiritDate(spirit.bornTime)) + '</span>' +
                     '</div>' +
-                    '<div class="spirit-item-detail">' +
-                     )HTML" \
-R"HTML(   '<div class="spirit-item-detail-line">技能: ' + escapeSpiritHtml(getSpiritSkillSummary(spirit)) + '</div>' +
+                    '<div class)HTML" \
+R"HTML(="spirit-item-detail">' +
+                        '<div class="spirit-item-detail-line">技能: ' + escapeSpiritHtml(getSpiritSkillSummary(spirit)) + '</div>' +
                     '</div>' +
                 '</div>';
             });
@@ -6705,9 +6706,9 @@ R"HTML(   '<div class="spirit-item-detail-line">技能: ' + escapeSpiritHtml(get
             const friendId = friendIdInput ? friendIdInput.value.trim() : '';
             
             if (!friendId) {
-                updateSpiritStatus('请输入对方卡布号', 'error');
-                return)HTML" \
-R"HTML(;
+                updateSpiritStat)HTML" \
+R"HTML(us('请输入对方卡布号', 'error');
+                return;
             }
             
             if (!/^\d+$/.test(friendId)) {
@@ -6735,9 +6736,9 @@ R"HTML(;
             if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
                 window.chrome.webview.postMessage({
                     type: 'spiritCollect',
-                    action: 'verifyPlayer',
-                    friendId: parseInt(frie)HTML" \
-R"HTML(ndId)
+                    action: 'verifyPlaye)HTML" \
+R"HTML(r',
+                    friendId: parseInt(friendId)
                 });
             }
         }
@@ -6761,8 +6762,8 @@ R"HTML(ndId)
             const statusEl = document.getElementById('spirit-status');
             if (statusEl) {
                 statusEl.textContent = text;
-                statusEl.style.color = type === 'error' ? '#c62828' : type === 'success' ? '#2e7d32' : ')HTML" \
-R"HTML(var(--color-text-tertiary)';
+                statusEl.style.color = type === 'error' ?)HTML" \
+R"HTML( '#c62828' : type === 'success' ? '#2e7d32' : 'var(--color-text-tertiary)';
             }
         }
 
@@ -6783,9 +6784,9 @@ R"HTML(var(--color-text-tertiary)';
             const confirmBtn = document.getElementById('spirit-confirm-accept');
             const cancelBtn = document.getElementById('spirit-confirm-cancel');
 
-            if (!overlay || !messageEl || !confirmBtn || !cancelBtn || !spiritState.selectedSpirit) {
-                updateSpiritSt)HTML" \
-R"HTML(atus('确认弹窗初始化失败，请稍后重试', 'error');
+            if (!overlay || !messageEl || !confirmBtn || !cancelBtn || !spiritState.s)HTML" \
+R"HTML(electedSpirit) {
+                updateSpiritStatus('确认弹窗初始化失败，请稍后重试', 'error');
                 return;
             }
 
@@ -6809,12 +6810,12 @@ R"HTML(atus('确认弹窗初始化失败，请稍后重试', 'error');
             overlay.onclick = function(event) {
                 if (event.target === overlay) {
                     hideSpiritConfirmDialog();
-                    updateSpiritStatus('已取消赠送', 'info');
+                    updateSpiritStatus('已取消赠送', ')HTML" \
+R"HTML(info');
                 }
             };
 
-     )HTML" \
-R"HTML(       confirmBtn.onclick = function() {
+            confirmBtn.onclick = function() {
                 const pendingGift = spiritPendingGift;
                 hideSpiritConfirmDialog();
 
@@ -6837,11 +6838,11 @@ R"HTML(       confirmBtn.onclick = function() {
             };
 
             updateSpiritStatus('玩家验证成功，请确认赠送对象', 'info');
-            overlay.classList.add('show');
+            overlay.classList.add('show)HTML" \
+R"HTML(');
         }
         
-        // 接收C++发送的精魄系统数)HTML" \
-R"HTML(据
+        // 接收C++发送的精魄系统数据
         window.handleSpiritCollectData = function(data) {
             switch(data.type) {
                 case 'spiritState':
@@ -6858,8 +6859,8 @@ R"HTML(据
                     break;
                 case 'confirm':
                     const friendIdInput = document.getElementById('spirit-friend-id');
-                    const friendId = friendIdInput ? parseInt(friendIdInput.value, 10) || 0 )HTML" \
-R"HTML(: 0;
+                    const friendId = friendId)HTML" \
+R"HTML(Input ? parseInt(friendIdInput.value, 10) || 0 : 0;
                     if (!spiritState.selectedSpirit) {
                         updateSpiritStatus('当前没有选中的精魄，请重新选择后再试', 'error');
                         break;
@@ -6879,9 +6880,9 @@ R"HTML(: 0;
                     if (data.json) {
                         try {
                             const recordList = JSON.parse(data.json);
-                            if (Array.isArray(recordList) && recordList.length > 0) {
-                                recordList)HTML" \
-R"HTML(.forEach(item => {
+                            if (Array.isArray(recordList) && recordList.length > )HTML" \
+R"HTML(0) {
+                                recordList.forEach(item => {
                                     if (Array.isArray(item) && item.length >= 5) {
                                         const date = new Date(item[3] * 1000);
                                         const dateText = date.getFullYear() + '年' + (date.getMonth() + 1) + '月' + date.getDate() + '日';
@@ -6894,9 +6895,9 @@ R"HTML(.forEach(item => {
                                     }
                                 });
                             } else {
-                                recordText += '暂无记录';
-                   )HTML" \
-R"HTML(         }
+                          )HTML" \
+R"HTML(      recordText += '暂无记录';
+                            }
                         } catch (e) {
                             recordText += data.json;
                         }
@@ -6920,9 +6921,9 @@ R"HTML(         }
             // 自动匹配按钮
             const autoMatchBtn = document.getElementById('battlesix-auto-match');
             if (autoMatchBtn) {
-                autoMatchBtn.onclick = function() {
-             )HTML" \
-R"HTML(       const matchCountInput = document.getElementById('battlesix-match-count');
+                au)HTML" \
+R"HTML(toMatchBtn.onclick = function() {
+                    const matchCountInput = document.getElementById('battlesix-match-count');
                     const matchCount = matchCountInput ? parseInt(matchCountInput.value) || 1 : 1;
                     if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
                         window.chrome.webview.postMessage({
@@ -6939,10 +6940,10 @@ R"HTML(       const matchCountInput = document.getElementById('battlesix-match-c
                 cancelMatchBtn.onclick = function() {
                     if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
                         window.chrome.webview.postMessage({
-                            type: 'battlesix_cancel_match'
+                            type: 'battlesix_cancel_match')HTML" \
+R"HTML(
                         });
-                  )HTML" \
-R"HTML(  }
+                    }
                 };
             }
 

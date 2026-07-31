@@ -32,11 +32,11 @@ struct LingyuData {
 };
 
 struct BattleSkill {
-    uint32_t id;
-    int32_t pp;
-    int32_t maxPp;
-    int32_t time;
-    int32_t maxTime;
+    uint32_t id = 0;
+    int32_t pp = 0;
+    int32_t maxPp = 0;
+    int32_t time = 0;
+    int32_t maxTime = 0;
     std::wstring name;
 };
 
@@ -62,68 +62,149 @@ constexpr int DEALADD_BLOOD_2[] = {36, 37, 46, 45, 62, 9999};
 }  // namespace BufDataType
 
 struct BufData {
-    int32_t bufId;
-    int32_t addOrRemove;
-    int32_t atkId;
-    int32_t defId;
-    int32_t round;
-    int32_t param1;
-    int32_t param2;
-    int32_t param3;
-    int32_t param4;
-    int32_t leftOrRight;
+    int32_t bufId = 0;
+    int32_t addOrRemove = 0;
+    int32_t atkId = 0;
+    int32_t defId = 0;
+    int32_t round = 0;
+    int32_t param1 = 0;
+    int32_t param2 = 0;
+    int32_t param3 = 0;
+    int32_t param4 = 0;
+    int32_t leftOrRight = 0;
     std::wstring name;
     std::wstring tipString;
-
-    BufData()
-        : bufId(0)
-        , addOrRemove(0)
-        , atkId(0)
-        , defId(0)
-        , round(0)
-        , param1(0)
-        , param2(0)
-        , param3(0)
-        , param4(0)
-        , leftOrRight(0) {}
 };
 
 struct BattleEntity {
-    int32_t sid;
-    int32_t groupType;
-    int32_t userId;
-    int32_t spiritId;
-    int32_t uniqueId;
-    int32_t elem;
-    int32_t state;
-    int32_t hp;
-    int32_t maxHp;
-    int32_t level;
-    int32_t skillNum;
+    int32_t sid = 0;
+    int32_t groupType = 0;
+    int32_t userId = 0;
+    int32_t spiritId = 0;
+    int32_t uniqueId = 0;
+    int32_t elem = 0;
+    int32_t state = 0;
+    int32_t rawState = 0;
+    int32_t hp = 0;
+    int32_t maxHp = 0;
+    int32_t level = 0;
+    int32_t skillNum = 0;
+    int32_t mNum = 0;
+    bool hasMNum = false;
+    bool placeholder = false;
     std::vector<BattleSkill> skills;
     std::vector<BufData> bufArr;
     std::wstring name;
-    bool mySpirit;
+    bool mySpirit = false;
+};
+
+struct BattleCatchData {
+    int32_t spiritId = 0;
+    int32_t spiritType = 0;
+    int32_t spiritHp = 0;
+    int32_t spiritAtk = 0;
+    int32_t spiritDef = 0;
+    int32_t spiritMagAtk = 0;
+    int32_t spiritMagDef = 0;
+    int32_t spiritSpeed = 0;
+    int32_t spiritLevel = 0;
+    int32_t spiritSid = 0;
+    int32_t spiritPackId = 0;
+    int32_t spiritSex = 0;
+    int32_t attackGeniusValue = 0;
+    int32_t defenceGeniusValue = 0;
+    int32_t magicGeniusValue = 0;
+    int32_t resistanceGeniusValue = 0;
+    int32_t hpGeniusValue = 0;
+    int32_t speedGeniusValue = 0;
+};
+
+struct BattleRoundAppend {
+    int32_t type = 0;
+    int32_t paramKey = 0;
+    int32_t paramValue = 0;
+    int32_t skillId = 0;
+    int32_t targetSid = 0;
+};
+
+struct BattleRoundData {
+    int32_t cmdType = -1;
+    int32_t haveBattle = 0;
+    int32_t atkId = 0;
+    int32_t skillId = 0;
+    int32_t defId = 0;
+    int32_t miss = 0;
+    int32_t brust = 0;
+    int32_t atkHp = 0;
+    int32_t defHp = 0;
+    int32_t reboundHp = 0;
+    int32_t sid = 0;
+    int32_t uniqueId = 0;
+    int32_t sta = 0;
+    int32_t avail = 0;
+    int32_t status = 0;
+    int32_t itemId = 0;
+    int32_t param0 = 0;
+    int32_t param1 = 0;
+    bool hasCatchData = false;
+    BattleCatchData catchData;
+    bool hasSwitchEntity = false;
+    BattleEntity switchEntity;
+    std::vector<BufData> bufs;
+    std::vector<BattleRoundAppend> appends;
+};
+
+struct BattleEndResult {
+    int32_t sid = 0;
+    int32_t result = 0;
+};
+
+struct BattleFspkData {
+    int32_t params = 0;
+    int32_t win = 0;
+    bool hasReward = false;
+    int32_t xianli = 0;
+    int32_t zhangong = 0;
+};
+
+struct BattleSiteData {
+    int32_t params = 0;
+    int32_t sn = 0;
+    int32_t id = 0;
+    int32_t round = 0;
+    int32_t siteId = 0;
 };
 
 struct BattleData {
     std::vector<BattleEntity> myPets;
     std::vector<BattleEntity> otherPets;
-    int32_t myActiveIndex;
-    int32_t otherActiveIndex;
-    int32_t battleType;
-    int32_t escape;
-    int32_t round;
+    int32_t myActiveIndex = 0;
+    int32_t otherActiveIndex = 0;
+    int32_t battleType = 0;
+    int32_t escape = 0;
+    int32_t round = 0;
+    bool active = false;
+    int32_t lastCmdType = -1;
+    BattleRoundData lastRound;
+    int32_t endParam = 0;
+    std::vector<BattleEndResult> endResults;
+    bool hasFspk = false;
+    BattleFspkData fspk;
+    bool hasSite = false;
+    BattleSiteData site;
+    std::vector<int32_t> roundChangeSids;
+    int32_t roundWaitTime = 0;
 };
 
 struct GamePacket {
-    uint16_t magic;
-    uint16_t length;
-    uint32_t opcode;
-    uint32_t params;
+    uint16_t magic = 0;
+    uint16_t length = 0;
+    uint32_t opcode = 0;
+    uint32_t params = 0;
     std::vector<uint8_t> body;
     std::vector<uint8_t> rawBody;
-    BOOL bSend;
+    bool bodyDecoded = true;
+    BOOL bSend = FALSE;
 };
 
 struct MonsterGenius {

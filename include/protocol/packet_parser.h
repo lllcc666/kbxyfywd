@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -21,7 +22,10 @@ public:
     static void Cleanup();
 
     static bool ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
-                             std::vector<GamePacket>& outPackets);
+                             std::vector<GamePacket>& outPackets,
+                             uintptr_t streamId = 0);
+    static bool CanRewriteReceive(uintptr_t streamId);
+    static void ResetReceiveStream(uintptr_t streamId);
 
     static void ProcessBattlePacket(const GamePacket& packet);
     static void ProcessLingyuPacket(const GamePacket& packet);
@@ -30,11 +34,21 @@ public:
     static void SendToUI(const std::wstring& type, const std::wstring& data);
     static void SendBossListToUI();
 
+    // Legacy reference access remains for compatibility; new readers should use a snapshot.
     static BattleData& GetCurrentBattle() { return g_currentBattle; }
+    static BattleData GetCurrentBattleSnapshot() {
+        std::lock_guard<std::mutex> lock(g_battleMutex);
+        return g_currentBattle;
+    }
 
 private:
-    static std::vector<uint8_t> g_recvBuffer;
+    static std::unordered_map<uintptr_t, std::vector<uint8_t>> g_recvBuffers;
+    static std::unordered_map<uintptr_t, bool> g_lastReceiveCanRewrite;
     static BattleData g_currentBattle;
+    static std::mutex g_battleMutex;
+
+    static void ProcessBattlePacketSafe(const GamePacket& packet);
+    static void ReplaceCurrentBattle(BattleData battle);
 
     static bool UncompressBody(const std::vector<uint8_t>& compressed,
                                std::vector<uint8_t>& decompressed);

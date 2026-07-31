@@ -5113,8 +5113,9 @@
             
             // 首先处理去重：同类型 Buff 只保留最新的
             bufArr.forEach(buf => {
-                // 跳过 PP 相关的类型 (3, 4, 6)，这些不显示为状态标签
-                if (buf.addOrRemove === 3 || buf.addOrRemove === 4 || buf.addOrRemove === 6) {
+                // 跳过瞬时/PP 事件 (3, 4, 5, 6)，这些不显示为状态标签
+                if (buf.addOrRemove === 3 || buf.addOrRemove === 4 ||
+                    buf.addOrRemove === 5 || buf.addOrRemove === 6) {
                     return;
                 }
 
