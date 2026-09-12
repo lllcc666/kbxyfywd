@@ -63,6 +63,7 @@ void ProcessSpiritPlayerInfoResponse(const GamePacket& packet);
 void ProcessAct808Response(const GamePacket& packet);
 static void ProcessTaskZoneUserTaskListResponse(const GamePacket& packet);
 static void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet);
+static void UpdateTaskZoneUi(const std::wstring& text, bool running);
 
 extern bool PostScriptToUI(const std::wstring& jsCode);
 
@@ -463,6 +464,8 @@ struct EightTrigramsProgressState {
     bool taskTalkResponseReceived = false;
     uint32_t taskTalkResponseType = 0;
     uint32_t taskTalkResponseDialogId = 0;
+    bool captureNextTaskTalkResponse = false;
+    bool taskTalkResponseHasDialogId = false;
     uint32_t taskTalkResponseNpcId = 0;
     bool taskTalkResponseMatchNpcId = true;
     uint32_t talkCurrentId = 0;
@@ -471,6 +474,10 @@ struct EightTrigramsProgressState {
     uint32_t talkExp = 0;
     uint32_t talkNpcId = 0;
     uint32_t talkItemId = 0;
+    bool awaitingWaterSoulReward = false;
+    bool waterSoulRewardReceived = false;
+    uint32_t waterSoulRewardItemId = 0;
+    uint32_t waterSoulRewardItemCount = 0;
 };
 
 EightTrigramsProgressState g_eightTrigramsProgress;
@@ -543,6 +550,7 @@ void ScheduleBattleSixRecoveryViaCombatInfo(DWORD delayMs) {
 
 static BOOL SendBattleReadyPacket();
 static BOOL SendBattlePlayOverPacket();
+static BOOL SendNormalBattleEndPacket();
 
 static void AdjustBattleSixSpiritSkillPP(std::vector<BattleSixSpiritInfo>& spirits,
                                          int spiritSid,
@@ -6678,14 +6686,11 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
         return len;  // 欺骗调用者认为已发送
     }
 
-    // 检测进入世界封包，重置 counter
+    // 进入场景不会重置战斗 counter；AS3 BattleControl.counter 会跨场景保留。
     if (len >= static_cast<int>(PacketProtocol::HEADER_SIZE)) {
         const BYTE* pData = reinterpret_cast<const BYTE*>(buf);
         if (IsGamePacket(pData, static_cast<DWORD>(len))) {
             uint32_t opcode = ReadOpcode(pData);
-            if (opcode == Opcode::ENTER_SCENE_SEND) {
-                g_battleCounter = 1;  // 进入世界时重置 counter
-            }
             // 检测账号验证封包，提取登录 key
             if (opcode == Opcode::CHECK_ACCOUNT_SEND) {
                 ExtractLoginKeyFromPacket(pData, static_cast<DWORD>(len));
@@ -6695,7 +6700,6 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
             }
         }
     }
-    
     // 拦截并记录封包
     if (g_bInterceptEnabled && g_bInterceptSend && g_bInitialized && len > 0) {
         const BYTE* pData = reinterpret_cast<const BYTE*>(buf);
@@ -6767,6 +6771,7 @@ void ProcessEnterWorldPacket(const GamePacket& gp) {
     g_userId = kabuId;
     ResetEightTrigramsSessionState();
     
+    g_battleCounter = 1;
     // 读取卡布名
     if (offset + 2 > body.size()) return;
     
@@ -10345,8 +10350,9 @@ struct EightTrigramsStep {
 };
 
 static const EightTrigramsStep EIGHT_TRIGRAMS_STEPS[] = {
-    // 八卦灵盘不能按 XML 外观顺序硬排。
-    // 规则：先任务指令，再采集/战斗，再提交/领奖；带 choose flag="3" 的节点先发 TRAIN_INFO 再发 TASK_TALK。
+    // 这是 native 的普通任务窗口兼容配方，不是 XML 节点的机械展开。
+    // AutoBaGuaView.STEP_CONFIG/onNext() 提供状态迁移锚点；native 未接管
+    // 游戏内 isAutoBaGua，所以选择节点仍按普通 TaskDialog 发送 TRAIN_INFO。
     {2001, 21210, 400600101, 3, TaskZoneStepKind::Talk, L"墨乾"},
     {2005, 21511, 400600103, 0, TaskZoneStepKind::AlertAcquire, L"五彩灵芝"},
     {3001, 31101, 400600102, 0, TaskZoneStepKind::Talk, L"墨坤"},
@@ -10508,6 +10514,8 @@ static void ResetEightTrigramsProgressState() {
     g_eightTrigramsProgress.finishedSubtaskIds.clear();
     g_eightTrigramsProgress.taskTalkResponseReceived = false;
     g_eightTrigramsProgress.taskTalkResponseType = 0;
+    g_eightTrigramsProgress.captureNextTaskTalkResponse = false;
+    g_eightTrigramsProgress.taskTalkResponseHasDialogId = false;
     g_eightTrigramsProgress.taskTalkResponseDialogId = 0;
     g_eightTrigramsProgress.taskTalkResponseNpcId = 0;
     g_eightTrigramsProgress.taskTalkResponseMatchNpcId = true;
@@ -10517,6 +10525,10 @@ static void ResetEightTrigramsProgressState() {
     g_eightTrigramsProgress.talkExp = 0;
     g_eightTrigramsProgress.talkNpcId = 0;
     g_eightTrigramsProgress.talkItemId = 0;
+    g_eightTrigramsProgress.awaitingWaterSoulReward = false;
+    g_eightTrigramsProgress.waterSoulRewardReceived = false;
+    g_eightTrigramsProgress.waterSoulRewardItemId = 0;
+    g_eightTrigramsProgress.waterSoulRewardItemCount = 0;
 }
 
 static void ResetEightTrigramsSessionState() {
@@ -10725,6 +10737,77 @@ static void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet) {
         return true;
     };
 
+    // AS3 TaskParse.case 15: [coin, exp, cultivate, itemCount, (type,id,count)...].
+    // 水魂奖励在点击战后回话的确认按钮后返回；第一次 NPC 点击也兼容直接奖励。
+    if (packet.params == 15) {
+        uint32_t ignored = 0;
+        if (!readUInt32(ignored) || !readUInt32(ignored) || !readUInt32(ignored)) {
+            return;
+        }
+
+        uint32_t itemCount = 0;
+        uint32_t rewardItemId = 0;
+        uint32_t rewardItemCount = 0;
+        if (offset < packet.body.size()) {
+            if (!readUInt32(itemCount) || itemCount > 1024) {
+                return;
+            }
+            for (uint32_t i = 0; i < itemCount; ++i) {
+                uint32_t itemType = 0;
+                uint32_t itemIdValue = 0;
+                uint32_t itemCountValue = 0;
+                if (!readUInt32(itemType) ||
+                    !readUInt32(itemIdValue) ||
+                    !readUInt32(itemCountValue)) {
+                    return;
+                }
+                if (itemIdValue == 400059 && itemCountValue > 0) {
+                    rewardItemId = itemIdValue;
+                    rewardItemCount = itemCountValue;
+                }
+            }
+        }
+
+        bool responseCaptured = false;
+        bool rewardCaptured = false;
+        {
+            std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+            if (g_taskZoneRunning.load() &&
+                g_eightTrigramsProgress.captureNextTaskTalkResponse) {
+                g_eightTrigramsProgress.captureNextTaskTalkResponse = false;
+                g_eightTrigramsProgress.taskTalkResponseHasDialogId = false;
+                g_eightTrigramsProgress.taskTalkResponseReceived = true;
+                g_eightTrigramsProgress.taskTalkResponseType = packet.params;
+                g_eightTrigramsProgress.taskTalkResponseDialogId = 0;
+                responseCaptured = true;
+
+                // 兼容服务端直接在第一次点击后发奖励的情况。
+                if (rewardItemId == 400059 && rewardItemCount > 0) {
+                    g_eightTrigramsProgress.waterSoulRewardReceived = true;
+                    g_eightTrigramsProgress.waterSoulRewardItemId = rewardItemId;
+                    g_eightTrigramsProgress.waterSoulRewardItemCount = rewardItemCount;
+                }
+            }
+            if (g_taskZoneRunning.load() &&
+                g_eightTrigramsProgress.awaitingWaterSoulReward) {
+                g_eightTrigramsProgress.awaitingWaterSoulReward = false;
+                g_eightTrigramsProgress.waterSoulRewardReceived = true;
+                g_eightTrigramsProgress.waterSoulRewardItemId = rewardItemId;
+                g_eightTrigramsProgress.waterSoulRewardItemCount = rewardItemCount;
+                g_eightTrigramsProgress.taskTalkResponseReceived = true;
+                g_eightTrigramsProgress.taskTalkResponseType = packet.params;
+                rewardCaptured = true;
+            }
+        }
+        if (responseCaptured || rewardCaptured) {
+            UpdateTaskZoneUi(rewardItemCount > 0
+                                 ? L"任务区：已获得妖怪内丹"
+                                 : L"任务区：已收到水魂任务回话",
+                             true);
+        }
+        return;
+    }
+
     switch (packet.params) {
         case 1:
         case 5:
@@ -10737,7 +10820,9 @@ static void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet) {
                 uint32_t itemType = 0;
                 uint32_t itemIdValue = 0;
                 uint32_t itemCountValue = 0;
-                if (!readUInt32(itemType) || !readUInt32(itemIdValue) || !readUInt32(itemCountValue)) {
+                if (!readUInt32(itemType) ||
+                    !readUInt32(itemIdValue) ||
+                    !readUInt32(itemCountValue)) {
                     return;
                 }
             }
@@ -10762,18 +10847,17 @@ static void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet) {
             }
             hasDialogId = true;
             break;
-        case 7:
-            {
-                uint32_t boardId = 0;
-                if (!readUInt32(boardId) ||
-                    !readUInt32(dialogId) ||
-                    !readUInt32(npcId)) {
-                    return;
-                }
-                hasDialogId = true;
-                hasNpcId = true;
+        case 7: {
+            uint32_t boardId = 0;
+            if (!readUInt32(boardId) ||
+                !readUInt32(dialogId) ||
+                !readUInt32(npcId)) {
+                return;
             }
+            hasDialogId = true;
+            hasNpcId = true;
             break;
+        }
         case 11:
             if (!readUInt32(dialogId) ||
                 !readUInt32(currentId) ||
@@ -10819,6 +10903,29 @@ static void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet) {
             return;
     }
 
+    // 水魂第一次点击的回包没有预先知道 dialogId，因此单独捕获并交给流程线程。
+    bool responseCaptured = false;
+    {
+        std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+        if (g_taskZoneRunning.load() &&
+            g_eightTrigramsProgress.captureNextTaskTalkResponse) {
+            g_eightTrigramsProgress.captureNextTaskTalkResponse = false;
+            g_eightTrigramsProgress.taskTalkResponseReceived = true;
+            g_eightTrigramsProgress.taskTalkResponseType = packet.params;
+            g_eightTrigramsProgress.taskTalkResponseHasDialogId = hasDialogId;
+            g_eightTrigramsProgress.taskTalkResponseDialogId = hasDialogId ? dialogId : 0;
+            g_eightTrigramsProgress.taskTalkResponseNpcId = hasNpcId ? npcId : 0;
+            g_eightTrigramsProgress.talkDialogId = hasDialogId ? dialogId : 0;
+            if (hasNpcId) {
+                g_eightTrigramsProgress.talkNpcId = npcId;
+            }
+            responseCaptured = true;
+        }
+    }
+    if (responseCaptured) {
+        return;
+    }
+
     uint32_t expectedDialogId = 0;
     uint32_t expectedNpcId = 0;
     bool matchNpcId = true;
@@ -10857,7 +10964,6 @@ static void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet) {
 
     UpdateEightTrigramsResumeHintByDialogId(dialogId);
 }
-
 static void UpdateTaskZoneUi(const std::wstring& text, bool running) {
     UIBridge::Instance().UpdateHelperText(text);
     std::wstring script = L"if(window.updateTaskZoneStatus) { window.updateTaskZoneStatus('" +
@@ -10904,6 +11010,26 @@ static bool WaitForEightTrigramsMapEnter(DWORD timeoutMs) {
     return false;
 }
 
+// 水魂战斗结束后，AS3 先消费 TASK_TALK_BACK(type=15) 的奖励，再推进到墨艮。
+static bool WaitForEightTrigramsWaterSoulReward(
+    unsigned long long sessionId,
+    DWORD timeoutMs) {
+    const DWORD startTick = GetTickCount();
+    while (g_taskZoneRunning.load() && g_taskZoneSession.load() == sessionId) {
+        {
+            std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+            if (g_eightTrigramsProgress.waterSoulRewardReceived) {
+                return true;
+            }
+        }
+
+        if (GetTickCount() - startTick >= timeoutMs) {
+            return false;
+        }
+        Sleep(50);
+    }
+    return false;
+}
 static void UpdateEightTrigramsResumeHintByDialogId(uint32_t dialogId) {
     const size_t stepIndex = FindEightTrigramsStepIndexByDialogId(dialogId);
     if (stepIndex < EIGHT_TRIGRAMS_STEP_COUNT) {
@@ -10918,6 +11044,10 @@ static BOOL SendTaskZoneTalkPacket(
     bool waitForBack = true,
     DWORD timeoutMs = 3000,
     bool matchNpcId = true) {
+    // The native worker does not set GameData.playerData.isAutoBaGua. Keep
+    // the normal TaskControl.taskDialogComplete() contract here: a choice is
+    // a TRAIN_INFO submission followed by TASK_TALK, and the latter must be
+    // awaited before advancing the next recipe entry.
     if (chooseId != 0) {
         auto trainInfoPacket = PacketBuilder()
             .SetOpcode(Opcode::TRAIN_INFO_SEND)
@@ -10967,6 +11097,22 @@ static BOOL SendTaskZoneClickPacket(uint32_t npcId, bool battleMode = false) {
         .Build();
 
     return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+}
+
+static BOOL SendTaskZoneClickAndWaitForTaskDialog(uint32_t npcId, DWORD timeoutMs = 5000) {
+    auto packet = PacketBuilder()
+        .SetOpcode(Opcode::CLICK_NPC)
+        .SetParams(npcId)
+        .WriteUInt32(0)
+        .Build();
+
+    // 普通 NPC 点击先由服务端返回 TASK_TALK_BACK，TaskDialog 展示对话后，
+    // 后续确认包才会被服务端按当前对话状态处理。
+    return SendPacket(0,
+                      packet.data(),
+                      static_cast<DWORD>(packet.size()),
+                      Opcode::TASK_TALK_BACK,
+                      timeoutMs);
 }
 
 static BOOL RunEightTrigramsBattleLoop(unsigned long long sessionId) {
@@ -11107,6 +11253,10 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
                         flowFailed = true;
                         break;
                     }
+                } else if (step.dialogId == 400600804) {
+                    // 墨魂的 804 是 803 对话确认后的战斗等待节点。
+                    // AS3 TaskDialog.confirm -> TASK_TALK(101201, 400600803)，
+                    // 不会在这里再次发送 CLICK_NPC。
                 } else if (!SendTaskZoneClickPacket(step.npcId, true)) {
                     UpdateTaskZoneUi(L"任务区：发起战斗失败", false);
                     flowFailed = true;
@@ -11145,6 +11295,79 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
                     flowFailed = true;
                     break;
                 }
+                if (step.dialogId == 400600506) {
+                    UpdateTaskZoneUi(L"任务区：打开水魂战后回话...", true);
+                    {
+                        std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+                        g_eightTrigramsProgress.captureNextTaskTalkResponse = true;
+                        g_eightTrigramsProgress.taskTalkResponseReceived = false;
+                        g_eightTrigramsProgress.taskTalkResponseType = 0;
+                        g_eightTrigramsProgress.taskTalkResponseHasDialogId = false;
+                        g_eightTrigramsProgress.taskTalkResponseDialogId = 0;
+                        g_eightTrigramsProgress.taskTalkResponseNpcId = 61242;
+                        g_eightTrigramsProgress.taskTalkResponseMatchNpcId = false;
+                        g_eightTrigramsProgress.awaitingWaterSoulReward = false;
+                        g_eightTrigramsProgress.waterSoulRewardReceived = false;
+                        g_eightTrigramsProgress.waterSoulRewardItemId = 0;
+                        g_eightTrigramsProgress.waterSoulRewardItemCount = 0;
+                    }
+
+                    if (!SendTaskZoneClickAndWaitForTaskDialog(61242, 5000)) {
+                        UpdateTaskZoneUi(L"任务区：打开水魂战后回话失败", false);
+                        flowFailed = true;
+                        break;
+                    }
+
+                    uint32_t followupNpcId = 61242;
+                    uint32_t followupDialogId = 0;
+                    bool hasFollowupDialog = false;
+                    bool rewardAlreadyReceived = false;
+                    {
+                        std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+                        followupNpcId = g_eightTrigramsProgress.taskTalkResponseNpcId != 0
+                            ? g_eightTrigramsProgress.taskTalkResponseNpcId
+                            : 61242;
+                        followupDialogId = g_eightTrigramsProgress.taskTalkResponseDialogId;
+                        hasFollowupDialog = g_eightTrigramsProgress.taskTalkResponseHasDialogId;
+                        rewardAlreadyReceived = g_eightTrigramsProgress.waterSoulRewardReceived;
+                    }
+
+                    if (!rewardAlreadyReceived) {
+                        if (!hasFollowupDialog || followupDialogId == 0) {
+                            UpdateTaskZoneUi(L"任务区：未收到水魂可确认的回话", false);
+                            flowFailed = true;
+                            break;
+                        }
+
+                        {
+                            std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+                            g_eightTrigramsProgress.awaitingWaterSoulReward = true;
+                            g_eightTrigramsProgress.waterSoulRewardReceived = false;
+                            g_eightTrigramsProgress.waterSoulRewardItemId = 0;
+                            g_eightTrigramsProgress.waterSoulRewardItemCount = 0;
+                        }
+
+                        // AS3 TaskControl.taskDialogComplete()：点击回话按钮发送 TASK_TALK。
+                        if (!SendTaskZoneTalkPacket(
+                                followupNpcId,
+                                followupDialogId,
+                                0,
+                                true,
+                                10000,
+                                false)) {
+                            UpdateTaskZoneUi(L"任务区：确认水魂战后回话失败", false);
+                            flowFailed = true;
+                            break;
+                        }
+                    }
+
+                    UpdateTaskZoneUi(L"任务区：等待妖怪内丹奖励...", true);
+                    if (!WaitForEightTrigramsWaterSoulReward(sessionId, 10000)) {
+                        UpdateTaskZoneUi(L"任务区：未收到妖怪内丹奖励回包", false);
+                        flowFailed = true;
+                        break;
+                    }
+                }
 
                 UpdateEightTrigramsResumeHint(i + 1);
                 continue;
@@ -11156,7 +11379,11 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
                  step.kind == TaskZoneStepKind::AlertAcquire);
 
             if (shouldClickNpc) {
-                if (!SendTaskZoneClickPacket(step.npcId, false)) {
+                const bool isMoHunDialog = step.dialogId == 400600803;
+                const BOOL clickResult = isMoHunDialog
+                    ? SendTaskZoneClickAndWaitForTaskDialog(step.npcId, 5000)
+                    : SendTaskZoneClickPacket(step.npcId, false);
+                if (!clickResult) {
                     UpdateTaskZoneUi(L"任务区：点击目标失败", false);
                     flowFailed = true;
                     break;
@@ -11205,7 +11432,11 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
             }
 
             if (step.dialogId != 0) {
-                if (!SendTaskZoneTalkPacket(step.npcId, step.dialogId, step.chooseId, true)) {
+                if (!SendTaskZoneTalkPacket(
+                        step.npcId,
+                        step.dialogId,
+                        step.chooseId,
+                        step.dialogId != 400600803)) {
                     UpdateTaskZoneUi(L"任务区：对话发送失败", false);
                     flowFailed = true;
                     break;
@@ -13149,6 +13380,16 @@ BOOL SendBattleSixEndPacket() {
     
     return SendPacket(0, packet.data(), packet.size());
 }
+// 普通战斗的结束确认，等价于 AS3 BattleControl.clearBattleView() 中的
+// OP_GATEWAY_BATTLE_END.send；不能用万妖盛会的 USER_OP(params=4) 代替。
+static BOOL SendNormalBattleEndPacket() {
+    auto packet = PacketBuilder()
+        .SetOpcode(Opcode::BATTLE_END_SEND)
+        .SetParams(0)
+        .Build();
+
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+}
 
 static BOOL SendBattleReadyPacket() {
     auto packet = PacketBuilder()
@@ -13331,7 +13572,12 @@ void ProcessBattleSixBattleEndResponse(const GamePacket& packet) {
     }
     
     // 确认战斗结束
-    SendBattleSixEndPacket();
+    // 普通任务战斗必须走 1186323；1186050(params=4) 仅属于万妖盛会。
+    if (wasAutoMatching) {
+        SendBattleSixEndPacket();
+    } else if (wasInBattle) {
+        SendNormalBattleEndPacket();
+    }
     
     // 检查是否需要继续匹配（仅万妖盛会模式）
     if (wasAutoMatching && g_battleSixAuto.GetMatchCount() > 0) {

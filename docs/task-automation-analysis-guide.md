@@ -11,18 +11,21 @@
 
 ## 2. 代码来源优先级
 
-自动化任务的真实依据，按优先级从高到低是：
+自动化任务要分成三个层次，执行控制优先于 XML 外观：
 
-1. `data/taskinfo.xml`
-2. `config/tasktheme.xml`（运行时由 `SortedTaskList` 加载；当前仓库快照里未直接存放该文件）
-3. 反编译 AS3：
+1. **执行控制层：反编译 AS3**
    - `TaskInfoXMLParser.as`
    - `TaskXMLParser.as`
    - `TaskList.as`
    - `SortedTaskList.as`
    - `TaskView.as`
    - `TaskControl.as`
-4. 本地自动化实现：
+   - 八卦灵盘还必须包含 `AutoBaGuaView.as` 的 `STEP_CONFIG` 和 `onNext()`。
+2. **任务解释层：XML**
+   - `data/taskinfo.xml`
+   - `taskprop/<dialogId/1000>0.xml`
+   - `config/tasktheme.xml`（运行时由 `SortedTaskList` 加载；当前仓库快照里未直接存放该文件）
+3. **发包落地层：本地自动化实现**
    - `src/hook/wpe_hook.cpp`
 
 补充说明：
@@ -35,7 +38,11 @@
 - `dialogId` 是运行时步骤编号，不是 root `taskID`；一个 `subtaskID` 下面可以挂多个 `dialogId`。`4006000` 的样例和皇城里的 `200100504` 特例都说明了这一点。
 - UI 里看到“前往”只代表当前节点带了 `targetScene`，不代表完整 packet recipe 已经齐了。
 - `TaskView.onGetDialogBack()` 只有在 `dialogId != 0` 且 `dialogId != npcid` 时才会继续取 `taskprop`；空 XML 叶子节点还会直接 `onDialogComplete()`，所以不是每个 UI 步骤都会对应一份独立 `taskprop`。
+- XML 的运行时读取链是 `TASK_TALK_BACK.dialogId -> PropertyPool.getTaskProps(dialogId) -> props.children().(@id == dialogId)[0] -> TaskXMLParser.parseXML()`；因此 `<dialog>` 的书写顺序不等于执行顺序。`<desc>` 是显示内容，`<choose>` 是普通窗口选择元数据，`<alert>` 是提示，`<battle>`/`<flash>`/`targetScene` 由运行时事件继续处理。
+- `OP_CLIENT_CLICK_NPC` 在 AS3 的 `MsgDoc` 中 `back=0`，NPC 点击本身不是可等待的任务回包；点击后可能先收到独立的 NPC 任务列表，也可能直接进入物品、战斗或任务对话结果。
 - `TaskDialog` 里的 `choose` 节点先转成 `sendChooseId`，最后由 `TaskControl.taskDialogComplete()` 统一补 `TRAIN_INFO_SEND` + `TASK_TALK_SEND`，不是在 UI 层直接发包。
+- 必须区分两条 AS3 契约：普通任务窗口在 `isAutoBaGua=false` 时，点击选择按钮走 `TRAIN_INFO_SEND(params=7,[dialogId,chooseId])` 后再发 `TASK_TALK_SEND`；内置 `AutoBaGua` 在 `isAutoBaGua=true` 时由 `WindowLayerControl.hasBaGuaTask()` 和 `TaskControl.onSendAutoBaGua()` 直发 `TASK_TALK_SEND`，不经过普通选择窗口。
+- 当前 native 辅助没有接管游戏内 `GameData.playerData.isAutoBaGua`，也没有驱动 `AutoBaGuaEntrance.swf` 的 UI 状态，因此 native packet recipe 必须模拟普通任务窗口的按钮点击。`AutoBaGuaView` 的 24 个状态只作为场景/NPC/结果迁移锚点，不能据此删除 `TRAIN_INFO_SEND`。
 - `targetScene` 也不是直发包，它先随 `DIALOGFINISHED` 事件回到 `TaskControl`，再由 `TaskControl.toOtherScene()` 分流。
 - 目前本地快照里只看到 `taskprop_1002000.xml`、`taskprop_1003000.xml`、`taskprop_4006000.xml`，`taskprop_2001000.xml` 不在明文目录，也不在 `data_data.zip`。
 - 我们还尝试了官方常见路径 `http://enter.wanwan4399.com/bin-debug/assets/taskprop/2001000.xml` 和 `http://kbxy.wanwan4399.com/bin-debug/assets/taskprop/2001000.xml`，当前都返回 404。
@@ -61,8 +68,9 @@
    - 看 `TaskList` 如何判定状态
    - 看 `TaskInfoXMLParser` 如何裁剪可接任务和前置关系
 5. 还原执行顺序
-   - 先按 XML 原始顺序理解剧情
-   - 再按运行时代码、抓包和当前 hook 的实现修正实际执行顺序
+   - 先按 AS3 控制器还原运行时状态和结果分支
+   - 再用 XML 解释对白、选择、提示、奖励和目标场景
+   - 最后按当前 native 所模拟的 AS3 契约落成发包顺序
    - 如果二者冲突，以已经落地的运行时包行为为准
    - 如果 `taskprop` 缺失，先用攻略页和场景对象把“去哪里、点什么、先后顺序”补成动作链，再回 AS3 / 抓包补 `dialogId`、`chooseId` 和 packet
 6. 拆 packet 规则
@@ -135,7 +143,7 @@
 
 其中最重要的约束是：
 
-- `choose flag="3"` 时，必须先发 `TRAIN_INFO_SEND`，再发 `TASK_TALK_SEND`
+- 在当前 native 的普通窗口兼容链中，`choose flag="3"` 必须先发 `TRAIN_INFO_SEND`，再发 `TASK_TALK_SEND`；只有真正运行 `isAutoBaGua=true` 的内置模块才省略 `TRAIN_INFO_SEND`
 - `battle` 节点必须等战斗状态真的起来
 - `flash` 节点通常表示过场或收口，不等同于普通对话
 - `condition` 必须满足后才能视为完成
@@ -236,7 +244,9 @@
 
 ### 6.2 实际执行顺序
 
-`wpe_hook.cpp` 里已经把八卦灵盘写成固定步骤表，执行顺序如下：
+八卦灵盘的状态顺序以 `AutoBaGuaView.STEP_CONFIG` 的 24 个点击状态和 `onNext()` 结果分支为准；XML 中的 `dialog` 书写顺序不是发包队列。当前 native 使用普通任务窗口兼容链，所以每个需要选择的 XML 节点仍然要执行按钮对应的 `TRAIN_INFO + TASK_TALK`。
+
+native 的已验证兼容配方如下：
 
 | 阶段 | XML 子任务 | 实际执行顺序 | 说明 |
 |---|---:|---|---|
@@ -251,7 +261,8 @@
 
 ### 6.3 八卦灵盘的特殊规则
 
-- `chooseId = 3` 的节点，先发 `TRAIN_INFO_SEND` 再发 `TASK_TALK_SEND`
+- native 当前未接管内置 `AutoBaGua` 状态，`chooseId = 3` 的普通任务窗口选择必须先发 `TRAIN_INFO_SEND` 再发 `TASK_TALK_SEND`
+- 内置 AS3 自动模块的直发规则仅适用于 `GameData.playerData.isAutoBaGua=true`；不能直接复制到当前 native 线程
 - `400600704` 是特殊转盘收口，不按普通 NPC 对话处理
 - `400600303` 的菩提子获取是特殊场景点击，不是普通谈话
 - `400600506` 的水魂战斗按实际封包走战斗流程，不是简单点 NPC

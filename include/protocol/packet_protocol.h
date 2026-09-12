@@ -92,6 +92,7 @@ constexpr uint32_t BATTLE_READY = 1186049;
 constexpr uint32_t BATTLE_LOOK_READY = 1186233;
 constexpr uint32_t BATTLE_PLAY_OVER = 1186056;
 constexpr uint32_t TOWER_BATTLE_START = 1184788;
+constexpr uint32_t BATTLE_END_SEND = 1186323;
 constexpr uint32_t CLICK_NPC = 1186048;
 
 constexpr uint32_t BATTLE_MD5_CHECK = 1317264;
