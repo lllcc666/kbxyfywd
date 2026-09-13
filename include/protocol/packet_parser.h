@@ -22,10 +22,7 @@ public:
     static void Cleanup();
 
     static bool ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
-                             std::vector<GamePacket>& outPackets,
-                             uintptr_t streamId = 0);
-    static bool CanRewriteReceive(uintptr_t streamId);
-    static void ResetReceiveStream(uintptr_t streamId);
+                             std::vector<GamePacket>& outPackets);
 
     static void ProcessBattlePacket(const GamePacket& packet);
     static void ProcessLingyuPacket(const GamePacket& packet);
@@ -42,8 +39,7 @@ public:
     }
 
 private:
-    static std::unordered_map<uintptr_t, std::vector<uint8_t>> g_recvBuffers;
-    static std::unordered_map<uintptr_t, bool> g_lastReceiveCanRewrite;
+    static std::vector<uint8_t> g_recvBuffer;
     static BattleData g_currentBattle;
     static std::mutex g_battleMutex;
 

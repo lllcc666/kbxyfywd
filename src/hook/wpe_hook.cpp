@@ -6878,23 +6878,8 @@ std::vector<BYTE> BuildReceivedPacketBytes(const GamePacket& packet) {
 
 int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
     int result = OriginalRecv(s, buf, len, flags);
-    const uintptr_t streamId = static_cast<uintptr_t>(s);
 
-    if (result == 0) {
-        PacketParser::ResetReceiveStream(streamId);
-        return 0;
-    }
-    if (result < 0) {
-        const int error = WSAGetLastError();
-        if (error == WSAECONNRESET || error == WSAECONNABORTED ||
-            error == WSAENETRESET || error == WSAENOTCONN ||
-            error == WSAESHUTDOWN || error == WSAENOTSOCK ||
-            error == WSAEINVAL) {
-            PacketParser::ResetReceiveStream(streamId);
-        }
-        return result;
-    }
-    if (!g_bInitialized) {
+    if (result <= 0 || !g_bInitialized) {
         return result;
     }
 
@@ -6905,9 +6890,7 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
     // 第一步：解析黏包，得到完整的封包列表
     // ========================================================================
     std::vector<GamePacket> gamePackets;
-    // 解析封包
-    bool hasValidPackets = PacketParser::ParsePackets(pData, dwSize, FALSE, gamePackets, streamId);
-    const bool canRewriteReceive = PacketParser::CanRewriteReceive(streamId);
+    bool hasValidPackets = PacketParser::ParsePackets(pData, dwSize, FALSE, gamePackets);
     
     // ========================================================================
     // 第二步：封包级别过滤（支持黏包）
@@ -7012,7 +6995,7 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
     // ========================================================================
     // 第三步：重构封包缓冲区（过滤掉需要屏蔽的封包）
     // ========================================================================
-    if (!packetsToFilter.empty() && hasValidPackets && canRewriteReceive) {
+    if (!packetsToFilter.empty() && hasValidPackets) {
         // 创建新的封包缓冲区
         std::vector<BYTE> newBuffer;
         newBuffer.reserve(dwSize);
@@ -7066,23 +7049,9 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
         }
     }
     
-    std::vector<GamePacket> packetsForDispatch;
-    if (canRewriteReceive && !packetsToFilter.empty()) {
-        packetsForDispatch.reserve(gamePackets.size());
-        for (size_t i = 0; i < gamePackets.size(); ++i) {
-            const bool filtered = std::find(packetsToFilter.begin(), packetsToFilter.end(), i) != packetsToFilter.end();
-            const bool nativeOnlyBattleStart = filtered &&
-                gamePackets[i].opcode == Opcode::BATTLE_START && g_shuangtaiAuto.IsRunning();
-            if (!filtered || nativeOnlyBattleStart) {
-                packetsForDispatch.push_back(gamePackets[i]);
-            }
-        }
-    } else {
-        packetsForDispatch = gamePackets;
-    }
 
     if (hasValidPackets) {
-        ProcessReceivedGamePackets(pData, dwSize, packetsForDispatch);
+        ProcessReceivedGamePackets(pData, dwSize, gamePackets);
     }
 
     // ========================================================================

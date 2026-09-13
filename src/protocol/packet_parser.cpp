@@ -48,10 +48,8 @@ static PFN_INFLATEEND g_inflateEnd = nullptr;
 // minizip module and functions
 BattleData PacketParser::g_currentBattle;
 std::mutex PacketParser::g_battleMutex;
-std::unordered_map<uintptr_t, std::vector<uint8_t>> PacketParser::g_recvBuffers;
-std::unordered_map<uintptr_t, bool> PacketParser::g_lastReceiveCanRewrite;
-static std::mutex g_recvBuffersMutex;
-static std::mutex g_parserLifecycleMutex;
+std::vector<uint8_t> PacketParser::g_recvBuffer;
+std::mutex g_parserLifecycleMutex;
 
 // 全局数据映射表的互斥锁
 static std::mutex g_dataMapsMutex;
@@ -1023,11 +1021,7 @@ bool PacketParser::Initialize() {
 
 void PacketParser::Cleanup() {
     std::lock_guard<std::mutex> lifecycleLock(g_parserLifecycleMutex);
-    {
-        std::lock_guard<std::mutex> lock(g_recvBuffersMutex);
-        g_recvBuffers.clear();
-        g_lastReceiveCanRewrite.clear();
-    }
+    g_recvBuffer.clear();
     {
         std::lock_guard<std::mutex> lock(g_battleMutex);
         g_currentBattle = BattleData{};
@@ -1099,8 +1093,7 @@ bool PacketParser::UncompressBody(const std::vector<uint8_t>& compressed, std::v
 }
 
 bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
-                                std::vector<GamePacket>& outPackets,
-                                uintptr_t streamId) {
+                                std::vector<GamePacket>& outPackets) {
     outPackets.clear();
     if (!data || size == 0) {
         return false;
@@ -1108,84 +1101,67 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
 
     std::lock_guard<std::mutex> lifecycleLock(g_parserLifecycleMutex);
 
-    auto decodePacketBody = [](GamePacket& packet) {
-        packet.bodyDecoded = true;
-        packet.body = packet.rawBody;
-        if (packet.magic != MAGIC_NUMBER_C) {
-            return;
-        }
-
-        std::vector<uint8_t> decompressed;
-        if (PacketParser::UncompressBody(packet.rawBody, decompressed)) {
-            packet.body = std::move(decompressed);
-            return;
-        }
-
-        // Framing is still valid, but semantic parsing must not consume compressed bytes.
-        packet.body.clear();
-        packet.bodyDecoded = false;
-    };
-
     if (bSend) {
         if (size < PacketProtocol::HEADER_SIZE) {
             return false;
         }
 
-        const uint16_t magic = static_cast<uint16_t>(data[0]) |
-                               (static_cast<uint16_t>(data[1]) << 8);
-        const uint16_t bodyLength = static_cast<uint16_t>(data[2]) |
-                                    (static_cast<uint16_t>(data[3]) << 8);
+        size_t offset = 0;
+        const uint16_t magic = ReadInt16LE(data, offset);
+        const uint16_t bodyLength = ReadInt16LE(data, offset);
         if (magic != MAGIC_NUMBER_D && magic != MAGIC_NUMBER_C) {
             return false;
         }
-        const size_t packetSize = PacketProtocol::HEADER_SIZE + bodyLength;
-        if (packetSize > size) {
+        if (size < PacketProtocol::HEADER_SIZE + bodyLength) {
             return false;
         }
 
         GamePacket packet;
         packet.magic = magic;
         packet.length = bodyLength;
-        packet.bSend = TRUE;
-        size_t offset = 4;
-        packet.opcode = static_cast<uint32_t>(ReadInt32LE(data, offset));
-        packet.params = static_cast<uint32_t>(ReadInt32LE(data, offset));
-        packet.rawBody.assign(data + offset, data + offset + bodyLength);
-        decodePacketBody(packet);
+        packet.bSend = bSend;
+        packet.opcode = ReadInt32LE(data, offset);
+        packet.params = ReadInt32LE(data, offset);
+        packet.body.assign(data + offset, data + offset + bodyLength);
+        packet.rawBody = packet.body;
+
+        if (magic == MAGIC_NUMBER_C) {
+            std::vector<uint8_t> decompressed;
+            if (UncompressBody(packet.body, decompressed)) {
+                packet.body = std::move(decompressed);
+            }
+        }
+
         outPackets.push_back(std::move(packet));
         return true;
     }
 
-    constexpr size_t kMaxReceiveBuffer = 4 * 1024 * 1024;
-    std::lock_guard<std::mutex> lock(g_recvBuffersMutex);
-    std::vector<uint8_t>& buffer = g_recvBuffers[streamId];
-    const bool hadPendingBytes = !buffer.empty();
+    const size_t newSize = g_recvBuffer.size() + size;
+    if (g_recvBuffer.capacity() < newSize) {
+        g_recvBuffer.reserve((std::max)(newSize, g_recvBuffer.capacity() * 2));
+    }
+    g_recvBuffer.insert(g_recvBuffer.end(), data, data + size);
 
-    if (buffer.size() > kMaxReceiveBuffer || size > kMaxReceiveBuffer ||
-        buffer.size() + size > kMaxReceiveBuffer) {
-        buffer.clear();
-        g_lastReceiveCanRewrite[streamId] = false;
+    if (g_recvBuffer.size() < PacketProtocol::HEADER_SIZE) {
         return false;
     }
-    buffer.insert(buffer.end(), data, data + size);
 
     size_t readOffset = 0;
+    const size_t dataSize = g_recvBuffer.size();
     bool foundAny = false;
-    while (buffer.size() - readOffset >= PacketProtocol::HEADER_SIZE) {
-        const uint16_t magic = static_cast<uint16_t>(buffer[readOffset]) |
-                               (static_cast<uint16_t>(buffer[readOffset + 1]) << 8);
+
+    while (readOffset + PacketProtocol::HEADER_SIZE <= dataSize) {
+        const uint16_t magic = static_cast<uint16_t>(g_recvBuffer[readOffset]) |
+                               (static_cast<uint16_t>(g_recvBuffer[readOffset + 1]) << 8);
         if (magic != MAGIC_NUMBER_D && magic != MAGIC_NUMBER_C) {
-            // AS3 PacketBuffer.getPackets() drops the accumulated buffer on an
-            // invalid frame magic; it does not scan forward for a later magic.
-            buffer.clear();
-            g_lastReceiveCanRewrite[streamId] = false;
+            g_recvBuffer.clear();
             return foundAny;
         }
 
-        const uint16_t bodyLength = static_cast<uint16_t>(buffer[readOffset + 2]) |
-                                    (static_cast<uint16_t>(buffer[readOffset + 3]) << 8);
+        const uint16_t bodyLength = static_cast<uint16_t>(g_recvBuffer[readOffset + 2]) |
+                                    (static_cast<uint16_t>(g_recvBuffer[readOffset + 3]) << 8);
         const size_t packetSize = PacketProtocol::HEADER_SIZE + bodyLength;
-        if (buffer.size() - readOffset < packetSize) {
+        if (readOffset + packetSize > dataSize) {
             break;
         }
 
@@ -1193,42 +1169,38 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
         packet.magic = magic;
         packet.length = bodyLength;
         packet.bSend = FALSE;
-        packet.opcode = static_cast<uint32_t>(buffer[readOffset + 4]) |
-                        (static_cast<uint32_t>(buffer[readOffset + 5]) << 8) |
-                        (static_cast<uint32_t>(buffer[readOffset + 6]) << 16) |
-                        (static_cast<uint32_t>(buffer[readOffset + 7]) << 24);
-        packet.params = static_cast<uint32_t>(buffer[readOffset + 8]) |
-                        (static_cast<uint32_t>(buffer[readOffset + 9]) << 8) |
-                        (static_cast<uint32_t>(buffer[readOffset + 10]) << 16) |
-                        (static_cast<uint32_t>(buffer[readOffset + 11]) << 24);
+        packet.opcode = static_cast<uint32_t>(g_recvBuffer[readOffset + 4]) |
+                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 5]) << 8) |
+                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 6]) << 16) |
+                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 7]) << 24);
+        packet.params = static_cast<uint32_t>(g_recvBuffer[readOffset + 8]) |
+                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 9]) << 8) |
+                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 10]) << 16) |
+                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 11]) << 24);
+
         const size_t bodyStart = readOffset + PacketProtocol::HEADER_SIZE;
-        packet.rawBody.assign(buffer.begin() + bodyStart,
-                              buffer.begin() + bodyStart + bodyLength);
-        decodePacketBody(packet);
+        const size_t bodyEnd = bodyStart + bodyLength;
+        packet.rawBody.assign(g_recvBuffer.begin() + bodyStart,
+                              g_recvBuffer.begin() + bodyEnd);
+        packet.body = packet.rawBody;
+
+        if (magic == MAGIC_NUMBER_C) {
+            std::vector<uint8_t> decompressed;
+            if (UncompressBody(packet.body, decompressed)) {
+                packet.body = std::move(decompressed);
+            }
+        }
+
         outPackets.push_back(std::move(packet));
         foundAny = true;
         readOffset += packetSize;
     }
 
     if (readOffset > 0) {
-        buffer.erase(buffer.begin(), buffer.begin() + readOffset);
+        g_recvBuffer.erase(g_recvBuffer.begin(), g_recvBuffer.begin() + readOffset);
     }
 
-    g_lastReceiveCanRewrite[streamId] = !hadPendingBytes && buffer.empty() &&
-                                        readOffset == size;
     return foundAny;
-}
-
-bool PacketParser::CanRewriteReceive(uintptr_t streamId) {
-    std::lock_guard<std::mutex> lock(g_recvBuffersMutex);
-    const auto it = g_lastReceiveCanRewrite.find(streamId);
-    return it != g_lastReceiveCanRewrite.end() && it->second;
-}
-
-void PacketParser::ResetReceiveStream(uintptr_t streamId) {
-    std::lock_guard<std::mutex> lock(g_recvBuffersMutex);
-    g_recvBuffers.erase(streamId);
-    g_lastReceiveCanRewrite.erase(streamId);
 }
 
 void PacketParser::SendToUI(const std::wstring& type, const std::wstring& data) {
