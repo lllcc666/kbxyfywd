@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <winhttp.h>
 #include <wincrypt.h>
+#include <mutex>
 #include <string>
 #include <array>
 #include <vector>
@@ -688,6 +689,7 @@ static DeepDigState g_deepDigState;
 // -------------------------
 
 PACKET_CALLBACK g_PacketCallback = nullptr;
+static std::mutex g_receiveDispatchMutex;
 
 // -------------------------
 // 辅助函数
@@ -6824,16 +6826,40 @@ void HandleDecomposeResponse() {
  */
 void ProcessReceivedGamePackets(const BYTE* pData, DWORD dwSize,
                                 const std::vector<GamePacket>& gamePackets) {
+    (void)pData;
+    (void)dwSize;
     auto& dispatcher = ResponseDispatcher::Instance();
 
     for (const auto& gp : gamePackets) {
-        // 使用响应分发器分发封包
-        dispatcher.Dispatch(gp);
-
-        // framing 已经确认收到；等待器必须先被唤醒，具体业务处理再根据
-        // bodyDecoded 判断是否可继续解析，避免登录/进场流程永久等待。
+        // 先唤醒等待器，避免业务 handler 阻塞协议等待。
         ResponseWaiter::NotifyResponse(gp.opcode, gp.params);
+
+        // 业务处理在后台线程执行，不能阻塞游戏线程返回 recv 数据。
+        dispatcher.Dispatch(gp);
         Sleep(0);
+    }
+}
+void DispatchReceivedGamePacketsAsync(const std::vector<GamePacket>& gamePackets) {
+    if (gamePackets.empty()) {
+        return;
+    }
+
+    auto* queuedPackets = new (std::nothrow) std::vector<GamePacket>(gamePackets);
+    if (!queuedPackets) {
+        return;
+    }
+
+    HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID param) -> DWORD {
+        std::unique_ptr<std::vector<GamePacket>> packets(
+            static_cast<std::vector<GamePacket>*>(param));
+        std::lock_guard<std::mutex> dispatchLock(g_receiveDispatchMutex);
+        ProcessReceivedGamePackets(nullptr, 0, *packets);
+        return 0;
+    }, queuedPackets, 0, nullptr);
+    if (hThread) {
+        CloseHandle(hThread);
+    } else {
+        delete queuedPackets;
     }
 }
 
@@ -7051,7 +7077,7 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
     
 
     if (hasValidPackets) {
-        ProcessReceivedGamePackets(pData, dwSize, gamePackets);
+        DispatchReceivedGamePacketsAsync(gamePackets);
     }
 
     // ========================================================================
