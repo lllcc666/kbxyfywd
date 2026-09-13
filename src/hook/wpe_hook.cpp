@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <winhttp.h>
 #include <wincrypt.h>
+#include <condition_variable>
 #include <mutex>
 #include <string>
 #include <array>
@@ -686,11 +687,14 @@ static DeepDigState g_deepDigState;
 
 // -------------------------
 // 回调函数
-// -------------------------
-
 PACKET_CALLBACK g_PacketCallback = nullptr;
 static std::mutex g_receiveDispatchMutex;
-
+static std::condition_variable g_receiveDispatchCv;
+static std::deque<std::vector<GamePacket>> g_receiveDispatchQueue;
+static std::thread g_receiveDispatchWorker;
+static bool g_receiveDispatchStarted = false;
+static bool g_receiveDispatchStop = false;
+static constexpr size_t kMaxReceiveDispatchQueue = 64;
 // -------------------------
 // 辅助函数
 // -------------------------
@@ -6831,36 +6835,93 @@ void ProcessReceivedGamePackets(const BYTE* pData, DWORD dwSize,
     auto& dispatcher = ResponseDispatcher::Instance();
 
     for (const auto& gp : gamePackets) {
-        // 先唤醒等待器，避免业务 handler 阻塞协议等待。
-        ResponseWaiter::NotifyResponse(gp.opcode, gp.params);
-
-        // 业务处理在后台线程执行，不能阻塞游戏线程返回 recv 数据。
         dispatcher.Dispatch(gp);
         Sleep(0);
     }
 }
+
+static void ReceiveDispatchWorkerProc() {
+    for (;;) {
+        std::vector<GamePacket> packets;
+        {
+            std::unique_lock<std::mutex> lock(g_receiveDispatchMutex);
+            g_receiveDispatchCv.wait(lock, [] {
+                return g_receiveDispatchStop || !g_receiveDispatchQueue.empty();
+            });
+
+            if (g_receiveDispatchStop && g_receiveDispatchQueue.empty()) {
+                return;
+            }
+
+            packets = std::move(g_receiveDispatchQueue.front());
+            g_receiveDispatchQueue.pop_front();
+        }
+
+        ProcessReceivedGamePackets(nullptr, 0, packets);
+    }
+}
+
+static void StartReceiveDispatchWorker() {
+    std::lock_guard<std::mutex> lock(g_receiveDispatchMutex);
+    if (g_receiveDispatchStarted) {
+        return;
+    }
+
+    g_receiveDispatchStop = false;
+    try {
+        g_receiveDispatchWorker = std::thread(ReceiveDispatchWorkerProc);
+        g_receiveDispatchStarted = true;
+    } catch (...) {
+        g_receiveDispatchStarted = false;
+    }
+}
+
+static void StopReceiveDispatchWorker() {
+    {
+        std::lock_guard<std::mutex> lock(g_receiveDispatchMutex);
+        if (!g_receiveDispatchStarted) {
+            return;
+        }
+        g_receiveDispatchStop = true;
+    }
+    g_receiveDispatchCv.notify_all();
+
+    if (g_receiveDispatchWorker.joinable()) {
+        g_receiveDispatchWorker.join();
+    }
+
+    std::lock_guard<std::mutex> lock(g_receiveDispatchMutex);
+    g_receiveDispatchQueue.clear();
+    g_receiveDispatchStarted = false;
+    g_receiveDispatchStop = false;
+}
+
 void DispatchReceivedGamePacketsAsync(const std::vector<GamePacket>& gamePackets) {
     if (gamePackets.empty()) {
         return;
     }
 
-    auto* queuedPackets = new (std::nothrow) std::vector<GamePacket>(gamePackets);
-    if (!queuedPackets) {
-        return;
+    // Notify while still in the recv hook.  The business worker may be busy
+    // in another handler, but protocol waiters must not wait behind it.
+    for (const auto& gp : gamePackets) {
+        ResponseWaiter::NotifyResponse(gp.opcode, gp.params);
     }
 
-    HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID param) -> DWORD {
-        std::unique_ptr<std::vector<GamePacket>> packets(
-            static_cast<std::vector<GamePacket>*>(param));
-        std::lock_guard<std::mutex> dispatchLock(g_receiveDispatchMutex);
-        ProcessReceivedGamePackets(nullptr, 0, *packets);
-        return 0;
-    }, queuedPackets, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
-    } else {
-        delete queuedPackets;
+    StartReceiveDispatchWorker();
+    {
+        std::lock_guard<std::mutex> lock(g_receiveDispatchMutex);
+        if (!g_receiveDispatchStarted) {
+            return;
+        }
+
+        // Bound memory even if a handler is slower than the network.  The
+        // newest packets are more useful for current state than stale ones.
+        if (g_receiveDispatchQueue.size() >= kMaxReceiveDispatchQueue) {
+            g_receiveDispatchQueue.pop_front();
+        }
+        g_receiveDispatchQueue.emplace_back(gamePackets);
     }
+    g_receiveDispatchCv.notify_one();
 }
 
 std::vector<BYTE> BuildReceivedPacketBytes(const GamePacket& packet) {
@@ -7165,6 +7226,8 @@ BOOL InitializeHooks() {
 }
 
 VOID UninitializeHooks() {
+    StopReceiveDispatchWorker();
+
     if (g_hMinHookModule) {
         g_pfnMH_DisableHook(MH_ALL_HOOKS);
         g_pfnMH_Uninitialize();
@@ -7442,31 +7505,24 @@ void ResponseDispatcher::Unregister(uint32_t opcode, uint32_t params) {
 }
 
 BOOL ResponseDispatcher::Dispatch(const GamePacket& packet) {
-    ResponseHandler handler;
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        const uint64_t key = MakeKey(packet.opcode, packet.params);
-        for (const auto& entry : m_handlers) {
-            if (entry.key == key && entry.handler) {
-                handler = entry.handler;
-                break;
-            }
-        }
-        if (!handler) {
-            for (const auto& entry : m_opcodeOnlyHandlers) {
-                if (entry.opcode == packet.opcode && entry.handler) {
-                    handler = entry.handler;
-                    break;
-                }
-            }
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    const uint64_t key = MakeKey(packet.opcode, packet.params);
+    for (const auto& entry : m_handlers) {
+        if (entry.key == key && entry.handler) {
+            entry.handler(packet);
+            return TRUE;
         }
     }
 
-    if (!handler) {
-        return FALSE;
+    for (const auto& entry : m_opcodeOnlyHandlers) {
+        if (entry.opcode == packet.opcode && entry.handler) {
+            entry.handler(packet);
+            return TRUE;
+        }
     }
-    handler(packet);
-    return TRUE;
+
+    return FALSE;
 }
 
 void ResponseDispatcher::Clear() {
