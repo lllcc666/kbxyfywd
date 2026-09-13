@@ -4,15 +4,22 @@
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <vector>
-
 #include "packet_types.h"
 
 namespace BattleSix {
     constexpr int ACTIVITY_ID = 999;
     constexpr int MAX_SPIRIT_COUNT = 6;
 }
+
+struct BattleSixLineupEntry {
+    int position = 0;
+    int id = 0;
+    int spiritId = 0;
+    int level = 0;
+};
 
 struct BattleSixSkillInfo {
     int skillId = 0;
@@ -44,26 +51,31 @@ class BattleSixAutoBattle {
 private:
     std::vector<BattleSixSpiritInfo> m_mySpirits;
     std::vector<BattleSixSpiritInfo> m_enemySpirits;
+    std::vector<BattleSixLineupEntry> m_lineup;
+    int m_winStreak = 0;
+    int m_teamNum = 0;
+    int m_lineupCurrentCount = 0;
+    int m_firstSpiritId = 0;
     int m_currentSpiritIndex;
     int m_currentSkillIndex;
     int m_enemySid;
     int m_enemyUniqueId;
     int m_enemyActiveIndex;
     int m_myUniqueId;
-    bool m_isInBattle;
+    mutable std::recursive_mutex m_stateMutex;
+    std::atomic<bool> m_isInBattle;
     bool m_autoBattleEnabled;
     bool m_autoMatching;
     int m_matchCount;
     int m_totalMatchCount;
     int m_winCount;
     int m_loseCount;
-
 public:
     BattleSixAutoBattle();
 
     void StartBattle();
     void EndBattle();
-    bool IsInBattle() const { return m_isInBattle; }
+    bool IsInBattle() const { return m_isInBattle.load(); }
     void SetAutoBattle(bool enabled) { m_autoBattleEnabled = enabled; }
     bool IsAutoBattleEnabled() const { return m_autoBattleEnabled; }
     void SetAutoMatching(bool enabled) { m_autoMatching = enabled; }
@@ -93,7 +105,15 @@ public:
     int SelectBestSkill();
 
     std::vector<BattleSixSpiritInfo>& GetMySpirits() { return m_mySpirits; }
+    std::recursive_mutex& GetStateMutex() { return m_stateMutex; }
     std::vector<BattleSixSpiritInfo>& GetEnemySpirits() { return m_enemySpirits; }
+    void UpdateCombatInfo(int winStreak, int teamNum, int currentCount,
+                          int firstSpiritId, std::vector<BattleSixLineupEntry> lineup);
+    int GetWinStreak() const { return m_winStreak; }
+    int GetTeamNum() const { return m_teamNum; }
+    int GetLineupCurrentCount() const { return m_lineupCurrentCount; }
+    int GetFirstSpiritId() const { return m_firstSpiritId; }
+    const std::vector<BattleSixLineupEntry>& GetLineup() const { return m_lineup; }
     int GetCurrentSpiritIndex() const { return m_currentSpiritIndex; }
     int GetEnemySid() const { return m_enemySid; }
     int GetEnemyUniqueId() const { return m_enemyUniqueId; }
@@ -104,8 +124,6 @@ public:
     void SetEnemyActiveIndex(int index) { m_enemyActiveIndex = index; }
     void SetCurrentSpiritIndex(int index) { m_currentSpiritIndex = index; }
 };
-
-// 战斗六自动战斗状态唯一 owner。
 extern BattleSixAutoBattle g_battleSixAuto;
 extern std::atomic<bool> g_battleSixMatching;
 extern std::atomic<bool> g_battleSixMatchSuccess;
@@ -118,13 +136,15 @@ extern std::atomic<bool> g_battleSixSettlementKnown;
 extern std::atomic<bool> g_battleSixSettlementWin;
 BOOL SendBattleSixCombatInfoPacket();
 BOOL SendBattleSixMatchPacket();
+extern std::atomic<uint32_t> g_battleSixSettlementFlags;
 BOOL SendBattleSixCancelMatchPacket();
 BOOL SendBattleSixReqStartPacket();
 BOOL SendBattleSixUserOpPacket(int opType, int param1, int param2);
 BOOL SendBattleSixEndPacket();
 
-void ProcessBattleSixMatchResponse(const GamePacket& packet);
+void ProcessBattleSixCancelMatchResponse(const GamePacket& packet);
 void ProcessBattleSixPrepareCombatResponse(const GamePacket& packet);
+void ProcessBattleSixMatchResponse(const GamePacket& packet);
 void ProcessBattleSixReqStartResponse(const GamePacket& packet);
 void ProcessBattleSixCombatInfoResponse(const GamePacket& packet);
 void ProcessBattleSixBattleRoundResultResponse(const GamePacket& packet);

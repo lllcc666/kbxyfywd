@@ -43,16 +43,16 @@ PacketBuilder& PacketBuilder::SetParams(uint32_t params) {
 // ============================================================================
 
 PacketBuilder& PacketBuilder::WriteString(const std::string& str) {
-    // 写入字符串长度（小端序，2字节）
-    uint16_t len = static_cast<uint16_t>(str.length());
-    m_body.push_back(static_cast<uint8_t>(len & 0xFF));         // 低字节在前
-    m_body.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));  // 高字节在后
-    
-    // 写入字符串内容
-    for (char c : str) {
-        m_body.push_back(static_cast<uint8_t>(c));
+    if (str.size() > std::numeric_limits<uint16_t>::max() ||
+        m_body.size() > std::numeric_limits<uint16_t>::max() - 2 - str.size()) {
+        m_valid = false;
+        return *this;
     }
-    
+
+    const uint16_t len = static_cast<uint16_t>(str.size());
+    m_body.push_back(static_cast<uint8_t>(len & 0xFF));
+    m_body.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
+    m_body.insert(m_body.end(), str.begin(), str.end());
     return *this;
 }
 
@@ -90,6 +90,10 @@ PacketBuilder& PacketBuilder::WriteByte(uint8_t value) {
 }
 
 PacketBuilder& PacketBuilder::WriteBytes(const std::vector<uint8_t>& data) {
+    if (data.size() > std::numeric_limits<uint16_t>::max() - m_body.size()) {
+        m_valid = false;
+        return *this;
+    }
     m_body.insert(m_body.end(), data.begin(), data.end());
     return *this;
 }
@@ -106,8 +110,11 @@ PacketBuilder& PacketBuilder::WriteInt32Array(const std::vector<int32_t>& values
 // ============================================================================
 
 std::vector<uint8_t> PacketBuilder::Build() {
-    // 计算总长度：头部12字节 + Body
-    size_t totalLen = PacketProtocol::HEADER_SIZE + m_body.size();
+    if (!m_valid || m_body.size() > std::numeric_limits<uint16_t>::max()) {
+        return {};
+    }
+
+    const size_t totalLen = PacketProtocol::HEADER_SIZE + m_body.size();
     std::vector<uint8_t> packet;
     packet.reserve(totalLen);
     
@@ -143,6 +150,7 @@ void PacketBuilder::Reset() {
     m_magic = PacketProtocol::MAGIC_NORMAL;
     m_opcode = 0;
     m_params = 0;
+    m_valid = true;
     m_body.clear();
 }
 

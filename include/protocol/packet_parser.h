@@ -34,8 +34,8 @@ public:
     static void SendToUI(const std::wstring& type, const std::wstring& data);
     static void SendBossListToUI();
 
-    // Legacy reference access remains for compatibility; new readers should use a snapshot.
-    static BattleData& GetCurrentBattle() { return g_currentBattle; }
+    // Battle state is exposed as a snapshot so callers cannot retain an
+    // unlocked reference while the parser replaces the current battle.
     static BattleData GetCurrentBattleSnapshot() {
         std::lock_guard<std::mutex> lock(g_battleMutex);
         return g_currentBattle;
@@ -93,6 +93,7 @@ private:
 #define OPCODE_BATCH_RESOLVE_BACK Opcode::BATCH_RESOLVE_BACK
 
 std::wstring GetMapName(int mapId);
+int GetSkillPower(int skillId, int fallbackPower);
 
 extern std::unordered_map<int, std::wstring> g_petNames;
 extern std::unordered_map<int, std::wstring> g_skillNames;

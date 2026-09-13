@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 #include <cstdint>
-
+#include <limits>
 #include "packet_protocol.h"
 
 /**
@@ -150,7 +150,7 @@ private:
     uint32_t m_opcode;    ///< Opcode
     uint32_t m_params;    ///< Params
 
-    // Body 缓冲区
+    bool m_valid = true;       ///< Body 长度和字段长度是否仍符合协议限制
     std::vector<uint8_t> m_body;  ///< Body 数据
 
 };
