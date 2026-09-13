@@ -6830,11 +6830,9 @@ void ProcessReceivedGamePackets(const BYTE* pData, DWORD dwSize,
         // 使用响应分发器分发封包
         dispatcher.Dispatch(gp);
 
-        // 压缩 Body 解码失败时只能视为 framing 已收到，不能唤醒等待
-        // 业务响应的调用者，否则自动化会拿旧状态继续推进流程。
-        if (gp.bodyDecoded) {
-            ResponseWaiter::NotifyResponse(gp.opcode, gp.params);
-        }
+        // framing 已经确认收到；等待器必须先被唤醒，具体业务处理再根据
+        // bodyDecoded 判断是否可继续解析，避免登录/进场流程永久等待。
+        ResponseWaiter::NotifyResponse(gp.opcode, gp.params);
         Sleep(0);
     }
 }
