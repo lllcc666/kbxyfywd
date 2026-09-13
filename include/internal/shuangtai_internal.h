@@ -62,7 +62,9 @@ private:
     int m_mainPetSkillPP = 8;
     std::vector<uint32_t> m_petIds;
     std::atomic<int> m_totalRounds{0};
+    std::atomic<bool> m_roundActionPending{false};
 };
+
 
 // 双台谷自动战斗状态唯一 owner。
 extern ShuangTaiAutoBattle g_shuangtaiAuto;

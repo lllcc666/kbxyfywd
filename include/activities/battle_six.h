@@ -48,6 +48,7 @@ private:
     int m_currentSkillIndex;
     int m_enemySid;
     int m_enemyUniqueId;
+    int m_enemyActiveIndex;
     int m_myUniqueId;
     bool m_isInBattle;
     bool m_autoBattleEnabled;
@@ -100,6 +101,7 @@ public:
     void SetMyUniqueId(int id) { m_myUniqueId = id; }
     void SetEnemySid(int id) { m_enemySid = id; }
     void SetEnemyUniqueId(int id) { m_enemyUniqueId = id; }
+    void SetEnemyActiveIndex(int index) { m_enemyActiveIndex = index; }
     void SetCurrentSpiritIndex(int index) { m_currentSpiritIndex = index; }
 };
 
@@ -112,6 +114,8 @@ extern std::atomic<int> g_battleSixSwitchRetryCount;
 extern std::atomic<unsigned long long> g_battleSixBattleSession;
 extern std::atomic<unsigned long long> g_battleSixRoundToken;
 
+extern std::atomic<bool> g_battleSixSettlementKnown;
+extern std::atomic<bool> g_battleSixSettlementWin;
 BOOL SendBattleSixCombatInfoPacket();
 BOOL SendBattleSixMatchPacket();
 BOOL SendBattleSixCancelMatchPacket();
@@ -125,6 +129,10 @@ void ProcessBattleSixReqStartResponse(const GamePacket& packet);
 void ProcessBattleSixCombatInfoResponse(const GamePacket& packet);
 void ProcessBattleSixBattleRoundResultResponse(const GamePacket& packet);
 void ProcessBattleSixBattleEndResponse(const GamePacket& packet);
+void ProcessBattleSixOtherEscapedResponse(const GamePacket& packet);
+void ProcessBattleSixCombatOverResponse(const GamePacket& packet);
+void ProcessBattleSixSelfBanSpiritResponse(const GamePacket& packet);
+void ProcessBattleSixFinishFirstSpiritResponse(const GamePacket& packet);
 
 BOOL StartOneKeyBattleSixPacket(int matchCount = 1);
 BOOL CancelBattleSixMatch();

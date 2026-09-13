@@ -99,4 +99,5 @@ extern std::unordered_map<int, std::wstring> g_skillNames;
 extern std::unordered_map<int, std::wstring> g_elemNames;
 extern std::unordered_map<int, std::wstring> g_geniusNames;
 extern std::unordered_map<int, int> g_skillPowers;
+extern std::unordered_map<int, int> g_skillRanges;
 extern std::unordered_map<int, int> g_petElems;

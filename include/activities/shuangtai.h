@@ -23,7 +23,7 @@ constexpr uint32_t ENTER_BATTLE_SEND = 1186184;
 constexpr uint32_t BATTLE_OP1_SEND = 1186049;
 constexpr uint32_t BATTLE_OP2_SEND = 1186056;
 constexpr uint32_t USER_OP_SEND = 1186050;
-constexpr uint32_t BATTLE_END_SEND = 1186182;
+constexpr uint32_t BATTLE_END_SEND = 1186323;
 constexpr uint32_t BATTLE_START_OP_SEND = 1184769;
 constexpr uint32_t BATTLE_END_OP_SEND = 1184886;
 

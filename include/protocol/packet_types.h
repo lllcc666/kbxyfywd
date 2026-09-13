@@ -57,8 +57,8 @@ constexpr int COMBAT_SITE_DEL = 3;
 constexpr int SITE_RECOVER_ID = 9999;
 
 constexpr int ROUND_START_ADD[] = {62};
-constexpr int DEALADD_BLOOD_1[] = {2, 9, 17, 24, 29, 33, 34, 59, 95};
-constexpr int DEALADD_BLOOD_2[] = {36, 37, 46, 45, 62, 9999};
+constexpr int DEALADD_BLOOD_1[] = {2, 9, 17, 24, 29, 33, 34, 59, 95, 104, 113};
+constexpr int DEALADD_BLOOD_2[] = {36, 37, 46, 45, 62, 103, 9999};
 }  // namespace BufDataType
 
 struct BufData {
