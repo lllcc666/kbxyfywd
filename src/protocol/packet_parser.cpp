@@ -784,36 +784,32 @@ static void ParseSkillXml(const std::string& xml) {
     size_t closeStart = 0;
     size_t nextPos = 0;
     while (FindElementBlock(xml, "skill", searchPos, contentStart, closeStart, nextPos)) {
-        std::string content = xml.substr(contentStart, closeStart - contentStart);
+        const std::string content = xml.substr(contentStart, closeStart - contentStart);
         std::string idText;
-        std::string nameText;
-        std::string powerText;
-        if (!ExtractTagValue(content, "idx", idText) ||
-            !ExtractTagValue(content, "name", nameText) ||
-            !ExtractTagValue(content, "power", powerText)) {
+        if (!ExtractTagValue(content, "idx", idText)) {
             searchPos = nextPos;
             continue;
         }
 
         int id = 0;
-        if (!TryParseInt(idText, id)) {
-            searchPos = nextPos;
-            continue;
-        }
-        if (id == 0) {
+        if (!TryParseInt(idText, id) || id == 0) {
             searchPos = nextPos;
             continue;
         }
 
-        std::wstring name = Utf8ToWide(nameText);
-        TrimTrailingWhitespace(name);
-        int power = 0;
-        if (!TryParseInt(powerText, power)) {
-            searchPos = nextPos;
-            continue;
+        std::string nameText;
+        if (ExtractTagValue(content, "name", nameText)) {
+            std::wstring name = Utf8ToWide(nameText);
+            TrimTrailingWhitespace(name);
+            skillNames.emplace_back(id, std::move(name));
         }
-        skillNames.emplace_back(id, name);
-        skillPowers.emplace_back(id, power);
+
+        std::string powerText;
+        int power = 0;
+        if (ExtractTagValue(content, "power", powerText) && TryParseInt(powerText, power)) {
+            skillPowers.emplace_back(id, power);
+        }
+
         int range = 0;
         std::string rangeText;
         if (ExtractTagValue(content, "range", rangeText)) {
@@ -1093,8 +1089,12 @@ bool PacketParser::UncompressBody(const std::vector<uint8_t>& compressed, std::v
 }
 
 bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
-                                std::vector<GamePacket>& outPackets) {
+                                std::vector<GamePacket>& outPackets,
+                                bool* canRewriteInput) {
     outPackets.clear();
+    if (canRewriteInput) {
+        *canRewriteInput = false;
+    }
     if (!data || size == 0) {
         return false;
     }
@@ -1135,6 +1135,9 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
         outPackets.push_back(std::move(packet));
         return true;
     }
+
+    const bool hadPendingReceiveBytes = !g_recvBuffer.empty();
+
 
     const size_t newSize = g_recvBuffer.size() + size;
     if (g_recvBuffer.capacity() < newSize) {
@@ -1200,6 +1203,9 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
         g_recvBuffer.erase(g_recvBuffer.begin(), g_recvBuffer.begin() + readOffset);
     }
 
+    if (canRewriteInput) {
+        *canRewriteInput = !hadPendingReceiveBytes && foundAny && g_recvBuffer.empty();
+    }
     return foundAny;
 }
 
@@ -1728,6 +1734,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         if (!next.active) return;
         ++next.round;
         const int32_t roundNumber = next.round;
+        next.roundChangeSids.clear();
         ReplaceCurrentBattle(std::move(next));
         UpdateUIBattleData();
         if (g_battleSixAuto.IsInBattle() && g_battleSixAuto.IsAutoBattleEnabled()) {

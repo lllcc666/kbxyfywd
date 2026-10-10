@@ -62,6 +62,7 @@ private:
     int m_enemyUniqueId;
     int m_enemyActiveIndex;
     int m_myUniqueId;
+    unsigned long long m_lastActionRoundToken;
     mutable std::recursive_mutex m_stateMutex;
     std::atomic<bool> m_isInBattle;
     bool m_autoBattleEnabled;

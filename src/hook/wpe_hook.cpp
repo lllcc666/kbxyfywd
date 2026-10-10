@@ -246,7 +246,7 @@ bool g_bInterceptRecv = false;    ///< 是否拦截接收包
 bool g_bInterceptEnabled = false; ///< 是否启用拦截
 
 // 网络状态
-SOCKET g_LastGameSocket = 0;      ///< 最近的游戏套接字
+std::atomic<SOCKET> g_LastGameSocket{0};      ///< 最近的游戏套接字
 bool g_blockOpcodeSend = false;   ///< 是否阻止特定Opcode发送
 
 // 劫持功能
@@ -562,6 +562,13 @@ void ScheduleBattleSixRecoveryViaCombatInfo(DWORD delayMs) {
 static BOOL SendBattleReadyPacket();
 static BOOL SendBattlePlayOverPacket();
 static BOOL SendNormalBattleEndPacket();
+static BOOL SendTaskZoneTalkPacket(
+    uint32_t npcId,
+    uint32_t dialogId,
+    uint32_t chooseId,
+    bool waitForBack,
+    DWORD timeoutMs,
+    bool matchNpcId);
 
 static void AdjustBattleSixSpiritSkillPP(std::vector<BattleSixSpiritInfo>& spirits,
                                          int spiritSid,
@@ -691,6 +698,7 @@ PACKET_CALLBACK g_PacketCallback = nullptr;
 static std::mutex g_receiveDispatchMutex;
 static std::condition_variable g_receiveDispatchCv;
 static std::deque<std::vector<GamePacket>> g_receiveDispatchQueue;
+static std::atomic<bool> g_receiveDispatchAccepting{false};
 static std::thread g_receiveDispatchWorker;
 static bool g_receiveDispatchStarted = false;
 static bool g_receiveDispatchStop = false;
@@ -6642,6 +6650,38 @@ void AddPacketToUI(BOOL bSend, const BYTE* pData, DWORD dwSize, DWORD dwTime) {
 // Hook 函数
 // ============================================================================
 
+namespace {
+
+thread_local bool g_sendPacketRequiresComplete = false;
+
+int SendAllOriginal(SOCKET socket, const char* data, int length, int flags) {
+    if (!OriginalSend || !data || length < 0) {
+        WSASetLastError(WSAEINVAL);
+        return SOCKET_ERROR;
+    }
+
+    int sent = 0;
+    while (sent < length) {
+        const int result = OriginalSend(socket, data + sent, length - sent, flags);
+        if (result == SOCKET_ERROR) {
+            return sent > 0 ? sent : SOCKET_ERROR;
+        }
+        if (result == 0) {
+            return sent;
+        }
+        sent += result;
+    }
+    return sent;
+}
+
+struct SendPacketCompleteGuard {
+    bool previous = g_sendPacketRequiresComplete;
+    SendPacketCompleteGuard() { g_sendPacketRequiresComplete = true; }
+    ~SendPacketCompleteGuard() { g_sendPacketRequiresComplete = previous; }
+};
+
+}  // namespace
+
 int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
     // 总是记录游戏套接字
     if (len > 0) {
@@ -6664,8 +6704,11 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
                 return len;
             } else if (!modifiedData.empty()) {
                 // 替换：发送修改后的封包
-                int result = OriginalSend(s, reinterpret_cast<const char*>(modifiedData.data()),
-                                          static_cast<int>(dwSize), flags);
+                const char* sendData = reinterpret_cast<const char*>(modifiedData.data());
+                const int sendLength = static_cast<int>(dwSize);
+                int result = g_sendPacketRequiresComplete
+                    ? SendAllOriginal(s, sendData, sendLength, flags)
+                    : OriginalSend(s, sendData, sendLength, flags);
                 // 记录修改后的封包
                 if (g_bInterceptEnabled && g_bInterceptSend && g_bInitialized) {
                     PACKET packet;
@@ -6741,7 +6784,9 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
         }
     }
     
-    return OriginalSend(s, buf, len, flags);
+    return g_sendPacketRequiresComplete
+        ? SendAllOriginal(s, buf, len, flags)
+        : OriginalSend(s, buf, len, flags);
 }
 
 // ============================================================================
@@ -6863,7 +6908,7 @@ static void ReceiveDispatchWorkerProc() {
 
 static void StartReceiveDispatchWorker() {
     std::lock_guard<std::mutex> lock(g_receiveDispatchMutex);
-    if (g_receiveDispatchStarted) {
+    if (!g_receiveDispatchAccepting.load() || g_receiveDispatchStarted) {
         return;
     }
 
@@ -6897,7 +6942,7 @@ static void StopReceiveDispatchWorker() {
 }
 
 void DispatchReceivedGamePacketsAsync(const std::vector<GamePacket>& gamePackets) {
-    if (gamePackets.empty()) {
+    if (gamePackets.empty() || !g_receiveDispatchAccepting.load()) {
         return;
     }
 
@@ -6910,7 +6955,7 @@ void DispatchReceivedGamePacketsAsync(const std::vector<GamePacket>& gamePackets
     StartReceiveDispatchWorker();
     {
         std::lock_guard<std::mutex> lock(g_receiveDispatchMutex);
-        if (!g_receiveDispatchStarted) {
+        if (!g_receiveDispatchAccepting.load() || !g_receiveDispatchStarted) {
             return;
         }
 
@@ -6977,7 +7022,9 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
     // 第一步：解析黏包，得到完整的封包列表
     // ========================================================================
     std::vector<GamePacket> gamePackets;
-    bool hasValidPackets = PacketParser::ParsePackets(pData, dwSize, FALSE, gamePackets);
+    bool canRewriteRecvData = false;
+    bool hasValidPackets = PacketParser::ParsePackets(
+        pData, dwSize, FALSE, gamePackets, &canRewriteRecvData);
     
     // ========================================================================
     // 第二步：封包级别过滤（支持黏包）
@@ -7082,7 +7129,7 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
     // ========================================================================
     // 第三步：重构封包缓冲区（过滤掉需要屏蔽的封包）
     // ========================================================================
-    if (!packetsToFilter.empty() && hasValidPackets) {
+    if (!packetsToFilter.empty() && hasValidPackets && canRewriteRecvData) {
         // 创建新的封包缓冲区
         std::vector<BYTE> newBuffer;
         newBuffer.reserve(dwSize);
@@ -7215,8 +7262,10 @@ BOOL InitializeHooks() {
         return FALSE;
     }
 
+    g_receiveDispatchAccepting.store(true);
     status = g_pfnMH_EnableHook(MH_ALL_HOOKS);
     if (status != MH_OK) {
+        g_receiveDispatchAccepting.store(false);
         g_pfnMH_Uninitialize();
         UnloadMinHookFromMemory();
         return FALSE;
@@ -7226,10 +7275,16 @@ BOOL InitializeHooks() {
 }
 
 VOID UninitializeHooks() {
-    StopReceiveDispatchWorker();
+    g_receiveDispatchAccepting.store(false);
 
     if (g_hMinHookModule) {
         g_pfnMH_DisableHook(MH_ALL_HOOKS);
+    }
+
+    ResponseWaiter::CancelWait();
+    StopReceiveDispatchWorker();
+
+    if (g_hMinHookModule) {
         g_pfnMH_Uninitialize();
         UnloadMinHookFromMemory();
     }
@@ -7893,8 +7948,14 @@ BOOL SendPacket(
             }
         } timeoutGuard{targetSocket, originalTimeout};
 
-        int result = send(targetSocket, reinterpret_cast<const char*>(pData),
-                          static_cast<int>(dwSize), 0);
+        int result = SOCKET_ERROR;
+        {
+            SendPacketCompleteGuard completeSendGuard;
+            result = HookedSend(targetSocket,
+                                reinterpret_cast<const char*>(pData),
+                                static_cast<int>(dwSize),
+                                0);
+        }
         if (result == SOCKET_ERROR) {
             const int error = WSAGetLastError();
             if (error == WSAECONNRESET || error == WSAECONNABORTED) {
@@ -10407,9 +10468,8 @@ struct EightTrigramsStep {
 };
 
 static const EightTrigramsStep EIGHT_TRIGRAMS_STEPS[] = {
-    // 这是 native 的普通任务窗口兼容配方，不是 XML 节点的机械展开。
-    // AutoBaGuaView.STEP_CONFIG/onNext() 提供状态迁移锚点；native 未接管
-    // 游戏内 isAutoBaGua，所以选择节点仍按普通 TaskDialog 发送 TRAIN_INFO。
+    // 固定流程配方：普通对话/奖励按预设包序列和延时推进；只有战斗等待战斗状态结束。
+    // 不依赖 TASK_TALK_BACK 中的动态 dialogId，也不把 XML alert 展开成额外自动包。
     {2001, 21210, 400600101, 3, TaskZoneStepKind::Talk, L"墨乾"},
     {2005, 21511, 400600103, 0, TaskZoneStepKind::AlertAcquire, L"五彩灵芝"},
     {3001, 31101, 400600102, 0, TaskZoneStepKind::Talk, L"墨坤"},
@@ -10429,24 +10489,22 @@ static const EightTrigramsStep EIGHT_TRIGRAMS_STEPS[] = {
     {6001, 61101, 400600402, 0, TaskZoneStepKind::Talk, L"墨震"},
 
     {6001, 61101, 400600501, 3, TaskZoneStepKind::Talk, L"墨震"},
-    {6002, 401311, 400600506, 0, TaskZoneStepKind::Battle, L"水魂"},
-    {7002, 71201, 400600507, 0, TaskZoneStepKind::RewardOnly, L"墨艮"},
-    {7002, 71201, 400600505, 0, TaskZoneStepKind::Talk, L"墨艮"},
+    {6002, 61242, 400600506, 0, TaskZoneStepKind::Battle, L"水魂"},
 
+    // Native 普通任务兼容链：水魂确认后，先用 400600505 向墨艮交接内丹，再选择 400600601。
+    {7002, 71201, 400600505, 0, TaskZoneStepKind::Talk, L"墨艮"},
     {7002, 71201, 400600601, 3, TaskZoneStepKind::Talk, L"墨艮"},
     {8003, 81303, 400600603, 0, TaskZoneStepKind::AlertAcquire, L"火铜"},
     {9001, 91101, 400600602, 0, TaskZoneStepKind::Talk, L"墨巽"},
 
     {9001, 91101, 400600701, 3, TaskZoneStepKind::Talk, L"墨巽"},
     {9004, 91435, 400600703, 0, TaskZoneStepKind::AlertAcquire, L"柿果"},
+    {9004, 91435, 400600704, 0, TaskZoneStepKind::Flash, L"命运大转盘"},
     {10001, 101101, 400600702, 0, TaskZoneStepKind::Talk, L"墨兑"},
-    {0, 0, 400600704, 0, TaskZoneStepKind::Flash, L"命运大转盘"},
 
     {10001, 101101, 400600801, 3, TaskZoneStepKind::Talk, L"墨兑"},
     {10002, 101201, 400600803, 0, TaskZoneStepKind::Talk, L"墨魂"},
     {10002, 101201, 400600804, 0, TaskZoneStepKind::Battle, L"墨魂"},
-    {0, 0, 400600805, 0, TaskZoneStepKind::BranchOnly, L"墨魂(败北)"},
-    {0, 0, 400600806, 0, TaskZoneStepKind::BranchOnly, L"墨魂(胜利)"},
     {2001, 21210, 400600802, 0, TaskZoneStepKind::Talk, L"墨乾"},
 };
 
@@ -10495,7 +10553,6 @@ static size_t FindEightTrigramsStepIndexAfterGroup(uint32_t groupId) {
     }
     return EIGHT_TRIGRAMS_STEP_COUNT;
 }
-
 static size_t FindEightTrigramsStepIndexByDialogId(uint32_t dialogId) {
     for (size_t i = 0; i < EIGHT_TRIGRAMS_STEP_COUNT; ++i) {
         if (EIGHT_TRIGRAMS_STEPS[i].dialogId == dialogId) {
@@ -10504,6 +10561,7 @@ static size_t FindEightTrigramsStepIndexByDialogId(uint32_t dialogId) {
     }
     return EIGHT_TRIGRAMS_STEP_COUNT;
 }
+
 
 static const HuangchengWeijiTaskInfo* FindHuangchengWeijiTaskInfo(uint32_t subtaskId) {
     for (size_t i = 0; i < HUANGCHENG_WEIJI_TASK_COUNT; ++i) {
@@ -10554,8 +10612,9 @@ static void PushHuangchengWeijiProgressToUi() {
 static void UpdateEightTrigramsResumeHint(size_t nextIndex) {
     g_eightTrigramsResumeStepIndex.store(static_cast<int>(nextIndex));
 }
-
 static void UpdateEightTrigramsResumeHintByDialogId(uint32_t dialogId);
+
+
 
 static void ResetTaskZoneUserTaskListCache() {
     std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
@@ -10604,14 +10663,6 @@ static bool TryResolveEightTrigramsResumeIndex(size_t& startIndex) {
     const int resumeStepIndex = g_eightTrigramsResumeStepIndex.load();
     if (resumeStepIndex >= 0) {
         const size_t resumeIndex = static_cast<size_t>(resumeStepIndex);
-        if (resumeIndex < EIGHT_TRIGRAMS_STEP_COUNT &&
-            EIGHT_TRIGRAMS_STEPS[resumeIndex].dialogId == 400600704) {
-            const size_t fallbackIndex = FindEightTrigramsStepIndexByDialogId(400600702);
-            if (fallbackIndex < EIGHT_TRIGRAMS_STEP_COUNT) {
-                startIndex = fallbackIndex;
-                return true;
-            }
-        }
         startIndex = resumeIndex > EIGHT_TRIGRAMS_STEP_COUNT ? EIGHT_TRIGRAMS_STEP_COUNT : resumeIndex;
         return true;
     }
@@ -10704,7 +10755,6 @@ static std::wstring BuildTaskZoneStatus(const EightTrigramsStep& step, size_t in
         status += L" @";
         status += mapName;
     }
-
     return status;
 }
 
@@ -10964,8 +11014,7 @@ static void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet) {
             return;
     }
 
-    // 墨魂战斗结束后的结果对话由 AS3 在战斗回调后补发 TASK_TALK。
-    // 805/806 是结果对话本身，不能当作无操作的分支节点跳过。
+    // 805/806 是结果对话本身，回包只作记录，不参与战后确认时序。
     bool postBattleResponseCaptured = false;
     if (hasDialogId && (dialogId == 400600805 || dialogId == 400600806)) {
         std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
@@ -10974,16 +11023,17 @@ static void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet) {
             g_eightTrigramsProgress.capturePostBattleTaskTalkResponse = false;
             g_eightTrigramsProgress.postBattleTaskTalkResponseReceived = true;
             g_eightTrigramsProgress.postBattleTaskTalkDialogId = dialogId;
-            g_eightTrigramsProgress.postBattleTaskTalkNpcId = hasNpcId ? npcId : 101201;
+            g_eightTrigramsProgress.postBattleTaskTalkNpcId = hasNpcId ? npcId : 101301;
             postBattleResponseCaptured = true;
         }
     }
     if (postBattleResponseCaptured) {
-        UpdateTaskZoneUi(L"任务区：收到墨魂战后确认回话", true);
+        UpdateTaskZoneUi(L"任务区：收到墨魂战后回话", true);
         return;
     }
 
-    // 水魂第一次点击的回包没有预先知道 dialogId，因此单独捕获并交给流程线程。
+    // 水魂战后对话的打开包和确认包由任务线程按固定参数发送，
+    // 不等待服务端先返回 dialogId。
     bool responseCaptured = false;
     {
         std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
@@ -11042,7 +11092,6 @@ static void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet) {
         }
     }
 
-    UpdateEightTrigramsResumeHintByDialogId(dialogId);
 }
 static void UpdateTaskZoneUi(const std::wstring& text, bool running) {
     UIBridge::Instance().UpdateHelperText(text);
@@ -11111,6 +11160,7 @@ static bool WaitForEightTrigramsWaterSoulReward(
     return false;
 }
 
+
 static bool WaitForEightTrigramsPostBattleDialog(
     unsigned long long sessionId,
     DWORD timeoutMs) {
@@ -11130,6 +11180,7 @@ static bool WaitForEightTrigramsPostBattleDialog(
     }
     return false;
 }
+
 static void UpdateEightTrigramsResumeHintByDialogId(uint32_t dialogId) {
     const size_t stepIndex = FindEightTrigramsStepIndexByDialogId(dialogId);
     if (stepIndex < EIGHT_TRIGRAMS_STEP_COUNT) {
@@ -11137,17 +11188,99 @@ static void UpdateEightTrigramsResumeHintByDialogId(uint32_t dialogId) {
     }
 }
 
+static constexpr DWORD EIGHT_TRIGRAMS_TALK_DELAY_MS = 400;
+static constexpr DWORD EIGHT_TRIGRAMS_CLICK_DELAY_MS = 400;
+static constexpr DWORD EIGHT_TRIGRAMS_RESULT_DELAY_MS = 400;
+// 战斗开始等待窗口：常规战斗步等待 10s；水魂步复用同一窗口，开战与交丹对白谁先到就以谁为准。
+static constexpr DWORD EIGHT_TRIGRAMS_BATTLE_START_WAIT_MS = 10000;
+
+// 水魂交丹对话：点击 61242 后服务端多数情况下不开战，而是下发交丹对白（「不要再攻击我啦」），
+// 必须用该对话 id 回一句 TASK_TALK(61242,[dialogId]) 才会给妖怪内丹并推进到 7002。
+// 400600509 来自运行时抓包；若本次回包给出别的 dialogId，优先沿用回包值。
+static constexpr uint32_t EIGHT_TRIGRAMS_WATER_SOUL_DIALOG_ID = 400600509;
+static constexpr DWORD EIGHT_TRIGRAMS_WATER_SOUL_DIALOG_WAIT_MS = 3000;
+
+// 布防水魂交丹对话采集：点击 61242 之前调用，随后收到的 TASK_TALK_BACK 会写入进度状态。
+static void ArmEightTrigramsWaterSoulDialogCapture() {
+    std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+    g_eightTrigramsProgress.captureNextTaskTalkResponse = true;
+    g_eightTrigramsProgress.taskTalkResponseReceived = false;
+    g_eightTrigramsProgress.taskTalkResponseHasDialogId = false;
+    g_eightTrigramsProgress.taskTalkResponseDialogId = 0;
+    g_eightTrigramsProgress.taskTalkResponseNpcId = 0;
+}
+
+// 未走交丹确认路径时收回对话采集标记，避免后续无关回包被当成水魂对话写入进度状态。
+static void DisarmEightTrigramsWaterSoulDialogCapture() {
+    std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+    g_eightTrigramsProgress.captureNextTaskTalkResponse = false;
+}
+
+// 取水魂交丹对话 id：回包可用且指向水魂时用回包值，否则退回抓包确认的固定 id。
+static uint32_t TakeEightTrigramsWaterSoulDialogId() {
+    std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+    g_eightTrigramsProgress.captureNextTaskTalkResponse = false;
+
+    const uint32_t dialogId = g_eightTrigramsProgress.taskTalkResponseHasDialogId
+                                  ? g_eightTrigramsProgress.taskTalkResponseDialogId
+                                  : 0;
+    const uint32_t npcId = g_eightTrigramsProgress.taskTalkResponseNpcId;
+    if (g_eightTrigramsProgress.taskTalkResponseReceived &&
+        dialogId >= 400600500 && dialogId < 400600600 &&
+        (npcId == 0 || npcId == 61242)) {
+        return dialogId;
+    }
+
+    return EIGHT_TRIGRAMS_WATER_SOUL_DIALOG_ID;
+}
+
+
+// 轮询等待本次战斗真正开始（收到新的 BATTLE_START 且宠物实体就位）。
+static bool WaitForEightTrigramsBattleStart(unsigned long long sessionId, DWORD timeoutMs) {
+    const DWORD startTick = GetTickCount();
+    while (g_taskZoneRunning.load() && g_taskZoneSession.load() == sessionId) {
+        const BattleData battle = PacketParser::GetCurrentBattleSnapshot();
+        if (battle.active && !battle.myPets.empty() && !battle.otherPets.empty()) {
+            return true;
+        }
+        if (GetTickCount() - startTick >= timeoutMs) {
+            return false;
+        }
+        Sleep(100);
+    }
+    return false;
+}
+
+// 交丹确认前登记奖励等待：type 15 回包会写入 waterSoulRewardReceived。
+static void ArmEightTrigramsWaterSoulRewardWait() {
+    std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+    g_eightTrigramsProgress.awaitingWaterSoulReward = true;
+    g_eightTrigramsProgress.waterSoulRewardReceived = false;
+}
+
+// 奖励等待窗口结束或流程中断时收回等待标记，避免后续无关回包误置奖励状态。
+static void ClearEightTrigramsWaterSoulRewardWait() {
+    std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+    g_eightTrigramsProgress.awaitingWaterSoulReward = false;
+}
+
+static bool EightTrigramsWaterSoulRewardReceived() {
+    std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+    return g_eightTrigramsProgress.waterSoulRewardReceived;
+}
 static BOOL SendTaskZoneTalkPacket(
     uint32_t npcId,
     uint32_t dialogId,
     uint32_t chooseId = 0,
-    bool waitForBack = true,
-    DWORD timeoutMs = 3000,
+    bool waitForBack = false,
+    DWORD timeoutMs = 0,
     bool matchNpcId = true) {
-    // The native worker does not set GameData.playerData.isAutoBaGua. Keep
-    // the normal TaskControl.taskDialogComplete() contract here: a choice is
-    // a TRAIN_INFO submission followed by TASK_TALK, and the latter must be
-    // awaited before advancing the next recipe entry.
+    (void)waitForBack;
+    (void)timeoutMs;
+    (void)matchNpcId;
+
+    // 八卦灵盘是固定流程：普通对话只按预设包序列发送，
+    // 不等待 TASK_TALK_BACK，也不从回包动态提取下一个 dialogId。
     if (chooseId != 0) {
         auto trainInfoPacket = PacketBuilder()
             .SetOpcode(Opcode::TRAIN_INFO_SEND)
@@ -11161,6 +11294,7 @@ static BOOL SendTaskZoneTalkPacket(
                         static_cast<DWORD>(trainInfoPacket.size()))) {
             return FALSE;
         }
+        Sleep(EIGHT_TRIGRAMS_TALK_DELAY_MS);
     }
 
     auto packet = PacketBuilder()
@@ -11169,19 +11303,12 @@ static BOOL SendTaskZoneTalkPacket(
         .WriteUInt32(dialogId)
         .Build();
 
-    if (!waitForBack) {
-        return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    if (!SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()))) {
+        return FALSE;
     }
 
-    {
-        std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
-        g_eightTrigramsProgress.taskTalkResponseReceived = false;
-        g_eightTrigramsProgress.taskTalkResponseDialogId = dialogId;
-        g_eightTrigramsProgress.taskTalkResponseNpcId = npcId;
-        g_eightTrigramsProgress.taskTalkResponseMatchNpcId = matchNpcId;
-    }
-
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()), Opcode::TASK_TALK_BACK, timeoutMs);
+    Sleep(EIGHT_TRIGRAMS_TALK_DELAY_MS);
+    return TRUE;
 }
 
 static BOOL SendTaskZoneClickPacket(uint32_t npcId, bool battleMode = false) {
@@ -11196,26 +11323,19 @@ static BOOL SendTaskZoneClickPacket(uint32_t npcId, bool battleMode = false) {
         .WriteUInt32(counter)
         .Build();
 
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    if (!SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()))) {
+        return FALSE;
+    }
+
+    if (!battleMode) {
+        Sleep(EIGHT_TRIGRAMS_CLICK_DELAY_MS);
+    }
+    return TRUE;
 }
 
-static BOOL SendTaskZoneClickAndWaitForTaskDialog(uint32_t npcId, DWORD timeoutMs = 5000) {
-    auto packet = PacketBuilder()
-        .SetOpcode(Opcode::CLICK_NPC)
-        .SetParams(npcId)
-        .WriteUInt32(0)
-        .Build();
 
-    // 普通 NPC 点击先由服务端返回 TASK_TALK_BACK，TaskDialog 展示对话后，
-    // 后续确认包才会被服务端按当前对话状态处理。
-    return SendPacket(0,
-                      packet.data(),
-                      static_cast<DWORD>(packet.size()),
-                      Opcode::TASK_TALK_BACK,
-
-                      timeoutMs);
-}
 static constexpr int MAX_CONSECUTIVE_RESTARTS = 3;
+
 static constexpr DWORD RESTART_BACKOFF_BASE_MS = 1000;
 static constexpr DWORD RESTART_BACKOFF_MAX_MS = 5000;
 static constexpr DWORD BATTLE_DRAIN_TIMEOUT_MS = 15000;
@@ -11231,7 +11351,7 @@ static BOOL RunEightTrigramsBattleLoop(unsigned long long sessionId, bool battle
         return FALSE;
     }
 
-    Sleep(300);
+    Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
 
     const DWORD battleWaitStart = GetTickCount();
     while (g_taskZoneRunning.load()) {
@@ -11261,6 +11381,122 @@ static BOOL RunEightTrigramsBattleLoop(unsigned long long sessionId, bool battle
     }
 
     return FALSE;
+}
+
+// 水魂点击后的双分支等待：服务端要么开战，要么只下发交丹对白。
+// 先到者胜出，因此对话路径不会白白等待战斗超时，战斗路径也不会被对话超时打断。
+enum class EightTrigramsWaterSoulOutcome {
+    BattleStarted,
+    DialogReply,
+    Timeout
+};
+
+static EightTrigramsWaterSoulOutcome WaitForEightTrigramsWaterSoulOutcome(
+    unsigned long long sessionId,
+    DWORD timeoutMs) {
+    const DWORD startTick = GetTickCount();
+    while (g_taskZoneRunning.load() && g_taskZoneSession.load() == sessionId) {
+        const BattleData battle = PacketParser::GetCurrentBattleSnapshot();
+        if (battle.active && !battle.myPets.empty() && !battle.otherPets.empty()) {
+            return EightTrigramsWaterSoulOutcome::BattleStarted;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+            if (g_eightTrigramsProgress.taskTalkResponseReceived) {
+                return EightTrigramsWaterSoulOutcome::DialogReply;
+            }
+        }
+
+        if (GetTickCount() - startTick >= timeoutMs) {
+            return EightTrigramsWaterSoulOutcome::Timeout;
+        }
+        Sleep(100);
+    }
+
+    return EightTrigramsWaterSoulOutcome::Timeout;
+}
+
+// 点击水魂并按结果收口：开战则走战斗循环，只回对白则补发 TASK_TALK 拿内丹。
+// 返回 false 表示流程中断或包发送失败（调用方应结束本步）。
+static bool RunEightTrigramsWaterSoulInteraction(
+    unsigned long long sessionId,
+    uint32_t npcId) {
+    ArmEightTrigramsWaterSoulDialogCapture();
+    if (!SendTaskZoneClickPacket(npcId, false)) {
+        UpdateTaskZoneUi(L"任务区：点击水魂失败", false);
+        return false;
+    }
+
+    // 单次等待：开战与交丹对白谁先到就以谁为准，因此对话路径不会白等，战斗路径也不会被提前打断。
+    // 用完整战斗等待窗口而不是短探测，避免开战报文稍慢时被误判成对话路径。
+    if (WaitForEightTrigramsWaterSoulOutcome(
+            sessionId,
+            EIGHT_TRIGRAMS_BATTLE_START_WAIT_MS) ==
+        EightTrigramsWaterSoulOutcome::BattleStarted) {
+        if (!g_taskZoneRunning.load() ||
+            g_taskZoneSession.load() != sessionId ||
+            !RunEightTrigramsBattleLoop(sessionId, true)) {
+            UpdateTaskZoneUi(L"任务区：战斗流程失败", false);
+            return false;
+        }
+
+        // 战后水魂还会再弹一次交丹对白：CLICK_NPC(61242,[0]) -> TASK_TALK(61242,[dialogId])。
+        ArmEightTrigramsWaterSoulDialogCapture();
+        if (!SendTaskZoneClickPacket(npcId, false)) {
+            UpdateTaskZoneUi(L"任务区：确认水魂战后对话失败", false);
+            return false;
+        }
+        if (WaitForEightTrigramsWaterSoulOutcome(
+                sessionId,
+                EIGHT_TRIGRAMS_BATTLE_START_WAIT_MS) ==
+            EightTrigramsWaterSoulOutcome::BattleStarted) {
+            // 战后点击又开了一场战斗：继续交给战斗循环，避免把对话参数塞进战斗。
+            if (!g_taskZoneRunning.load() ||
+                g_taskZoneSession.load() != sessionId ||
+                !RunEightTrigramsBattleLoop(sessionId, true)) {
+                UpdateTaskZoneUi(L"任务区：战斗流程失败", false);
+                return false;
+            }
+        }
+    }
+
+    // 点击回包可能已经直接给了内丹（服务端直接把交丹奖励放在点击响应里）：
+    // 那就不要再补发确认对话，否则会多一个多余的任务请求。
+    bool rewardAlreadyReceived = false;
+    {
+        std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+        rewardAlreadyReceived = g_eightTrigramsProgress.waterSoulRewardReceived;
+    }
+
+    uint32_t waterSoulDialogId = 0;
+    if (rewardAlreadyReceived) {
+        // 点击即给奖励：收回采集标记，避免后续无关回包被当成水魂对话。
+        DisarmEightTrigramsWaterSoulDialogCapture();
+    } else {
+        waterSoulDialogId = TakeEightTrigramsWaterSoulDialogId();
+        ArmEightTrigramsWaterSoulRewardWait();
+        if (!SendTaskZoneTalkPacket(npcId, waterSoulDialogId)) {
+            ClearEightTrigramsWaterSoulRewardWait();
+            UpdateTaskZoneUi(L"任务区：确认水魂交丹对话失败", false);
+            return false;
+        }
+
+        WaitForEightTrigramsWaterSoulReward(
+            sessionId,
+            EIGHT_TRIGRAMS_WATER_SOUL_DIALOG_WAIT_MS);
+        ClearEightTrigramsWaterSoulRewardWait();
+    }
+    Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+
+    // 回显实际使用的 dialogId，便于运行时抓包核对服务端下发的对话编号。
+    UpdateTaskZoneUi(rewardAlreadyReceived
+                         ? L"任务区：水魂点击已直接发放妖怪内丹"
+                         : L"任务区：水魂交丹确认 " + std::to_wstring(waterSoulDialogId) +
+                               (EightTrigramsWaterSoulRewardReceived() ? L"（已获得妖怪内丹）"
+                                                                       : L"（等待奖励回包）"),
+                     true);
+    return true;
 }
 
 static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
@@ -11309,37 +11545,18 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
 
         startText = (startIndex == 0) ? L"任务区：开始执行八卦灵盘..." : L"任务区：继续执行八卦灵盘...";
         UpdateTaskZoneUi(startText, true);
-        Sleep(300);
+        Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
 
         for (size_t i = startIndex; i < stepCount && g_taskZoneRunning.load(); ++i) {
             if (g_taskZoneSession.load() != sessionId) {
                 goto CLEANUP;
             }
-            // 断点表示“下一个待完成步骤”，进入步骤时先回退到当前步骤；
-            // 只有该步骤的全部封包和回包闭环完成后，下面才会推进到 i + 1。
-            UpdateEightTrigramsResumeHint(i);
 
+            UpdateEightTrigramsResumeHint(i);
             const EightTrigramsStep& step = EIGHT_TRIGRAMS_STEPS[i];
             UpdateTaskZoneUi(BuildTaskZoneStatus(step, i - startIndex, stepCount - startIndex), true);
 
-            if (step.kind == TaskZoneStepKind::Flash) {
-                if (step.dialogId == 400600704) {
-                    const uint32_t turntableNpcId = lastRelevantNpcId != 0 ? lastRelevantNpcId : 61101;
-                    // 1111111 是特殊转盘结果回包，npcid 可能与发起时不一致，不做强匹配。
-                    if (!SendTaskZoneTalkPacket(turntableNpcId, 1111111, 0, true, 5000, false)) {
-                        UpdateTaskZoneUi(L"任务区：转盘收口失败", false);
-                        flowFailed = true;
-                        break;
-                    }
-                    UpdateEightTrigramsResumeHint(i + 1);
-                }
-                continue;
-            }
-
-            if (step.kind == TaskZoneStepKind::BranchOnly) {
-                continue;
-            }
-
+            // 场景进入可以等待场景回包确认；普通对话不等待 TASK_TALK_BACK。
             if (step.sceneId != 0 && step.sceneId != currentSceneId) {
                 std::wstring mapName = GetMapName(static_cast<int>(step.sceneId));
                 if (mapName.empty()) {
@@ -11347,188 +11564,94 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
                 }
                 UpdateTaskZoneUi(L"任务区：进入 " + mapName + L"...", true);
                 g_taskZoneMapEntered = false;
-                if (!SendEnterScenePacket(static_cast<int>(step.sceneId))) {
-                    UpdateTaskZoneUi(L"任务区：进入场景失败", false);
-                    flowFailed = true;
-                    break;
-                }
-                if (!WaitForEightTrigramsMapEnter(5000)) {
+                if (!SendEnterScenePacket(static_cast<int>(step.sceneId)) ||
+                    !WaitForEightTrigramsMapEnter(5000)) {
                     UpdateTaskZoneUi(L"任务区：进入场景失败", false);
                     flowFailed = true;
                     break;
                 }
                 currentSceneId = step.sceneId;
-                Sleep(300);
+                Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
             }
-            if (step.kind == TaskZoneStepKind::Battle) {
-                if (step.dialogId == 400600804) {
-                    std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
-                    g_eightTrigramsProgress.capturePostBattleTaskTalkResponse = true;
-                    g_eightTrigramsProgress.postBattleTaskTalkResponseReceived = false;
-                    g_eightTrigramsProgress.postBattleTaskTalkDialogId = 0;
-                    g_eightTrigramsProgress.postBattleTaskTalkNpcId = 0;
+
+            if (step.kind == TaskZoneStepKind::Flash) {
+                if (!SendTaskZoneTalkPacket(91435, 400600704)) {
+                    UpdateTaskZoneUi(L"任务区：转盘收口失败", false);
+                    flowFailed = true;
+                    break;
                 }
+                UpdateEightTrigramsResumeHint(i + 1);
+                continue;
+            }
+
+            if (step.kind == TaskZoneStepKind::BranchOnly) {
+                UpdateEightTrigramsResumeHint(i + 1);
+                continue;
+            }
+
+            if (step.kind == TaskZoneStepKind::Battle) {
                 if (step.dialogId == 400600506) {
-                    // 水魂战斗按实际封包发送：CLICK_NPC + counter。
-                    // 抓包显示 params 末三字节对应 0x17 / 0x10 / 0x08。
-                    if (!SendBattlePacket(0x17, 0x10, 0x08, 1)) {
+                    // 水魂 61242 与 AS3 同为一条路径：AutoBaGuaView step14 点击 61242 ->
+                    // MapControl.onClickNPCNew -> TaskControl.getTaskDialog 发出 CLICK_NPC(61242,[0])。
+                    // 旧的 0x10000817 是 combine1(1,0,8,23) 的怪物 sid，和 61242 无关，服务端无法定位目标。
+                    // 服务端对该点击有两条响应：开战，或只下发交丹对白（「不要再攻击我啦」）。
+                    // 交丹对白必须回 TASK_TALK(61242,[dialogId])，否则拿不到妖怪内丹，流程会停在这里。
+                    if (!RunEightTrigramsWaterSoulInteraction(sessionId, step.npcId)) {
+                        flowFailed = true;
+                        break;
+                    }
+                } else {
+                    // 墨魂：803 对话在上一 Talk 步已按 AS3 走完（CLICK_NPC(101201,[0]) 打开对话 +
+                    // TASK_TALK(101201,[400600803])，等价于点「少废话，看打！」）。
+                    // 这里绝不能再补 CLICK_NPC(101201,[0])：那是「重新打开任务对话」的语义，
+                    // 服务端会重推 400600803；客户端在战斗界面存在时会把该对话推迟到战斗结束后
+                    // 再弹（TaskControl.onGetDialogBack 的 tDialogObj 分支），结果战斗与阴阳石都正常，
+                    // 界面却永久停在「少废话，看打！」。804 只需补一条提示确认。
+                    if (step.dialogId == 400600804) {
+                        if (!SendTaskZoneTalkPacket(step.npcId, step.dialogId)) {
+                            UpdateTaskZoneUi(L"任务区：确认墨魂战斗提示失败", false);
+                            flowFailed = true;
+                            break;
+                        }
+                    } else if (!SendTaskZoneClickPacket(step.npcId, true)) {
                         UpdateTaskZoneUi(L"任务区：发起战斗失败", false);
                         flowFailed = true;
                         break;
                     }
-                } else if (step.dialogId == 400600804) {
-                    // 墨魂的 804 是 803 对话确认后的战斗等待节点。
-                    // AS3 TaskDialog.confirm -> TASK_TALK(101201, 400600803)，
-                    // 不会在这里再次发送 CLICK_NPC。
-                } else if (!SendTaskZoneClickPacket(step.npcId, true)) {
-                    UpdateTaskZoneUi(L"任务区：发起战斗失败", false);
-                    flowFailed = true;
-                    break;
-                }
-                Sleep(800);
 
-                const DWORD battleWaitStart = GetTickCount();
-                while (g_taskZoneRunning.load()) {
-                    if (g_taskZoneSession.load() != sessionId) {
-                        break;
+                    Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+                    const bool battleObserved = WaitForEightTrigramsBattleStart(
+                        sessionId,
+                        EIGHT_TRIGRAMS_BATTLE_START_WAIT_MS);
+                    if (!battleObserved) {
+                        // 未观测到开战时不硬失败、也不重启：重启会重走 803 步的
+                        // CLICK_NPC(101201,[0])，让服务端重推 400600803；该回包一旦在战斗界面
+                        // 存在期间到达，就会被 TaskControl.onGetDialogBack 存进 tDialogObj
+                        //（TaskControl.as:305-310），并在战斗结束后由 onBattleWin ->
+                        // opDialogAfterBattle 重放（TaskControl.as:222-225），真机上就表现为
+                        //「战斗与阴阳石都正常，界面却停在『少废话，看打！』」。
+                        // 开战由 803 步的 TASK_TALK(101201,[400600803]) 在服务端侧触发，
+                        // 因此这里按「战斗已结束」继续走战后收口，不进入战斗循环。
+                        UpdateTaskZoneUi(L"任务区：未观测到墨魂开战，按已结束处理", true);
                     }
-                    const BattleData battle = PacketParser::GetCurrentBattleSnapshot();
-                    // 结束上一场后实体仍留在快照中，只有 active=true 才是本次战斗已进入。
-                    if (battle.active && !battle.myPets.empty() && !battle.otherPets.empty()) {
-                        break;
-                    }
-                    if (GetTickCount() - battleWaitStart > 10000) {
-                        UpdateTaskZoneUi(L"任务区：等待战斗开始超时", false);
-                        flowFailed = true;
-                        break;
-                    }
-                    Sleep(100);
-                }
 
-                if (flowFailed) {
-                    break;
-                }
-
-                if (!g_taskZoneRunning.load() || g_taskZoneSession.load() != sessionId) {
-                    break;
-                }
-
-                if (!RunEightTrigramsBattleLoop(sessionId, true)) {
-                    UpdateTaskZoneUi(L"任务区：战斗流程失败", false);
-                    flowFailed = true;
-                    break;
-                }
-                if (step.dialogId == 400600804) {
-                    UpdateTaskZoneUi(L"任务区：等待墨魂战后确认回话...", true);
-                    if (!WaitForEightTrigramsPostBattleDialog(sessionId, 10000)) {
-                        UpdateTaskZoneUi(L"任务区：未收到墨魂战后确认回话", false);
+                    if (battleObserved &&
+                        (!g_taskZoneRunning.load() ||
+                         g_taskZoneSession.load() != sessionId ||
+                         !RunEightTrigramsBattleLoop(sessionId, true))) {
+                        UpdateTaskZoneUi(L"任务区：战斗流程失败", false);
                         flowFailed = true;
                         break;
                     }
 
-                    uint32_t resultNpcId = 101201;
-                    uint32_t resultDialogId = 0;
-                    {
-                        std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
-                        resultNpcId = g_eightTrigramsProgress.postBattleTaskTalkNpcId != 0
-                            ? g_eightTrigramsProgress.postBattleTaskTalkNpcId
-                            : 101201;
-                        resultDialogId = g_eightTrigramsProgress.postBattleTaskTalkDialogId;
-                    }
-                    if (resultDialogId != 400600805 && resultDialogId != 400600806) {
-                        UpdateTaskZoneUi(L"任务区：墨魂战后回话编号异常", false);
-                        flowFailed = true;
-                        break;
-                    }
-
-                    // 与 AutoBaGua 的 onSendAutoBaGua() 一致：点击结果回话的“确定/离开”。
-                    if (!SendTaskZoneTalkPacket(resultNpcId, resultDialogId, 0, false)) {
-                        UpdateTaskZoneUi(L"任务区：确认墨魂战后回话失败", false);
-                        flowFailed = true;
-                        break;
-                    }
-                    Sleep(200);
-
-                    const size_t finalTalkIndex = FindEightTrigramsStepIndexByDialogId(400600802);
-                    if (finalTalkIndex >= EIGHT_TRIGRAMS_STEP_COUNT) {
-                        UpdateTaskZoneUi(L"任务区：找不到八卦灵盘收尾步骤", false);
-                        flowFailed = true;
-                        break;
-                    }
-                    UpdateEightTrigramsResumeHint(finalTalkIndex);
-                    continue;
-                }
-                if (step.dialogId == 400600506) {
-                    UpdateTaskZoneUi(L"任务区：打开水魂战后回话...", true);
-                    {
-                        std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
-                        g_eightTrigramsProgress.captureNextTaskTalkResponse = true;
-                        g_eightTrigramsProgress.taskTalkResponseReceived = false;
-                        g_eightTrigramsProgress.taskTalkResponseType = 0;
-                        g_eightTrigramsProgress.taskTalkResponseHasDialogId = false;
-                        g_eightTrigramsProgress.taskTalkResponseDialogId = 0;
-                        g_eightTrigramsProgress.taskTalkResponseNpcId = 61242;
-                        g_eightTrigramsProgress.taskTalkResponseMatchNpcId = false;
-                        g_eightTrigramsProgress.awaitingWaterSoulReward = false;
-                        g_eightTrigramsProgress.waterSoulRewardReceived = false;
-                        g_eightTrigramsProgress.waterSoulRewardItemId = 0;
-                        g_eightTrigramsProgress.waterSoulRewardItemCount = 0;
-                    }
-
-                    if (!SendTaskZoneClickAndWaitForTaskDialog(61242, 5000)) {
-                        UpdateTaskZoneUi(L"任务区：打开水魂战后回话失败", false);
-                        flowFailed = true;
-                        break;
-                    }
-
-                    uint32_t followupNpcId = 61242;
-                    uint32_t followupDialogId = 0;
-                    bool hasFollowupDialog = false;
-                    bool rewardAlreadyReceived = false;
-                    {
-                        std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
-                        followupNpcId = g_eightTrigramsProgress.taskTalkResponseNpcId != 0
-                            ? g_eightTrigramsProgress.taskTalkResponseNpcId
-                            : 61242;
-                        followupDialogId = g_eightTrigramsProgress.taskTalkResponseDialogId;
-                        hasFollowupDialog = g_eightTrigramsProgress.taskTalkResponseHasDialogId;
-                        rewardAlreadyReceived = g_eightTrigramsProgress.waterSoulRewardReceived;
-                    }
-
-                    if (!rewardAlreadyReceived) {
-                        if (!hasFollowupDialog || followupDialogId == 0) {
-                            UpdateTaskZoneUi(L"任务区：未收到水魂可确认的回话", false);
+                    if (step.dialogId == 400600804) {
+                        // 墨魂战后确认使用固定结果包，不读取 805/806 回包。
+                        if (!SendTaskZoneTalkPacket(101301, 400600805)) {
+                            UpdateTaskZoneUi(L"任务区：确认墨魂战后结果失败", false);
                             flowFailed = true;
                             break;
                         }
-
-                        {
-                            std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
-                            g_eightTrigramsProgress.awaitingWaterSoulReward = true;
-                            g_eightTrigramsProgress.waterSoulRewardReceived = false;
-                            g_eightTrigramsProgress.waterSoulRewardItemId = 0;
-                            g_eightTrigramsProgress.waterSoulRewardItemCount = 0;
-                        }
-
-                        // AS3 TaskControl.taskDialogComplete()：点击回话按钮发送 TASK_TALK。
-                        if (!SendTaskZoneTalkPacket(
-                                followupNpcId,
-                                followupDialogId,
-                                0,
-                                true,
-                                10000,
-                                false)) {
-                            UpdateTaskZoneUi(L"任务区：确认水魂战后回话失败", false);
-                            flowFailed = true;
-                            break;
-                        }
-                    }
-
-                    UpdateTaskZoneUi(L"任务区：等待妖怪内丹奖励...", true);
-                    if (!WaitForEightTrigramsWaterSoulReward(sessionId, 10000)) {
-                        UpdateTaskZoneUi(L"任务区：未收到妖怪内丹奖励回包", false);
-                        flowFailed = true;
-                        break;
+                        Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
                     }
                 }
 
@@ -11537,92 +11660,45 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
             }
 
             const bool shouldClickNpc =
-                (step.kind == TaskZoneStepKind::Talk ||
-                 step.kind == TaskZoneStepKind::Acquire ||
-                 step.kind == TaskZoneStepKind::AlertAcquire);
-
-            if (shouldClickNpc) {
-                const bool isMoHunDialog = step.dialogId == 400600803;
-                const BOOL clickResult = isMoHunDialog
-                    ? SendTaskZoneClickAndWaitForTaskDialog(step.npcId, 5000)
-                    : SendTaskZoneClickPacket(step.npcId, false);
-                if (!clickResult) {
-                    UpdateTaskZoneUi(L"任务区：点击目标失败", false);
-                    flowFailed = true;
-                    break;
-                }
+                step.kind == TaskZoneStepKind::Talk ||
+                step.kind == TaskZoneStepKind::Acquire ||
+                step.kind == TaskZoneStepKind::AlertAcquire;
+            if (shouldClickNpc && !SendTaskZoneClickPacket(step.npcId, false)) {
+                UpdateTaskZoneUi(L"任务区：点击目标失败", false);
+                flowFailed = true;
+                break;
             }
 
             if (step.kind == TaskZoneStepKind::SceneAcquire) {
-                // 菩提子这里按抓包样本走特殊区域点击包，场景对象是 41311，但实际发包参数是 41312。
                 const uint32_t specialAreaNpcId = step.npcId + 1;
                 if (!SendTaskZoneClickPacket(specialAreaNpcId, false)) {
                     UpdateTaskZoneUi(L"任务区：获取失败", false);
                     flowFailed = true;
                     break;
                 }
-                lastRelevantNpcId = specialAreaNpcId;
                 UpdateEightTrigramsResumeHint(i + 1);
                 continue;
             }
 
-            if (step.kind == TaskZoneStepKind::RewardOnly) {
-                // 只做转场，不再主动发包。
-                UpdateEightTrigramsResumeHint(i + 1);
-                continue;
-            }
-
-            if (step.kind == TaskZoneStepKind::AlertAcquire) {
-                if (!SendTaskZoneTalkPacket(step.npcId, step.dialogId, step.chooseId, true)) {
-                    UpdateTaskZoneUi(L"任务区：获取失败", false);
+            if (step.kind == TaskZoneStepKind::AlertAcquire ||
+                step.kind == TaskZoneStepKind::Acquire ||
+                step.kind == TaskZoneStepKind::Talk) {
+                if (!SendTaskZoneTalkPacket(step.npcId, step.dialogId, step.chooseId)) {
+                    UpdateTaskZoneUi(L"任务区：固定对话发送失败", false);
                     flowFailed = true;
                     break;
                 }
-                lastRelevantNpcId = step.npcId;
-                UpdateEightTrigramsResumeHint(i + 1);
-                continue;
-            }
-
-            if (step.kind == TaskZoneStepKind::Acquire) {
-                if (!SendTaskZoneTalkPacket(step.npcId, step.dialogId, step.chooseId, true)) {
-                    UpdateTaskZoneUi(L"任务区：获取失败", false);
-                    flowFailed = true;
-                    break;
-                }
-                lastRelevantNpcId = step.npcId;
                 UpdateEightTrigramsResumeHint(i + 1);
                 continue;
             }
 
             if (step.dialogId != 0) {
-                if (!SendTaskZoneTalkPacket(
-                        step.npcId,
-                        step.dialogId,
-                        step.chooseId,
-                        step.dialogId != 400600803)) {
-                    UpdateTaskZoneUi(L"任务区：对话发送失败", false);
+                if (!SendTaskZoneTalkPacket(step.npcId, step.dialogId, step.chooseId)) {
+                    UpdateTaskZoneUi(L"任务区：固定对话发送失败", false);
                     flowFailed = true;
                     break;
                 }
-
-                if (step.dialogId == 400600803) {
-                    // 803 的确认包会触发墨魂战斗；战斗结束后服务端再返回 805/806
-                    // 结果回话，先记录等待状态，避免战斗期间丢失该回包。
-                    std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
-                    g_eightTrigramsProgress.capturePostBattleTaskTalkResponse = true;
-                    g_eightTrigramsProgress.postBattleTaskTalkResponseReceived = false;
-                    g_eightTrigramsProgress.postBattleTaskTalkDialogId = 0;
-                    g_eightTrigramsProgress.postBattleTaskTalkNpcId = 0;
-                }
-
-
-                lastRelevantNpcId = step.npcId;
-                if (step.dialogId == 400600702) {
-                    // 702 是提交柿果后的过渡对话，保留在这里，避免重开直接落到转盘。
-                    UpdateEightTrigramsResumeHint(i);
-                } else {
-                    UpdateEightTrigramsResumeHint(i + 1);
-                }
+                UpdateEightTrigramsResumeHint(i + 1);
             }
         }
 
@@ -13008,6 +13084,7 @@ BattleSixAutoBattle::BattleSixAutoBattle()
     , m_enemyUniqueId(0)
     , m_enemyActiveIndex(-1)
     , m_myUniqueId(0)
+    , m_lastActionRoundToken(0)
     , m_isInBattle(false)
     , m_autoBattleEnabled(false)
     , m_autoMatching(false)
@@ -13035,6 +13112,7 @@ void BattleSixAutoBattle::StartBattle() {
     m_isInBattle.store(true);
     m_currentSpiritIndex = 0;
     m_currentSkillIndex = 0;
+    m_lastActionRoundToken = 0;
     g_battleSixBattleSession.fetch_add(1);
     g_battleSixRoundToken = 0;
     g_battleSixRoundResultToken = 0;
@@ -13142,100 +13220,86 @@ BOOL BattleSixAutoBattle::OnBattleRoundStart() {
     }
 
     const unsigned long long battleSession = g_battleSixBattleSession.load();
-    
-    // 检查当前精灵是否死亡
-    if (m_currentSpiritIndex >= 0 && m_currentSpiritIndex < (int)m_mySpirits.size()) {
-        int currentHp = m_mySpirits[m_currentSpiritIndex].hp;
-        bool isDead = m_mySpirits[m_currentSpiritIndex].isDead;
-        
-        if (isDead || currentHp <= 0) {
-            // 尝试切换精灵
-            if (!AutoSwitchSpirit()) {
-                return FALSE;
-            }
-            return TRUE;
-        }
-    }
-    
-    // 选择最佳技能
-    int skillIndex = SelectBestSkill();
-    if (skillIndex >= 0) {
-        const auto& skill = m_mySpirits[m_currentSpiritIndex].skills[skillIndex];
-        
-        // AS3 BattleView.onBattleControlClick: xml.range==2 打己方 sid，否则打敌方 sid。
-        int targetId = 0;
-        int skillRange = 0;
-        const auto rangeIt = g_skillRanges.find(skill.skillId);
-        if (rangeIt != g_skillRanges.end()) {
-            skillRange = rangeIt->second;
-        }
-        if (skillRange == 2) {
-            targetId = m_mySpirits[m_currentSpiritIndex].sid;
-        } else {
-            targetId = g_battleSixAuto.GetEnemySid();
-            if (targetId <= 0) {
-                RefreshEnemyTarget();
-                targetId = g_battleSixAuto.GetEnemySid();
-            }
-        }
-
-        if (targetId <= 0) {
-            return FALSE;
-        }
-
-        
-        // 使用异步线程发送技能封包
-        struct SkillThreadData {
-            unsigned long long battleSession;
-            unsigned long long roundToken;
-            unsigned long long roundResultToken;
-            int skillId;
-            int targetId;
-        };
-        SkillThreadData* threadData = new SkillThreadData{
-            battleSession,
-            g_battleSixRoundToken.load(),
-            g_battleSixRoundResultToken.load(),
-            skill.skillId,
-            targetId
-        };
-        
-        HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
-            auto* data = static_cast<SkillThreadData*>(lpParam);
-            Sleep(600);
-            if (g_battleSixBattleSession.load() != data->battleSession || !g_battleSixAuto.IsInBattle()) {
-                delete data;
-                return 0;
-            }
-            SendBattleSixUserOpPacket(0, data->targetId, data->skillId);
-
-            Sleep(2000);
-            if (g_battleSixBattleSession.load() != data->battleSession || !g_battleSixAuto.IsInBattle()) {
-                delete data;
-                return 0;
-            }
-            if (g_battleSixRoundToken.load() != data->roundToken) {
-                delete data;
-                return 0;
-            }
-            if (g_battleSixRoundResultToken.load() != data->roundResultToken) {
-                delete data;
-                return 0;
-            }
-
-            SendBattleSixUserOpPacket(0, data->targetId, data->skillId);
-            delete data;
-            return 0;
-        }, threadData, 0, nullptr);
-        
-        if (hThread) {
-            CloseHandle(hThread);
-            return TRUE;
-        }
-        delete threadData;
+    const unsigned long long roundToken = g_battleSixRoundToken.load();
+    if (roundToken == 0 || m_lastActionRoundToken == roundToken) {
         return FALSE;
     }
-    
+    const BattleData battleSnapshot = PacketParser::GetCurrentBattleSnapshot();
+    if (!battleSnapshot.roundChangeSids.empty()) {
+        m_lastActionRoundToken = roundToken;
+        return AutoSwitchSpirit();
+    }
+
+    // 每个回合只提交一次动作，避免重复收到回合开始包时重复出招。
+    if (m_currentSpiritIndex >= 0 && m_currentSpiritIndex < static_cast<int>(m_mySpirits.size())) {
+        const auto& currentSpirit = m_mySpirits[m_currentSpiritIndex];
+        if (currentSpirit.isDead || currentSpirit.hp <= 0) {
+            m_lastActionRoundToken = roundToken;
+            return AutoSwitchSpirit();
+        }
+    }
+
+    const int skillIndex = SelectBestSkill();
+    if (skillIndex < 0 || m_currentSpiritIndex < 0 ||
+        m_currentSpiritIndex >= static_cast<int>(m_mySpirits.size())) {
+        return FALSE;
+    }
+
+    const auto& skill = m_mySpirits[m_currentSpiritIndex].skills[skillIndex];
+    int targetId = 0;
+    int skillRange = 0;
+    const auto rangeIt = g_skillRanges.find(skill.skillId);
+    if (rangeIt != g_skillRanges.end()) {
+        skillRange = rangeIt->second;
+    }
+    if (skillRange == 2) {
+        targetId = m_mySpirits[m_currentSpiritIndex].sid;
+    } else {
+        targetId = m_enemySid;
+        if (targetId <= 0) {
+            RefreshEnemyTarget();
+            targetId = m_enemySid;
+        }
+    }
+    if (targetId <= 0 || skill.skillId <= 0) {
+        return FALSE;
+    }
+
+    m_lastActionRoundToken = roundToken;
+
+    struct SkillThreadData {
+        unsigned long long battleSession;
+        unsigned long long roundToken;
+        unsigned long long roundResultToken;
+        int skillId;
+        int targetId;
+    };
+    auto* threadData = new SkillThreadData{
+        battleSession,
+        roundToken,
+        g_battleSixRoundResultToken.load(),
+        skill.skillId,
+        targetId
+    };
+    HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
+        std::unique_ptr<SkillThreadData> data(static_cast<SkillThreadData*>(lpParam));
+        Sleep(600);
+        if (g_battleSixBattleSession.load() != data->battleSession ||
+            g_battleSixRoundToken.load() != data->roundToken ||
+            g_battleSixRoundResultToken.load() != data->roundResultToken ||
+            !g_battleSixAuto.IsInBattle()) {
+            return 0;
+        }
+        SendBattleSixUserOpPacket(0, data->targetId, data->skillId);
+        return 0;
+    }, threadData, 0, nullptr);
+
+    if (hThread) {
+        CloseHandle(hThread);
+        return TRUE;
+    }
+    delete threadData;
+    m_lastActionRoundToken = 0;
     return FALSE;
 }
 
@@ -13461,7 +13525,17 @@ int BattleSixAutoBattle::SelectBestSkill() {
     if (battleData.myActiveIndex >= 0 &&
         battleData.myActiveIndex < static_cast<int>(battleData.myPets.size())) {
         const BattleEntity& candidate = battleData.myPets[battleData.myActiveIndex];
-        if (candidate.uniqueId == spirit.uniqueId) {
+        bool sameSpirit = false;
+        if (candidate.uniqueId != 0 && spirit.uniqueId != 0) {
+            sameSpirit = candidate.uniqueId == spirit.uniqueId;
+        }
+        if (!sameSpirit && candidate.sid != 0 && spirit.sid != 0) {
+            sameSpirit = candidate.sid == spirit.sid;
+        }
+        if (!sameSpirit && candidate.spiritId != 0 && spirit.spiritId != 0) {
+            sameSpirit = candidate.spiritId == spirit.spiritId;
+        }
+        if (sameSpirit) {
             activePet = &candidate;
             for (auto& localSkill : spirit.skills) {
                 for (const auto& battleSkill : candidate.skills) {
@@ -13512,6 +13586,12 @@ int BattleSixAutoBattle::SelectBestSkill() {
                 return static_cast<int>(spirit.skills.size()) - 1;
             }
         }
+    }
+
+    // 战斗快照已进入本场战斗时，不能再用旧本地技能列表兜底；
+    // 否则换宠或 PP 更新后可能再次发送上一只妖怪的技能 ID。
+    if (battleData.active) {
+        return -1;
     }
 
     // 快照暂时不可用时，保留本地已同步技能列表作为降级路径。

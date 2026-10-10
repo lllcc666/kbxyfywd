@@ -1295,9 +1295,15 @@ public:
 
                 // 获取 WebView2 界面
                 ICoreWebView2* webview = nullptr;
-                g_controller->get_CoreWebView2(&webview);
+                const HRESULT webviewResult = g_controller->get_CoreWebView2(&webview);
+                if (FAILED(webviewResult) || !webview) {
+                    if (webview) {
+                        webview->Release();
+                    }
+                    MessageBoxW(nullptr, L"Failed to get WebView2 interface", L"Error", MB_OK);
+                    return FAILED(webviewResult) ? webviewResult : E_NOINTERFACE;
+                }
                 g_webview = webview;
-                webview->AddRef();
 
                 // 将WebView2边界扩展到整个主窗口，确保HTML元素可以显示在WebBrowser上方
                 RECT bounds;
