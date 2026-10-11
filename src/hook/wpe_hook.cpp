@@ -11602,18 +11602,13 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
                     }
                 } else {
                     // 墨魂：803 对话在上一 Talk 步已按 AS3 走完（CLICK_NPC(101201,[0]) 打开对话 +
-                    // TASK_TALK(101201,[400600803])，等价于点「少废话，看打！」）。
-                    // 这里绝不能再补 CLICK_NPC(101201,[0])：那是「重新打开任务对话」的语义，
-                    // 服务端会重推 400600803；客户端在战斗界面存在时会把该对话推迟到战斗结束后
-                    // 再弹（TaskControl.onGetDialogBack 的 tDialogObj 分支），结果战斗与阴阳石都正常，
-                    // 界面却永久停在「少废话，看打！」。804 只需补一条提示确认。
-                    if (step.dialogId == 400600804) {
-                        if (!SendTaskZoneTalkPacket(step.npcId, step.dialogId)) {
-                            UpdateTaskZoneUi(L"任务区：确认墨魂战斗提示失败", false);
-                            flowFailed = true;
-                            break;
-                        }
-                    } else if (!SendTaskZoneClickPacket(step.npcId, true)) {
+                    // TASK_TALK(101201,[400600803])，等价于点「少废话，看打！」），开战由该步触发。
+                    // 400600804 在 taskprop_4006000.xml 里只有 <alert>、没有 <desc>，是纯目标提示节点；
+                    // 第三方实现与运行时抓包都只发 803 -> 805，从不请求 804。
+                    // 之前的实现会为它补发 TASK_TALK(101201,[400600804])，实测表现为战斗与阴阳石
+                    // 都正常、界面却停在 27/28 不推进，故这里改成不发包。
+                    if (step.dialogId != 400600804 &&
+                        !SendTaskZoneClickPacket(step.npcId, true)) {
                         UpdateTaskZoneUi(L"任务区：发起战斗失败", false);
                         flowFailed = true;
                         break;
