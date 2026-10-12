@@ -2304,50 +2304,35 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
 
                         <!-- 活动项网格：勾选框 + 名称 + 剩余次数（是否扫荡由 C++ 侧自动判定） -->
                         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 2px 6px; flex: 0 0 auto;">
-                            <label class="act-item" id="act-row-717">
-                                <input type="checkbox" id="act-check-717" class="act-pick">
-                                <span class="act-item-name">驱赶毒蚊</span>
-                                <span class="act-item-count" id="act-count-717">--</span>
+                            <label class="act-item" id="act-row-647">
+                                <input type="checkbox" id="act-check-647" class="act-pick">
+                                <span class="act-item-name">突破迷阵</span>
+                                <span class="act-item-count" id="act-count-647">--</span>
                             </label>
-                            <label class="act-item" id="act-row-684">
-                                <input type="checkbox" id="act-check-684" class="act-pick">
-                                <span class="act-item-name">土幻的曙光</span>
-                                <span class="act-item-count" id="act-count-684">--</span>
+                            <label class="act-item" id="act-row-869">
+                                <input type="checkbox" id="act-check-869" class="act-pick">
+                                <span class="act-item-name">摘星之旅</span>
+                                <span class="act-item-count" id="act-count-869">--</span>
                             </label>
-                            <label class="act-item" id="act-row-827">
-                                <input type="checkbox" id="act-check-827" class="act-pick">
-                                <span class="act-item-name">齐心协力大挑战</span>
-                                <span class="act-item-count" id="act-count-827">--</span>
+                            <label class="act-item" id="act-row-749">
+                                <input type="checkbox" id="act-check-749" class="act-pick">
+                                <span class="act-item-name">寒冰洞历险记</span>
+                                <span class="act-item-count" id="act-count-749">--</span>
                             </label>
-                            <label class="act-item" id="act-row-826">
-                                <input type="checkbox" id="act-check-826" class="act-pick">
-                                <span class="act-item-name">圣石之战</span>
-                                <span class="act-item-count" id="act-count-826">--</span>
+                            <label class="act-item" id="act-row-870">
+                                <input type="checkbox" id="act-check-870" class="act-pick">
+                                <span class="act-item-name">月饼大胃王</span>
+                                <span class="act-item-count" id="act-count-870">--</span>
                             </label>
-                            <label class="act-item" id="act-row-822">
-                                <input type="checkbox" id="act-check-822" class="act-pick">
-                                <span class="act-item-name">光辉穿梭大考验</span>
-                                <span class="act-item-count" id="act-count-822">--</span>
+                            <label class="act-item" id="act-row-704">
+                                <input type="checkbox" id="act-check-704" class="act-pick">
+                                <span class="act-item-name">夺回花束行动</span>
+                                <span class="act-item-count" id="act-count-704">--</span>
                             </label>
-                            <label class="act-item" id="act-row-685">
-                                <input type="checkbox" id="act-check-685" class="act-pick">
-                                <span class="act-item-name">航海大挑战</span>
-                                <span class="act-item-count" id="act-count-685">--</span>
-                            </label>
-                            <label class="act-item" id="act-row-631">
-                                <input type="checkbox" id="act-check-631" class="act-pick">
-                                <span class="act-item-name">妖力考验</span>
-                                <span class="act-item-count" id="act-count-631">--</span>
-                            </label>
-                            <label class="act-item" id="act-row-808">
-                                <input type="checkbox" id="act-check-808" class="act-pick">
-                                <span class="act-item-name">欢乐跷跷板</span>
-                                <span class="act-item-count" id="act-count-808">--</span>
-                            </label>
-                            <label class="act-item" id="act-row-641">
-                                <input type="checkbox" id="act-check-641" class="act-pick">
-                                <span class="act-item-name">清除煞气</span>
-                                <span class="act-item-count" id="act-count-641">--</span>
+                            <label class="act-item" id="act-row-697">
+                                <input type="checkbox" id="act-check-697" class="act-pick">
+                                <span class="act-item-name">美食大作战</span>
+                                <span class="act-item-count" id="act-count-697">--</span>
                             </label>
                         </div>
 
@@ -4132,7 +4117,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
         // 剩余次数由 C++ 侧通过 window.updateActivityCounts 回填；次数为 0
         // 时自动禁用该行，避免无效操作。
         // ====================================================================
-        window.actLatestIds = [717, 684, 827, 826, 822, 685, 631, 808, 641];
+        window.actLatestIds = [647, 869, 749, 870, 704, 697];
 
         // C++ 回填各活动剩余次数：{ "717": 3, "822": 0, ... }
         // 值为负数或 null 表示未知，显示“--”且不禁用。
@@ -4194,7 +4179,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             }
         };
 
-        // 一键执行所勾选的活动：逐个复用既有 one_key_actNNN 通道
+        // 一键执行所勾选的活动：逐个走 one_key_latestNNN 通道
         window.runSelectedActivities = function() {
             var picked = [];
             window.actLatestIds.forEach(function(id) {
@@ -4215,7 +4200,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 // 扫荡与否由 C++ 侧自动判定（可扫荡且扫荡分数不低于游戏流程时自动扫荡）。
                 setTimeout(function() {
                     window.chrome.webview.postMessage(JSON.stringify({
-                        action: 'one_key_act' + id,
+                        action: 'one_key_latest' + id
                     }));
                 }, index * 300);
             });

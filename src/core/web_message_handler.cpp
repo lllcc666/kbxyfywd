@@ -14,6 +14,7 @@
 #include "dungeon_jump.h"
 #include "activity_minigames.h"
 #include "horse_competition.h"
+#include "latest_activities.h"
 #include "shuangtai.h"
 #include "wpe_hook.h"
 #include "spirit_collect.h"
@@ -890,6 +891,13 @@ void HandleStartOneKeyAct827Command(const std::wstring& msg) {
         StartOneKeyAct827Packet);
 }
 
+// 最新活动（周活动小游戏）：统一按活动 ID 启动主流程。
+// 扫荡与否由 C++ 侧按历史最好成绩自动判定，前端无需传参。
+void HandleStartLatestActivityCommand(const std::wstring& msg, uint32_t activityId) {
+    (void)msg;
+    StartOneKeyLatestActivityPacket(activityId);
+}
+
 void HandleDecomposeLingyuIndicesCommand(const std::wstring& msg, const wchar_t* indicesKey) {
     const std::wstring jsonArray = GetJsonValue(msg, indicesKey);
     if (!jsonArray.empty()) {
@@ -1280,38 +1288,18 @@ public:
             HandleStartDungeonJumpCommand(msg);
         } else if (msg.find(L"dungeon_jump_stop") != std::wstring::npos) {
             HandleStopDungeonJumpCommand();
-        } else if (msg.find(L"one_key_act666") != std::wstring::npos) {
-            HandleStartOneKeyAct666Command(msg);
-        } else if (msg.find(L"one_key_act717") != std::wstring::npos) {
-            HandleStartOneKeyAct717Command(msg);
-        } else if (msg.find(L"one_key_act685") != std::wstring::npos) {
-            HandleStartOneKeyAct685Command(msg);
-        } else if (msg.find(L"one_key_act757") != std::wstring::npos) {
-            HandleStartOneKeyAct757Command(msg);
-        } else if (msg.find(L"one_key_act808") != std::wstring::npos) {
-            HandleStartOneKeyAct808Command(msg);
-        } else if (msg.find(L"one_key_act641") != std::wstring::npos) {
-            HandleStartOneKeyAct641Command(msg);
-        } else if (msg.find(L"one_key_act684") != std::wstring::npos) {
-            HandleStartOneKeyAct684Command(msg);
-        } else if (msg.find(L"one_key_act805") != std::wstring::npos) {
-            HandleStartOneKeyAct805Command(msg);
-        } else if (msg.find(L"one_key_act631") != std::wstring::npos) {
-            HandleStartOneKeyAct631Command(msg);
-        } else if (msg.find(L"one_key_act782") != std::wstring::npos) {
-            HandleStartOneKeyAct782Command(msg);
-        } else if (msg.find(L"one_key_act804") != std::wstring::npos) {
-            HandleStartOneKeyAct804Command(msg);
-        } else if (msg.find(L"one_key_act810") != std::wstring::npos) {
-            HandleStartOneKeyAct810Command(msg);
-        } else if (msg.find(L"one_key_act811") != std::wstring::npos) {
-            HandleStartOneKeyAct811Command(msg);
-        } else if (msg.find(L"one_key_act822") != std::wstring::npos) {
-            HandleStartOneKeyAct822Command(msg);
-        } else if (msg.find(L"one_key_act826") != std::wstring::npos) {
-            HandleStartOneKeyAct826Command(msg);
-        } else if (msg.find(L"one_key_act827") != std::wstring::npos) {
-            HandleStartOneKeyAct827Command(msg);
+        } else if (msg.find(L"one_key_latest647") != std::wstring::npos) {
+            HandleStartLatestActivityCommand(msg, LatestAct::ACT_MAZE);
+        } else if (msg.find(L"one_key_latest869") != std::wstring::npos) {
+            HandleStartLatestActivityCommand(msg, LatestAct::ACT_TOUCH_STAR);
+        } else if (msg.find(L"one_key_latest749") != std::wstring::npos) {
+            HandleStartLatestActivityCommand(msg, LatestAct::ACT_EXPLORE);
+        } else if (msg.find(L"one_key_latest870") != std::wstring::npos) {
+            HandleStartLatestActivityCommand(msg, LatestAct::ACT_MOON_CAKE);
+        } else if (msg.find(L"one_key_latest704") != std::wstring::npos) {
+            HandleStartLatestActivityCommand(msg, LatestAct::ACT_FLOWER);
+        } else if (msg.find(L"one_key_latest697") != std::wstring::npos) {
+            HandleStartLatestActivityCommand(msg, LatestAct::ACT_FOOD);
         } else if (msg.find(L"refresh_activity_counts") != std::wstring::npos) {
             HandleRefreshActivityCountsCommand();
         } else if (msg.find(L"one_key_horse_competition") != std::wstring::npos) {

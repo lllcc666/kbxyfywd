@@ -18,6 +18,7 @@ add_executable(WebView2Demo WIN32
     ${SRC_DIR}/app/app_host.cpp
     ${SRC_DIR}/hook/wpe_hook.cpp
     ${SRC_DIR}/hook/horse_competition.cpp
+    ${SRC_DIR}/hook/latest_activities.cpp
     ${SRC_DIR}/hook/wpe_hook_helpers.cpp
     ${SRC_DIR}/core/utils.cpp
     ${SRC_DIR}/protocol/packet_parser.cpp

@@ -37,6 +37,7 @@
 #include "battle_six.h"
 #include "dungeon_jump.h"
 #include "horse_competition.h"
+#include "latest_activities.h"
 #include "shuangtai.h"
 #include "shuangtai_internal.h"
 #include "spirit_collect.h"
@@ -7799,6 +7800,14 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act827::ACTIVITY_ID, ProcessAct827Response);
     registerParams(Opcode::HORSE_COMPETITION_BACK, HORSE_COMPETITION_ACT_ID, ProcessHorseCompetitionResponse);
 
+    // 最新活动（周活动小游戏）：按活动 ID 路由到统一处理器
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_MAZE, ProcessLatestActivityResponse);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_TOUCH_STAR, ProcessLatestActivityResponse);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_EXPLORE, ProcessLatestActivityResponse);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_MOON_CAKE, ProcessLatestActivityResponse);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_FLOWER, ProcessLatestActivityResponse);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_FOOD, ProcessLatestActivityResponse);
+
     registerParams(Opcode::HEAVEN_FURUI_BACK, HeavenFurui::ACTIVITY_ID, ProcessHeavenFuruiResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, HeavenFurui::ACTIVITY_ID, ProcessHeavenFuruiResponse);
 
@@ -15352,15 +15361,13 @@ struct ActivityCountTarget {
 };
 
 const ActivityCountTarget kActivityCountTargets[] = {
-    {Act717::ACTIVITY_ID, L"驱赶毒蚊"},
-    {Act684::ACTIVITY_ID, L"土幻的曙光"},
-    {Act827::ACTIVITY_ID, L"齐心协力大挑战"},
-    {Act826::ACTIVITY_ID, L"圣石之战"},
-    {Act822::ACTIVITY_ID, L"光辉穿梭大考验"},
-    {Act685::ACTIVITY_ID, L"航海大挑战"},
-    {Act631::ACTIVITY_ID, L"妖力考验"},
-    {Act808::ACTIVITY_ID, L"欢乐跷跷板"},
-    {Act641::ACTIVITY_ID, L"清除煞气"},
+    // 最新活动（周活动小游戏，按日期码筛选出的未过期批次）
+    {LatestAct::ACT_MAZE, L"突破迷阵"},
+    {LatestAct::ACT_TOUCH_STAR, L"摘星之旅"},
+    {LatestAct::ACT_EXPLORE, L"寒冰洞历险记"},
+    {LatestAct::ACT_MOON_CAKE, L"月饼大胃王"},
+    {LatestAct::ACT_FLOWER, L"夺回花束行动"},
+    {LatestAct::ACT_FOOD, L"美食大作战"},
 };
 
 constexpr int kActivityCountTargetNum =
@@ -15379,7 +15386,11 @@ int GetActivityRemainingCount(uint32_t activityId) {
         case Act631::ACTIVITY_ID: return mgr.GetAct631State().playCount.load();
         case Act641::ACTIVITY_ID: return mgr.GetAct641State().playCount.load();
         case Act808::ACTIVITY_ID: return g_act808PlayCount.load();
-        default: return -1;
+        default:
+            // 最新活动（周活动小游戏）由独立模块维护次数。
+            return IsLatestActivity(activityId)
+                ? GetLatestActivityPlayCount(activityId)
+                : -1;
     }
 }
 
@@ -15393,12 +15404,14 @@ void ReportActivityCount(uint32_t activityId, int remainingCount) {
     UIBridge::Instance().ExecuteJS(jsCode);
 }
 
-// 直接构造 open_ui 探针封包，协议字节与各活动 SendActNNNOpenUIPacket 一致，
+// 直接构造进入活动的探针封包，协议字节与各活动 SendActNNNOpenUIPacket 一致，
 // 但使用更短超时。各活动响应处理器只读取 operation/playCount，不依赖
 // waitingResponse 预置，故此处无需先置位等待标记。
 bool ProbeActivityOpenUI(uint32_t activityId) {
+    // 749/704 等活动的进入操作是 "game_info"，不能一律用 "open_ui"。
     std::vector<BYTE> packet = BuildActivityPacket(
-        Opcode::ACTIVITY_QINGYANG_NEW_SEND, activityId, "open_ui", {});
+        Opcode::ACTIVITY_QINGYANG_NEW_SEND, activityId,
+        GetLatestActivityOpenUIOperation(activityId), {});
     if (packet.empty()) {
         return false;
     }
