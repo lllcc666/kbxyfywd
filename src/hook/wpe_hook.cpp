@@ -360,6 +360,23 @@ static BOOL SendActivityPacket(uint32_t activityId, const std::string& operation
                       activityId, true);
 }
 
+// 活动结算后上报每日任务。AS3 各活动统一为
+// sendMessage(OP_CLIENT_DAILYTASK.send, 3, [3, 4039001, 0])，
+// 注意其 opcode(1184812) 与 TASK_DAILY_SEND(1184791) 不是同一个协议。
+static BOOL SendActivityDailyTaskReport() {
+    std::vector<BYTE> packet = PacketBuilder()
+                                   .SetOpcode(Opcode::TASK_DAILY_REPORT_SEND)
+                                   .SetParams(3)
+                                   .WriteInt32(3)
+                                   .WriteInt32(4039001)
+                                   .WriteInt32(0)
+                                   .Build();
+    if (packet.empty()) {
+        return FALSE;
+    }
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+}
+
 static void BuildAct757AwardList(
     int medal,
     int exp,
@@ -1495,7 +1512,12 @@ BOOL SendAct666EndGamePacket(int medalCount, bool isPass) {
         clientCheckCode = checkCode & static_cast<int>(g_userId.load() % static_cast<uint32_t>(checkCode));
     }
     ACT666_STATE.waitingResponse = true;
-    return SendAct666Packet("end_game", {medalCount, clientCheckCode, isPass ? 1 : 0});
+    const BOOL sent = SendAct666Packet("end_game", {medalCount, clientCheckCode, isPass ? 1 : 0});
+    if (sent) {
+        // 与 AS3 KongKongModel.decodeEndGame 末尾的 sendDayTask() 一致。
+        SendActivityDailyTaskReport();
+    }
+    return sent;
 }
 
 BOOL SendAct666SweepInfoPacket() {
@@ -1733,7 +1755,7 @@ void ProcessAct666Response(const GamePacket& packet) {
 
 static BOOL SendAct822DailyTaskPacket() {
     std::vector<BYTE> packet = PacketBuilder()
-                                   .SetOpcode(Opcode::TASK_DAILY_SEND)
+                                   .SetOpcode(Opcode::TASK_DAILY_REPORT_SEND)
                                    .SetParams(3)
                                    .WriteInt32(3)
                                    .WriteInt32(Act822::DAILY_TASK_ID)
@@ -1818,10 +1840,14 @@ static void ResetAct822State() {
 }
 
 static bool WaitForAct822Response() {
-    for (int i = 0; i < 30 && g_act822WaitingResponse.load(); ++i) {
+    // 发包侧置位的是 ACT822_STATE.waitingResponse，响应处理器清除的也是它；
+    // 原先此处轮询另一独立全局 g_act822WaitingResponse（从未被置 true），
+    // 导致本函数恒返回 true，一键流程每次都读到未填充的状态而立即退出。
+    for (int i = 0; i < 30 && ACT822_STATE.waitingResponse.load(); ++i) {
         Sleep(100);
     }
-    const bool received = !g_act822WaitingResponse.load();
+    const bool received = !ACT822_STATE.waitingResponse.load();
+    ACT822_STATE.waitingResponse = false;
     g_act822WaitingResponse = false;
     return received;
 }
@@ -1864,8 +1890,11 @@ DWORD WINAPI Act822ThreadProc(LPVOID lpParam) {
             Sleep(300);
             UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：执行扫荡...");
             SendAct822SweepPacket();
+            // 必须在等待之后读取结果：原先在 WaitForAct822Response() 之前快照，
+            // 拿到的是上一次（或初值 -1）的陈旧值。
+            const bool sweepWaited = WaitForAct822Response();
             const int sweepResult = g_act822SweepResult.load();
-            if (WaitForAct822Response() && (sweepResult == 0 || sweepResult == 4)) {
+            if (sweepWaited && (sweepResult == 0 || sweepResult == 4)) {
                 Sleep(300);
                 SendAct822OpenUIPacket();
                 WaitForAct822Response();
@@ -2555,7 +2584,12 @@ BOOL SendAct827StartGamePacket(int promptFlag) {
 
 BOOL SendAct827EndGamePacket(int checkCode, int score) {
     ACT827_STATE.waitingResponse = true;
-    return SendAct827Packet("end_game", {checkCode, score});
+    const BOOL sent = SendAct827Packet("end_game", {checkCode, score});
+    if (sent) {
+        // 与 AS3 GameControl.onEndGame 一致：结算后顺带上报每日任务 4039001。
+        SendActivityDailyTaskReport();
+    }
+    return sent;
 }
 
 BOOL SendAct827SweepInfoPacket() {
@@ -3986,7 +4020,7 @@ void ProcessAct717Response(const GamePacket& packet) {
 
 static BOOL SendAct805DailyTaskPacket() {
     std::vector<BYTE> packet = PacketBuilder()
-                                   .SetOpcode(Opcode::TASK_DAILY_SEND)
+                                   .SetOpcode(Opcode::TASK_DAILY_REPORT_SEND)
                                    .SetParams(3)
                                    .WriteInt32(3)
                                    .WriteInt32(Act805::DAILY_TASK_ID)
@@ -4702,7 +4736,7 @@ void ProcessAct757Response(const GamePacket& packet) {
 
 static BOOL SendAct631DailyTaskPacket() {
     std::vector<BYTE> packet = PacketBuilder()
-                                   .SetOpcode(Opcode::TASK_DAILY_SEND)
+                                   .SetOpcode(Opcode::TASK_DAILY_REPORT_SEND)
                                    .SetParams(3)
                                    .WriteInt32(3)
                                    .WriteInt32(Act631::DAILY_TASK_ID)
@@ -5086,7 +5120,7 @@ void ProcessAct631Response(const GamePacket& packet) {
 
     static BOOL SendAct808DailyTaskPacket() {
         std::vector<BYTE> packet = PacketBuilder()
-            .SetOpcode(Opcode::TASK_DAILY_SEND)
+            .SetOpcode(Opcode::TASK_DAILY_REPORT_SEND)
             .SetParams(3)
             .WriteInt32(3)
             .WriteInt32(Act808::DAILY_TASK_ID)
@@ -5437,6 +5471,9 @@ void ProcessAct631Response(const GamePacket& packet) {
         } else if (operation == "sweep") {
             if (offset + 28 <= packet.body.size()) {
                 const int32_t result = ReadInt32LE(body, offset);
+                // 线程判扫荡成功读的是 g_act808SweepResult；原先此处只写 EndResult，
+                // 导致判定一直沿用 sweep_info 的旧值。两个标记同时更新。
+                g_act808SweepResult = result;
                 g_act808EndResult = result;
                 g_act808PlayCount = ReadInt32LE(body, offset);
                 g_act808RestTime = ReadInt32LE(body, offset);
@@ -15470,10 +15507,21 @@ void QueryActivityCountsAsync() {
                 kActivityCountTargets[i].name);
             UIBridge::Instance().UpdateHelperText(progress);
 
+            // 最新活动的一键流程与探针共用同一响应通道（都会清 waitingResponse），
+            // 抢不到占用时上报「未知」，不能误判成「不可用/已过期」。
+            const bool needProbeLock = IsLatestActivity(activityId);
+            if (needProbeLock && !BeginLatestActivityProbe(activityId)) {
+                ReportActivityCount(activityId, -1);
+                continue;
+            }
+
             if (!ProbeActivityOpenUI(activityId)) {
                 // 无响应：活动已过期或服务端不再下发，按不可用（0）处理。
                 ReportActivityCount(activityId, 0);
                 ++unavailableCount;
+                if (needProbeLock) {
+                    EndLatestActivityProbe(activityId);
+                }
                 Sleep(120);
                 continue;
             }
@@ -15491,6 +15539,9 @@ void QueryActivityCountsAsync() {
                 ++availableCount;
             }
 
+            if (needProbeLock) {
+                EndLatestActivityProbe(activityId);
+            }
             Sleep(120);
         }
 

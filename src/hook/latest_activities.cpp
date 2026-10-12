@@ -33,15 +33,16 @@ struct LatestActDesc {
     const char* openUiOp;   ///< 进入活动操作串：多数 "open_ui"，749/704 为 "game_info"
     int targetScore;        ///< 走游戏流程时提交的目标分（= 各自通关线）
     bool sweepWithCount;    ///< sweep 是否带次数参数（647/869/749/870 需要）
+    bool reportsDailyTask;  ///< 结算后是否上报每日任务（869/870/697 有）
 };
 
 const LatestActDesc kActivities[] = {
-    {LatestAct::ACT_MAZE, L"突破迷阵", "open_ui", 180, true},
-    {LatestAct::ACT_TOUCH_STAR, L"摘星之旅", "open_ui", 301, true},
-    {LatestAct::ACT_EXPLORE, L"寒冰洞历险记", "game_info", 300, true},
-    {LatestAct::ACT_MOON_CAKE, L"月饼大胃王", "open_ui", 40, true},
-    {LatestAct::ACT_FLOWER, L"夺回花束行动", "game_info", 70, false},
-    {LatestAct::ACT_FOOD, L"美食大作战", "open_ui", 400, false},
+    {LatestAct::ACT_MAZE, L"突破迷阵", "open_ui", 180, true, false},
+    {LatestAct::ACT_TOUCH_STAR, L"摘星之旅", "open_ui", 301, true, true},
+    {LatestAct::ACT_EXPLORE, L"寒冰洞历险记", "game_info", 300, true, false},
+    {LatestAct::ACT_MOON_CAKE, L"月饼大胃王", "open_ui", 40, true, true},
+    {LatestAct::ACT_FLOWER, L"夺回花束行动", "game_info", 70, false, false},
+    {LatestAct::ACT_FOOD, L"美食大作战", "open_ui", 400, false, true},
 };
 
 constexpr int kActivityNum = static_cast<int>(sizeof(kActivities) / sizeof(kActivities[0]));
@@ -67,6 +68,12 @@ struct LatestActState {
     std::atomic<int> ruleFlag{0};    ///< start_game 需要的规则/提示参数
     std::atomic<bool> sweepReady{false};  ///< sweep_info 是否放行（有历史成绩）
     std::atomic<bool> waitingResponse{false};
+
+    /// 占用标记：0 空闲，1 一键流程，2 次数探针。
+    /// 二者共用 (ACTIVITY_QUERY_BACK, activityId) 路由到同一个响应处理器，而该处理器
+    /// 会无条件清除 waitingResponse；若并发，探针的响应会提前清掉一键流程的等待标志，
+    /// 令其误判收到响应。用 CAS 保证同一活动同一时刻只有一种流程在跑。
+    std::atomic<int> opLock{0};
 };
 
 LatestActState g_state[kActivityNum];
@@ -112,6 +119,22 @@ BOOL SendLatestPacket(uint32_t activityId, const std::string& operation,
     return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()),
                       Opcode::ACTIVITY_QUERY_BACK, WpeHook::TIMEOUT_RESPONSE,
                       activityId, true);
+}
+
+// 上报每日任务进度。AS3 各活动在结算后用
+// sendMessage(OP_CLIENT_DAILYTASK.send, 3, [3, 4039001, 0]) 上报，
+// 注意其 opcode(1184812) 与 TASK_DAILY_SEND(1184791) 并非同一个协议。
+void ReportDailyTask() {
+    std::vector<BYTE> packet = PacketBuilder()
+                                   .SetOpcode(Opcode::TASK_DAILY_REPORT_SEND)
+                                   .SetParams(3)
+                                   .WriteInt32(3)
+                                   .WriteInt32(4039001)
+                                   .WriteInt32(0)
+                                   .Build();
+    if (!packet.empty()) {
+        SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    }
 }
 
 bool WaitForResponse(LatestActState& state, DWORD timeoutMs) {
@@ -258,6 +281,11 @@ void ParseSweepInfo(const LatestActDesc& desc, LatestActState& state,
             state.sweepReady = (first != 3);
             break;
         case LatestAct::ACT_TOUCH_STAR:
+            // AS3 的 TouchStar 不看 sweep_info 的 resultType，能否扫荡由
+            // historyBestScore > 0 决定（EnterPanel.buySweepBtnHandler）；走到这里
+            // 说明 ShouldAutoSweep 已确认有成绩，故直接放行，避免误判退回走一局。
+            state.sweepReady = true;
+            break;
         case LatestAct::ACT_EXPLORE:
         case LatestAct::ACT_FOOD:
             // result == 0 表示放行。
@@ -411,6 +439,11 @@ bool TryPlayOnce(const LatestActDesc& desc, LatestActState& state) {
         state.waitingResponse = false;
         return false;
     }
+
+    // 与 AS3 一致：869/870/697 结算后会顺带上报每日任务 4039001。
+    if (desc.reportsDailyTask) {
+        ReportDailyTask();
+    }
     return true;
 }
 
@@ -427,6 +460,26 @@ bool IsLatestActivity(uint32_t activityId) {
 const char* GetLatestActivityOpenUIOperation(uint32_t activityId) {
     const LatestActDesc* desc = FindDesc(activityId);
     return desc ? desc->openUiOp : "open_ui";
+}
+
+// 次数探针与一键流程会路由到同一响应处理器并互相清除等待标志，故串行化。
+// 探针拿不到锁时返回 false，调用方应上报「未知」而非「不可用」。
+bool BeginLatestActivityProbe(uint32_t activityId) {
+    LatestActState* state = StateOf(activityId);
+    if (!state) {
+        return false;
+    }
+    int expected = 0;
+    return state->opLock.compare_exchange_strong(expected, 2);
+}
+
+void EndLatestActivityProbe(uint32_t activityId) {
+    LatestActState* state = StateOf(activityId);
+    if (!state) {
+        return;
+    }
+    int expected = 2;
+    state->opLock.compare_exchange_strong(expected, 0);
 }
 
 int GetLatestActivityPlayCount(uint32_t activityId) {
@@ -485,50 +538,82 @@ BOOL StartOneKeyLatestActivityPacket(uint32_t activityId) {
     }
     const LatestActDesc desc = *descPtr;
 
-    std::thread worker([desc]() {
-        const uint32_t activityId = desc.id;
-        LatestActState* state = StateOf(activityId);
-        if (!state) {
-            return;
-        }
+    LatestActState* state = StateOf(activityId);
+    if (!state) {
+        return FALSE;
+    }
+    // 重入门禁：重复点击时丢弃后来的请求，避免两个线程共享同一组等待标志。
+    int expected = 0;
+    if (!state->opLock.compare_exchange_strong(expected, 1)) {
+        Notify(activityId, expected == 2 ? L"正在刷新次数，请稍后再试"
+                                         : L"正在执行中，请勿重复启动");
+        return FALSE;
+    }
 
-        state->playCount = -1;
-        state->checkCode = 0;
+    // 线程结束（含所有提前 return）时释放占用，否则该活动再也无法启动。
+    struct OpLockGuard {
+        LatestActState* s;
+        ~OpLockGuard() {
+            int expected = 1;
+            s->opLock.compare_exchange_strong(expected, 0);
+            s->waitingResponse = false;
+        }
+    };
 
-        Notify(activityId, L"正在获取活动信息...");
-        if (!SendLatestActivityOpenUIPacket(activityId) || !WaitForResponse(*state, 5000)) {
-            Notify(activityId, L"获取活动信息失败");
-            return;
-        }
-        if (state->playCount.load() <= 0) {
-            Notify(activityId, L"今日次数已用完");
-            return;
-        }
-        if (state->restTime.load() > 0) {
-            Notify(activityId, L"冷却中，请稍后再试");
-            return;
-        }
+    try {
+        std::thread worker([desc]() {
+            const uint32_t activityId = desc.id;
+            LatestActState* state = StateOf(activityId);
+            if (!state) {
+                return;
+            }
+            OpLockGuard guard{state};
 
-        bool ok = false;
-        if (ShouldAutoSweep(state->bestScore.load(), desc.targetScore)) {
-            Notify(activityId, L"执行扫荡...");
-            ok = TrySweep(desc, *state);
-        }
-        if (!ok) {
-            Notify(activityId, L"执行游戏流程...");
-            ok = TryPlayOnce(desc, *state);
-        }
-        if (!ok) {
-            Notify(activityId, L"执行失败");
-            return;
-        }
+            state->playCount = -1;
+            state->checkCode = 0;
 
-        state->playCount = -1;
-        if (SendLatestActivityOpenUIPacket(activityId)) {
-            WaitForResponse(*state, 3000);
-        }
-        Notify(activityId, L"完成");
-    });
-    worker.detach();
+            Notify(activityId, L"正在获取活动信息...");
+            if (!SendLatestActivityOpenUIPacket(activityId) || !WaitForResponse(*state, 5000)) {
+                Notify(activityId, L"获取活动信息失败");
+                return;
+            }
+            if (state->playCount.load() <= 0) {
+                Notify(activityId, L"今日次数已用完");
+                return;
+            }
+            if (state->restTime.load() > 0) {
+                Notify(activityId, L"冷却中，请稍后再试");
+                return;
+            }
+
+            bool ok = false;
+            if (ShouldAutoSweep(state->bestScore.load(), desc.targetScore)) {
+                Notify(activityId, L"执行扫荡...");
+                ok = TrySweep(desc, *state);
+            }
+            if (!ok) {
+                Notify(activityId, L"执行游戏流程...");
+                ok = TryPlayOnce(desc, *state);
+            }
+            if (!ok) {
+                Notify(activityId, L"执行失败");
+                return;
+            }
+
+            state->playCount = -1;
+            if (SendLatestActivityOpenUIPacket(activityId)) {
+                WaitForResponse(*state, 3000);
+            }
+            Notify(activityId, L"完成");
+        });
+        worker.detach();
+    } catch (...) {
+        // 线程创建失败（如资源不足）时必须归还占用，否则该活动永久无法再启动。
+        int lockExpected = 1;
+        state->opLock.compare_exchange_strong(lockExpected, 0);
+        state->waitingResponse = false;
+        Notify(activityId, L"启动线程失败");
+        return FALSE;
+    }
     return TRUE;
 }

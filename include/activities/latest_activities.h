@@ -46,6 +46,11 @@ bool IsLatestActivity(uint32_t activityId);
 /// 非本模块活动返回 "open_ui"。
 const char* GetLatestActivityOpenUIOperation(uint32_t activityId);
 
+/// 次数探针占用该活动的响应通道；已被一键流程占用时返回 false。
+/// 探针与一键流程共用同一响应处理器并互相清除等待标志，必须互斥。
+bool BeginLatestActivityProbe(uint32_t activityId);
+void EndLatestActivityProbe(uint32_t activityId);
+
 /// 单个活动的剩余次数；< 0 表示未知/未获取。
 int GetLatestActivityPlayCount(uint32_t activityId);
 

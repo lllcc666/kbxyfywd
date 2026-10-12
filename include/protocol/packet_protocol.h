@@ -76,6 +76,11 @@ constexpr uint32_t TASK_SINGLE_INFO_SEND = 1184787;
 constexpr uint32_t TASK_SINGLE_INFO_BACK = 1315859;
 constexpr uint32_t TASK_DAILY_SEND = 1184791;
 constexpr uint32_t TASK_DAILY_BACK = 1315863;
+// 活动向每日任务上报进度用的另一个协议（AS3 的 MsgDoc.OP_CLIENT_DAILYTASK）。
+// 各活动 SWF 在结算后用 sendMessage(OP_CLIENT_DAILYTASK.send, 3, [3,4039001,0])
+// 上报，与上面的 TASK_DAILY_SEND(1184791) 不是同一个 opcode，不要混用。
+constexpr uint32_t TASK_DAILY_REPORT_SEND = 1184812;
+constexpr uint32_t TASK_DAILY_REPORT_BACK = 1315884;
 constexpr uint32_t TASK_ARCHIVES_SEND = 1184811;
 constexpr uint32_t TASK_ARCHIVES_BACK = 1315883;
 

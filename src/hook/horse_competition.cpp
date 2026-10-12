@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -19,6 +20,11 @@ namespace {
 std::thread g_horseGameThread;
 std::atomic<bool> g_horseGameRunning{false};
 HorseProgressCallback g_horseProgressCallback = nullptr;
+
+// 游戏线程的启动/停止来自不同线程：StartHorseCompetitionGame 由收包分发线程触发
+// （START_GAME 响应），StopHorseCompetitionGame 由一键工作线程触发（退出/超时）。
+// std::thread 的 join/赋值不是线程安全的，两线程并发操作同一对象是 UB，故统一加锁。
+std::mutex g_horseGameThreadMutex;
 
 void NotifyHorseProgress(const std::wstring& msg) {
     if (g_horseProgressCallback) {
@@ -468,9 +474,23 @@ void HandleHorseStartGameResponse(HorseCompetitionState& state, const std::strin
 }
 
 void HandleHorseJoinGameResponse(HorseCompetitionState& state, const std::string& json) {
+    // AS3 里 JOIN_GAME 是房间内广播：任何成员入房都会下发一条，RoomInfoData.addMember
+    // 把它并入成员表，再由 updateList() 用 player_id 区分「我」和「其他人」
+    // （MemberInfo.init 里 horse_info / items 是每个成员各自持有的）。
+    // 这里必须做同样的区分，否则别人入房的包会用他的 horse_info / items 覆盖
+    // 本方状态；而且下面的 SetHorsePhase(WAITING_START) 会把 isGaming 置回 false，
+    // 令比赛中的主循环（while (g_horseGameRunning && state.isGaming)）立即退出。
+    const uint32_t playerId = ExtractJsonUInt(json, "player_id");
+    if (playerId != 0 && playerId != g_userId.load()) {
+        return;  // 其他成员入房，不影响本方状态
+    }
+
     const size_t horseInfoPos = json.find("\"horse_info\":");
     if (horseInfoPos != std::string::npos) {
         const std::string horseInfoJson = json.substr(horseInfoPos);
+        if (playerId != 0) {
+            state.myInfo.player_id = playerId;
+        }
         state.myInfo.horse_base_Hp = ExtractJsonInt(horseInfoJson, "base_power");
         state.myInfo.horse_base_speed = ExtractJsonInt(horseInfoJson, "base_speed");
         state.myInfo.horse_base_intimate = ExtractJsonInt(horseInfoJson, "base_intimate");
@@ -478,7 +498,9 @@ void HandleHorseJoinGameResponse(HorseCompetitionState& state, const std::string
 
     state.itemDistances = ExtractItemDistances(json);
     state.inRoom = true;
-    SetHorsePhase(state, HORSE_PHASE_WAITING_START);
+    if (state.phase < HORSE_PHASE_GAMING) {
+        SetHorsePhase(state, HORSE_PHASE_WAITING_START);
+    }
 }
 
 void HandleHorseReadyResponse(HorseCompetitionState& state, const std::string& json) {
@@ -680,18 +702,24 @@ BOOL StartHorseCompetitionGame() {
     SetHorsePhase(state, HORSE_PHASE_GAMING);
     g_horseGameRunning = true;
 
-    if (g_horseGameThread.joinable()) {
-        g_horseGameThread.join();
+    {
+        std::lock_guard<std::mutex> lock(g_horseGameThreadMutex);
+        if (g_horseGameThread.joinable()) {
+            g_horseGameThread.join();
+        }
+        g_horseGameThread = std::thread(HorseGameMainLoop);
     }
-    g_horseGameThread = std::thread(HorseGameMainLoop);
 
     return TRUE;
 }
 
 void StopHorseCompetitionGame() {
     g_horseGameRunning = false;
-    if (g_horseGameThread.joinable()) {
-        g_horseGameThread.join();
+    {
+        std::lock_guard<std::mutex> lock(g_horseGameThreadMutex);
+        if (g_horseGameThread.joinable()) {
+            g_horseGameThread.join();
+        }
     }
 
     auto& state = ActivityStateManager::Instance().GetHorseCompetitionState();
@@ -764,6 +792,7 @@ BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount) {
     state.useTempMount = useTempMount;
     state.stopRequested = false;
 
+    bool rideHintShown = false;
     while (true) {
         ResetHorseRoundState(state);
 
@@ -782,6 +811,13 @@ BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount) {
             NotifyHorseProgress(L"坐骑大赛已完成：今日骑乘点已刷满");
             state.isRunning = false;
             return TRUE;
+        }
+
+        // AS3 中 is_ride <= 0 会改走「赠送坐骑」界面而不入房（HorseMainView.onStartConnect）。
+        // 本工具以临时坐骑参赛（join_game 本身不带坐骑参数），故不阻断，只提示一次以便排查。
+        if (!rideHintShown && state.isRide.load() <= 0) {
+            rideHintShown = true;
+            NotifyHorseProgress(L"提示：当前未检测到已骑乘坐骑，将以临时坐骑参赛");
         }
 
         if (state.stopRequested) {
