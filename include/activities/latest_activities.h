@@ -66,5 +66,8 @@ BOOL StartOneKeyLatestActivityPacket(uint32_t activityId);
 /// 每轮结束自动把剩余次数回填前端，无需手动刷新。
 BOOL StartOneKeyLatestActivitiesPacket(const std::vector<uint32_t>& activityIds);
 
+/// 停止一键执行：中断批量循环与单活动执行。
+void StopLatestActivities();
+
 /// 响应处理器：由 ACTIVITY_QUERY_BACK + activityId 路由进来。
 void ProcessLatestActivityResponse(const GamePacket& packet);

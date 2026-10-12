@@ -1377,6 +1377,8 @@ public:
                             (void)args;
                             // 页面加载完成后，发送BOSS列表到UI
                             PacketParser::SendBossListToUI();
+                            // 同步主线任务清单，供任务区面板动态渲染
+                            PushStoryTaskDefinitionToUi();
                             return S_OK;
                         }
                     };

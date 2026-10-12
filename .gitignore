@@ -50,6 +50,8 @@ swf_cache/
 *.swf
 
 # 临时文件和缓存
+backups/
+.zcodeignore
 *.tmp
 *.temp
 *.log

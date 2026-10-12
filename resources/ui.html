@@ -2259,16 +2259,16 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                             <div id="task-zone-status" style="font-size: 9px; color: var(--color-text-secondary); background: var(--color-background-secondary); border-radius: 2px; padding: 2px 6px; flex: 0 0 auto;">等待开始</div>
                         </div>
 
-                            <!-- 皇城危机功能暂未开放，先隐藏入口 -->
-                            <div id="huangcheng-weiji-panel" hidden style="flex: 1 1 560px; min-width: 560px; background: #FFFFFF; border: 1px solid var(--color-border); border-radius: 4px; padding: 8px; display: none; flex-direction: column; gap: 5px;">
+                            <!-- 主线任务自动执行面板：清单由 native 侧 taskinfo/taskprop 配方推送 -->
+                            <div id="huangcheng-weiji-panel" style="flex: 1 1 560px; min-width: 560px; background: #FFFFFF; border: 1px solid var(--color-border); border-radius: 4px; padding: 8px; display: flex; flex-direction: column; gap: 5px;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-                                    <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">皇城危机</div>
+                                    <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">主线任务（皇城危机 / 魔晶战记）</div>
                                     <label style="display: flex; align-items: center; gap: 4px; font-size: 9.5px; color: var(--color-text-secondary); cursor: pointer; user-select: none;">
                                         <input type="checkbox" id="huangcheng-hide-completed" checked style="width: 12px; height: 12px; cursor: pointer;">
                                         <span>隐藏已完成</span>
                                     </label>
                                 </div>
-                                <div style="font-size: 9px; color: var(--color-text-secondary); line-height: 1.4;">按子任务 ID 顺序批处理，已完成任务默认不显示；任务完成状态来自运行时进度回包。</div>
+                                <div style="font-size: 9px; color: var(--color-text-secondary); line-height: 1.4;">走普通任务窗口的服务端对话流程：进图 → 点入口 NPC → 按服务端下发的对白节点回应。已完成任务默认不显示。</div>
                                 <div style="display: flex; flex-wrap: wrap; gap: 4px;">
                                     <button id="refresh-huangcheng-weiji" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 8px;">刷新进度</button>
                                     <button id="select-all-huangcheng-weiji" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 8px;">全选未完成</button>
@@ -2341,6 +2341,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                             <button onclick="selectAllActivities(true)" class="btn btn-secondary" style="font-size: 10px; padding: 3px 10px;">全选</button>
                             <button onclick="selectAllActivities(false)" class="btn btn-secondary" style="font-size: 10px; padding: 3px 10px;">全不选</button>
                             <button onclick="refreshActivityCounts()" class="btn btn-secondary" style="font-size: 10px; padding: 3px 10px;">刷新次数</button>
+                            <button onclick="stopSelectedActivities()" class="btn btn-secondary" style="font-size: 10px; padding: 3px 10px;">停止</button>
                             <button onclick="runSelectedActivities()" class="btn btn-primary" style="font-size: 10.5px; padding: 3px 14px; margin-left: auto;">一键执行所选</button>
                         </div>
                     </div>
@@ -3635,16 +3636,17 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             }
         };
 
-        window.huangchengWeijiTaskDefs = [
-            { subtaskId: 2001001, name: '接受使命', sceneId: 1003, sceneName: '驾驶舱', reward: '600铜钱 / 700历练', note: '起始报名' },
-            { subtaskId: 2001002, name: '奇怪的声音', sceneId: 2003, sceneName: '双叉岭', reward: '700铜钱 / 800历练', note: '第一次下沉' },
-            { subtaskId: 2001003, name: '歪打正着揭皇榜', sceneId: 2001, sceneName: '长安城', reward: '800铜钱 / 1000历练', note: '进入大唐主线' },
-            { subtaskId: 2001004, name: '唐太宗的回忆', sceneId: 2002, sceneName: '皇宫', reward: '800铜钱 / 800历练', note: '皇城核心' },
-            { subtaskId: 2001005, name: '危机重重', sceneId: 2003, sceneName: '双叉岭', reward: '900铜钱 / 1000历练', note: '含 200100504 特殊镜头' },
-            { subtaskId: 2001006, name: '传说中的唐三藏', sceneId: 2003, sceneName: '双叉岭', reward: '800铜钱 / 1200历练', note: '救援段' },
-            { subtaskId: 2001007, name: '你逃不掉的！', sceneId: 2005, sceneName: '五指山顶', reward: '900铜钱 / 1200历练', note: '地形互动' },
-            { subtaskId: 2001008, name: '神仙的指示', sceneId: 2005, sceneName: '五指山顶', reward: '700铜钱 / 1000历练 / 100修为 / 50感恩', note: '收尾' }
-        ];
+        // 主线任务清单由 native 侧从 taskinfo/taskprop 配方推送（PushStoryTaskDefinitionToUi）。
+        // 这里只保留一个空占位，避免 native 尚未推送时面板报错。
+        window.huangchengWeijiTaskDefs = [];
+
+        window.setHuangchengWeijiTaskDefs = function(defs) {
+            if (!defs || !defs.length) {
+                return;
+            }
+            window.huangchengWeijiTaskDefs = defs;
+            renderHuangchengWeijiTasks();
+        };
 
         window.huangchengWeijiState = {
             hideCompleted: true,
@@ -3697,6 +3699,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             var completedCount = 0;
             var acceptedCount = 0;
             var selectedCount = 0;
+            var lastGroupName = '';
 
             for (var i = 0; i < window.huangchengWeijiTaskDefs.length; i++) {
                 var task = window.huangchengWeijiTaskDefs[i];
@@ -3723,13 +3726,22 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 var rowBackground = isSelected ? 'rgba(43, 125, 255, 0.06)' : 'transparent';
                 var checkboxDisabled = isCompleted ? 'disabled' : '';
                 var checkboxChecked = isSelected ? 'checked' : '';
+                // 任务组名变化时插入分组标题行，便于在一条长清单里区分皇城危机/魔晶战记等。
+                var groupName = task.taskName || '';
+                if (groupName && groupName !== lastGroupName) {
+                    lastGroupName = groupName;
+                    rows.push(
+                        '<div style="padding: 4px 6px; background: var(--color-background-hover); font-size: 9.5px; font-weight: 600; color: var(--color-text-primary); border-bottom: 1px solid var(--color-border);">' +
+                        escapeHtml(groupName) + '</div>'
+                    );
+                }
                 rows.push(
                     '<div style="display:grid; grid-template-columns: 30px 1.2fr 64px 120px 90px; align-items:center; padding: 4px 6px; border-bottom: 1px solid var(--color-border); background:' +
                     rowBackground + ';">' +
                     '<div style="display:flex; justify-content:center;"><input type="checkbox" ' + checkboxChecked + ' ' + checkboxDisabled + ' style="width: 12px; height: 12px; cursor: pointer;" onchange="window.setHuangchengWeijiSelection(' + task.subtaskId + ', this.checked)"></div>' +
-                    '<div style="display:flex; flex-direction:column; gap:1px; min-width:0;"><div style="font-size: 10px; font-weight: 600; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + escapeHtml(task.name) + '</div><div style="font-size: 8.5px; color: var(--color-text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + escapeHtml(task.note) + '</div></div>' +
-                    '<div style="font-size: 9px; color: var(--color-text-secondary); text-align: center;">' + escapeHtml(task.sceneName) + '<div style="font-size: 8.5px; color: var(--color-text-tertiary);">' + task.sceneId + '</div></div>' +
-                    '<div style="font-size: 9px; color: var(--color-text-secondary); text-align: center; line-height: 1.3;">' + escapeHtml(task.reward) + '</div>' +
+                    '<div style="display:flex; flex-direction:column; gap:1px; min-width:0;"><div style="font-size: 10px; font-weight: 600; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + escapeHtml(task.name) + '</div><div style="font-size: 8.5px; color: var(--color-text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + String(task.subtaskId) + '</div></div>' +
+                    '<div style="font-size: 9px; color: var(--color-text-secondary); text-align: center;">' + escapeHtml(task.sceneName || '') + '<div style="font-size: 8.5px; color: var(--color-text-tertiary);">' + task.sceneId + '</div></div>' +
+                    '<div style="font-size: 9px; color: var(--color-text-secondary); text-align: center; line-height: 1.3;">' + escapeHtml(task.taskName || '') + '</div>' +
                     '<div style="font-size: 9px; color: ' + (isCompleted ? 'var(--color-primary)' : 'var(--color-text-secondary)') + '; text-align: center;">' + statusText + '</div>' +
                     '</div>'
                 );
@@ -4179,7 +4191,9 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             }
         };
 
-        // 一键执行所勾选的活动：逐个走 one_key_latestNNN 通道
+        // 一键执行所勾选的活动：整批交给 C++ 单线程顺序执行。
+        // 每个活动会在 C++ 侧循环到次数耗尽，并在每轮结束自动回填剩余次数，
+        // 因此这里只下发一次，不再逐个 setTimeout。
         window.runSelectedActivities = function() {
             var picked = [];
             window.actLatestIds.forEach(function(id) {
@@ -4194,16 +4208,21 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
 
             if (!(window.chrome && window.chrome.webview)) return;
 
-            window.updateHelperText('开始执行 ' + picked.length + ' 个活动...');
-            picked.forEach(function(id, index) {
-                // 依次下发，避免多个活动线程同时抢占响应等待。
-                // 扫荡与否由 C++ 侧自动判定（可扫荡且扫荡分数不低于游戏流程时自动扫荡）。
-                setTimeout(function() {
-                    window.chrome.webview.postMessage(JSON.stringify({
-                        action: 'one_key_latest' + id
-                    }));
-                }, index * 300);
-            });
+            window.updateHelperText('开始执行 ' + picked.length + ' 个活动（顺序执行，直到次数用完）...');
+            window.chrome.webview.postMessage(JSON.stringify({
+                action: 'one_key_latest_batch',
+                activity_ids: picked
+            }));
+        };
+
+        // 停止最新活动一键执行
+        window.stopSelectedActivities = function() {
+            window.updateHelperText('正在停止最新活动...');
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({
+                    action: 'stop_latest_activities'
+                }));
+            }
         };
 
         window.heavenFuruiRunning = false;

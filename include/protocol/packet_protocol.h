@@ -70,6 +70,14 @@ constexpr uint32_t TRAIN_INFO_BACK = 1316142;
 constexpr uint32_t USER_TASK_LIST_SEND = 1184777;
 constexpr uint32_t USER_TASK_LIST_BACK = 1315849;
 
+// 点击 NPC 后服务端下发的 NPC 任务列表（对话入口）。
+// AS3 MsgDoc.OP_CLIENT_REQ_NPCTASKLIST.back：params=npcid，body 首个 int 是 dialogId。
+// 普通任务窗口由它拿到首个 dialogId，再由 taskDialogComplete 回 TASK_TALK。
+constexpr uint32_t NPCTASKLIST_BACK = 1315858;
+
+// 子任务完成通知（AS3 MsgDoc.OP_CLIENT_REQ_TASKFINISHED.back）。
+constexpr uint32_t TASK_FINISHED_BACK = 1315847;
+
 constexpr uint32_t TASK_TALK_SEND = 1184788;
 constexpr uint32_t TASK_TALK_BACK = 1315860;
 constexpr uint32_t TASK_SINGLE_INFO_SEND = 1184787;

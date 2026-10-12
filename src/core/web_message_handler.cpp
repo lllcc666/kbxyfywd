@@ -904,6 +904,10 @@ void HandleStartLatestActivityCommand(const std::wstring& msg, uint32_t activity
     StartOneKeyLatestActivitiesPacket(activityIds);
 }
 
+void HandleStopLatestActivitiesCommand() {
+    StopLatestActivities();
+}
+
 void HandleDecomposeLingyuIndicesCommand(const std::wstring& msg, const wchar_t* indicesKey) {
     const std::wstring jsonArray = GetJsonValue(msg, indicesKey);
     if (!jsonArray.empty()) {
@@ -1297,6 +1301,8 @@ public:
         } else if (msg.find(L"one_key_latest_batch") != std::wstring::npos) {
             // 批量通道：activity_ids 数组，C++ 侧单线程顺序执行到次数耗尽。
             HandleStartLatestActivityCommand(msg, 0);
+        } else if (msg.find(L"stop_latest_activities") != std::wstring::npos) {
+            HandleStopLatestActivitiesCommand();
         } else if (msg.find(L"one_key_latest647") != std::wstring::npos) {
             HandleStartLatestActivityCommand(msg, LatestAct::ACT_MAZE);
         } else if (msg.find(L"one_key_latest869") != std::wstring::npos) {

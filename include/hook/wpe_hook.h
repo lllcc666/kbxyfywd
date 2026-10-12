@@ -242,11 +242,15 @@ BOOL StartHuangchengWeijiTaskAsync(const std::vector<uint32_t>& subtaskIds);
 
 VOID StopHuangchengWeijiTask();
 
+/// 把主线任务配方（子任务清单）推送给 UI 渲染。
+void PushStoryTaskDefinitionToUi();
+
 BOOL StartOneKeyCollectPacket(DWORD flags);
 
 void ProcessCollectResponse(const GamePacket& packet);
 
 extern std::atomic<uint32_t> g_userId;
+SOCKET GetLastGameSocket();
 
 extern HWND g_hWnd;
 

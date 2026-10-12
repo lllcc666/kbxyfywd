@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file wpe_hook.cpp
  * @brief WPE网络封包拦截模块实现
  * 
@@ -41,6 +41,8 @@
 #include "shuangtai.h"
 #include "shuangtai_internal.h"
 #include "spirit_collect.h"
+#include "story_task.h"
+#include "story_task_recipe.h"
 #include "utils.h"
 #include "packet_parser.h"
 #include "packet_builder.h"
@@ -66,6 +68,9 @@ void ProcessSpiritPlayerInfoResponse(const GamePacket& packet);
 void ProcessAct808Response(const GamePacket& packet);
 static void ProcessTaskZoneUserTaskListResponse(const GamePacket& packet);
 static void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet);
+static void ProcessStoryTaskTalkResponse(const GamePacket& packet);
+static void ProcessStoryNpcTaskListResponse(const GamePacket& packet);
+static void ProcessStoryTaskFinishedResponse(const GamePacket& packet);
 static void UpdateTaskZoneUi(const std::wstring& text, bool running);
 
 extern bool PostScriptToUI(const std::wstring& jsCode);
@@ -476,6 +481,14 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
 std::atomic<bool> g_taskZoneRunning{false};
 std::atomic<unsigned long long> g_taskZoneSession{0};
 std::atomic<bool> g_taskZoneMapEntered{false};
+
+// 主线剧情任务区 owner（皇城危机、魔晶战记等）。
+// 声明位置必须早于 InitializeDefaultHandlers：进图响应回调要置位 g_storyTaskMapEntered。
+std::atomic<bool> g_storyTaskRunning{false};
+std::atomic<unsigned long long> g_storyTaskSession{0};
+std::atomic<bool> g_storyTaskMapEntered{false};
+// 置位 g_storyTaskMapEntered 时的会话号：进图回包可能迟到，用它挡掉上一会话的残留。
+std::atomic<unsigned long long> g_storyTaskMapEnterSession{0};
 
 // 八卦灵盘任务区进度 owner：用户任务缓存与对话进度统一由这里维护。
 struct EightTrigramsProgressState {
@@ -7769,6 +7782,8 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
         }
         g_heavenFuruiEnteredMap = true;
         g_taskZoneMapEntered = true;
+        g_storyTaskMapEntered = true;
+        g_storyTaskMapEnterSession = g_storyTaskSession.load();
     };
 
     const auto registerOpcode = [this](uint32_t opcode, const ResponseHandler& handler) {
@@ -7802,7 +7817,9 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerOpcode(Opcode::ENTER_WORLD, ProcessEnterWorldPacket);
     registerOpcode(Opcode::ENTER_SCENE_BACK, enterScene);
     registerOpcode(Opcode::USER_TASK_LIST_BACK, ProcessTaskZoneUserTaskListResponse);
-    registerOpcode(Opcode::TASK_TALK_BACK, ProcessEightTrigramsTaskTalkResponse);
+    registerOpcode(Opcode::TASK_TALK_BACK, ProcessStoryTaskTalkResponse);
+    registerOpcode(Opcode::NPCTASKLIST_BACK, ProcessStoryNpcTaskListResponse);
+    registerOpcode(Opcode::TASK_FINISHED_BACK, ProcessStoryTaskFinishedResponse);
 
     registerOpcode(Opcode::DEEP_DIG_BACK, ProcessDeepDigResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, 668, ProcessDeepDigQueryResponse);
@@ -10578,26 +10595,7 @@ void StartDailyTasksAsync(DWORD flags) {
 // 任务区（八卦灵盘）
 // ============================================================================
 
-struct HuangchengWeijiTaskInfo {
-    uint32_t subtaskId;
-    uint32_t sceneId;
-    const wchar_t* name;
-    const wchar_t* sceneName;
-    const wchar_t* note;
-};
-
-static const HuangchengWeijiTaskInfo HUANGCHENG_WEIJI_TASKS[] = {
-    {2001001, 1003, L"接受使命", L"驾驶舱", L"起始报名"},
-    {2001002, 2003, L"奇怪的声音", L"双叉岭", L"第一次下沉"},
-    {2001003, 2001, L"歪打正着揭皇榜", L"长安城", L"进入大唐主线"},
-    {2001004, 2002, L"唐太宗的回忆", L"皇宫", L"皇城核心"},
-    {2001005, 2003, L"危机重重", L"双叉岭", L"含 200100504 特殊镜头"},
-    {2001006, 2003, L"传说中的唐三藏", L"双叉岭", L"救援段"},
-    {2001007, 2005, L"你逃不掉的！", L"五指山顶", L"地形互动"},
-    {2001008, 2005, L"神仙的指示", L"五指山顶", L"收尾"},
-};
-
-static const size_t HUANGCHENG_WEIJI_TASK_COUNT = sizeof(HUANGCHENG_WEIJI_TASKS) / sizeof(HuangchengWeijiTaskInfo);
+// 皇城危机任务组号，UI 进度面板按该组号查询（组号 = taskinfo 里的 task id）。
 static constexpr uint32_t HUANGCHENG_WEIJI_TASK_ID = 2001000;
 
 enum class TaskZoneStepKind {
@@ -10720,15 +10718,6 @@ static size_t FindEightTrigramsStepIndexByDialogId(uint32_t dialogId) {
 }
 
 
-static const HuangchengWeijiTaskInfo* FindHuangchengWeijiTaskInfo(uint32_t subtaskId) {
-    for (size_t i = 0; i < HUANGCHENG_WEIJI_TASK_COUNT; ++i) {
-        if (HUANGCHENG_WEIJI_TASKS[i].subtaskId == subtaskId) {
-            return &HUANGCHENG_WEIJI_TASKS[i];
-        }
-    }
-    return nullptr;
-}
-
 static std::wstring BuildUInt32JsonArray(const std::vector<uint32_t>& values) {
     std::wstring result = L"[";
     for (size_t i = 0; i < values.size(); ++i) {
@@ -10739,14 +10728,6 @@ static std::wstring BuildUInt32JsonArray(const std::vector<uint32_t>& values) {
     }
     result += L"]";
     return result;
-}
-
-static void UpdateHuangchengWeijiUi(const std::wstring& text, bool running) {
-    UIBridge::Instance().UpdateHelperText(text);
-    std::wstring script = L"if(window.updateHuangchengWeijiStatus) { window.updateHuangchengWeijiStatus('" +
-                          UIBridge::EscapeJsonString(text) + L"', " +
-                          (running ? L"true" : L"false") + L"); }";
-    PostScriptToUI(script);
 }
 
 static void PushHuangchengWeijiProgressToUi() {
@@ -10973,10 +10954,15 @@ static void ProcessTaskZoneUserTaskListResponse(const GamePacket& packet) {
         }
     }
 
-    std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
-    g_eightTrigramsProgress.acceptedSubtaskIds = std::move(acceptedSubtaskIds);
-    g_eightTrigramsProgress.finishedSubtaskIds = std::move(finishedSubtaskIds);
-    g_eightTrigramsProgress.userTaskListLoaded = true;
+    {
+        std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+        g_eightTrigramsProgress.acceptedSubtaskIds = std::move(acceptedSubtaskIds);
+        g_eightTrigramsProgress.finishedSubtaskIds = std::move(finishedSubtaskIds);
+        g_eightTrigramsProgress.userTaskListLoaded = true;
+    }
+
+    // 进度推送必须在释放 g_eightTrigramsProgress.mutex 之后进行：
+    // PushHuangchengWeijiProgressToUi 自己会再取这把非递归锁，嵌套会自死锁。
     if (progressTaskId == HUANGCHENG_WEIJI_TASK_ID) {
         PushHuangchengWeijiProgressToUi();
     }
@@ -11889,10 +11875,11 @@ VOID StopEightTrigramsTask() {
     UpdateTaskZoneUi(L"任务区：已停止", false);
 }
 
-static std::vector<uint32_t> NormalizeHuangchengWeijiSelection(const std::vector<uint32_t>& subtaskIds) {
+// 主线任务选择：UI 勾选的子任务按配方表顺序去重排序；空表示跑全部未完成。
+static std::vector<uint32_t> NormalizeStorySelection(const std::vector<uint32_t>& subtaskIds) {
     std::vector<uint32_t> normalized;
     for (uint32_t subtaskId : subtaskIds) {
-        if (FindHuangchengWeijiTaskInfo(subtaskId) == nullptr) {
+        if (subtaskId == 0) {
             continue;
         }
         if (std::find(normalized.begin(), normalized.end(), subtaskId) == normalized.end()) {
@@ -11903,88 +11890,577 @@ static std::vector<uint32_t> NormalizeHuangchengWeijiSelection(const std::vector
     return normalized;
 }
 
-static std::wstring BuildHuangchengWeijiSelectionSummary(const std::vector<uint32_t>& subtaskIds) {
-    if (subtaskIds.empty()) {
-        return L"";
+// ============================================================================
+// 主线剧情自动任务（皇城危机、魔晶战记等）
+//
+// 与八卦灵盘的分工：
+//   八卦灵盘有 AS3 内置自动模块，配方式是固定 recipe；主线任务没有，走普通任务
+//   窗口，是服务端驱动的对话框流程。因此这里只做两件事：
+//     1) 按配方表进图、点该子任务的入口 NPC；
+//     2) 服务端推来 dialogId 时，按该节点类型回应（TASK_TALK / TRAIN_INFO+TASK_TALK
+//        / 战斗点击），直到该子任务完成通知到达，再进入下一个子任务。
+// ============================================================================
+
+// 主线任务会话 owner：运行标记、会话号、当前子任务与当前对话节点由这里维护。
+std::atomic<uint32_t> g_storyTaskCurrentSubtask{0};
+std::atomic<uint32_t> g_storyTaskCurrentDialog{0};
+
+struct StoryTaskState {
+    std::mutex mutex;
+    // 服务端最近一次下发的对话节点（等待线程消费）。
+    uint32_t pendingDialogId = 0;
+    uint32_t pendingNpcId = 0;
+    uint32_t pendingType = 0;
+    bool pendingDialogReady = false;
+    // 子任务完成通知。
+    uint32_t finishedSubtaskId = 0;
+    bool finishedSubtaskReady = false;
+    // 已完成/已接子任务集合（来自 USER_TASK_LIST）。
+    std::vector<uint32_t> acceptedSubtaskIds;
+    std::vector<uint32_t> finishedSubtaskIds;
+    bool userTaskListLoaded = false;
+    // UI 勾选的子任务；空 = 跑全部未完成。
+    std::vector<uint32_t> selectedSubtaskIds;
+};
+
+StoryTaskState g_storyTaskState;
+
+// 主线任务的进度推送：只读主线状态，单独加锁，避免与 USER_TASK_LIST 回包链互锁。
+static void PushStoryTaskProgressToUi() {
+    std::vector<uint32_t> acceptedSubtaskIds;
+    std::vector<uint32_t> finishedSubtaskIds;
+    {
+        std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
+        acceptedSubtaskIds = g_storyTaskState.acceptedSubtaskIds;
+        finishedSubtaskIds = g_storyTaskState.finishedSubtaskIds;
     }
 
-    std::wstring summary;
-    for (size_t i = 0; i < subtaskIds.size(); ++i) {
-        const HuangchengWeijiTaskInfo* info = FindHuangchengWeijiTaskInfo(subtaskIds[i]);
-        if (info == nullptr) {
-            continue;
-        }
-        if (!summary.empty()) {
-            summary += L"、";
-        }
-        summary += info->name;
-    }
-    return summary;
+    std::wstring script = L"if(window.updateHuangchengWeijiProgress) { window.updateHuangchengWeijiProgress({taskId:" +
+                          std::to_wstring(HUANGCHENG_WEIJI_TASK_ID) +
+                          L", acceptedSubtaskIds:" + BuildUInt32JsonArray(acceptedSubtaskIds) +
+                          L", finishedSubtaskIds:" + BuildUInt32JsonArray(finishedSubtaskIds) +
+                          L"}); }";
+    PostScriptToUI(script);
 }
 
-BOOL StartHuangchengWeijiTaskAsync(const std::vector<uint32_t>& subtaskIds) {
-    if (g_taskZoneRunning.load()) {
-        UpdateHuangchengWeijiUi(L"任务区：已有任务区流程在运行", true);
+static bool IsStorySubtaskSelected(uint32_t subtaskId) {
+    std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
+    if (g_storyTaskState.selectedSubtaskIds.empty()) {
+        return true;
+    }
+    return std::find(g_storyTaskState.selectedSubtaskIds.begin(),
+                     g_storyTaskState.selectedSubtaskIds.end(),
+                     subtaskId) != g_storyTaskState.selectedSubtaskIds.end();
+}
+
+static const StoryTaskRecipe::Node* FindStoryNode(uint32_t dialogId) {
+    for (uint32_t i = 0; i < StoryTaskRecipe::NODE_COUNT; ++i) {
+        if (StoryTaskRecipe::NODES[i].dialogId == dialogId) {
+            return &StoryTaskRecipe::NODES[i];
+        }
+    }
+    return nullptr;
+}
+
+static bool IsStorySubtaskFinishedInCache(uint32_t subtaskId) {
+    std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
+    return std::find(g_storyTaskState.finishedSubtaskIds.begin(),
+                     g_storyTaskState.finishedSubtaskIds.end(),
+                     subtaskId) != g_storyTaskState.finishedSubtaskIds.end();
+}
+
+// 主线任务的进图等待：只看主线自己的运行标记与进图标记。
+// 不能复用 WaitForEightTrigramsMapEnter，那个函数以 g_taskZoneRunning 为循环条件，
+// 主线流程下该标记始终为 false，会立即返回失败。
+static bool WaitForStoryMapEnter(unsigned long long sessionId, DWORD timeoutMs) {
+    const DWORD startTick = GetTickCount();
+    while (g_storyTaskRunning.load() && g_storyTaskSession.load() == sessionId) {
+        if (g_storyTaskMapEntered.load() && g_storyTaskMapEnterSession.load() == sessionId) {
+            return true;
+        }
+        if (GetTickCount() - startTick >= timeoutMs) {
+            return false;
+        }
+        Sleep(50);
+    }
+    return false;
+}
+
+static void ResetStoryTaskState() {
+    std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
+    g_storyTaskState.pendingDialogId = 0;
+    g_storyTaskState.pendingNpcId = 0;
+    g_storyTaskState.pendingType = 0;
+    g_storyTaskState.pendingDialogReady = false;
+    g_storyTaskState.finishedSubtaskId = 0;
+    g_storyTaskState.finishedSubtaskReady = false;
+}
+
+static void UpdateStoryTaskUi(const std::wstring& text, bool running) {
+    UIBridge::Instance().UpdateHelperText(text);
+    std::wstring script = L"if(window.updateHuangchengWeijiStatus) { window.updateHuangchengWeijiStatus('" +
+                          UIBridge::EscapeJsonString(text) + L"', " +
+                          (running ? L"true" : L"false") + L"); }";
+    PostScriptToUI(script);
+}
+
+// 取服务端下发的下一个对话节点。
+static bool TakeStoryPendingDialog(unsigned long long sessionId, uint32_t& dialogId, uint32_t& npcId, DWORD timeoutMs) {
+    const DWORD startTick = GetTickCount();
+    while (g_storyTaskRunning.load() && g_storyTaskSession.load() == sessionId) {
+        {
+            std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
+            if (g_storyTaskState.pendingDialogReady) {
+                dialogId = g_storyTaskState.pendingDialogId;
+                npcId = g_storyTaskState.pendingNpcId;
+                g_storyTaskState.pendingDialogReady = false;
+                return true;
+            }
+        }
+        if (GetTickCount() - startTick >= timeoutMs) {
+            return false;
+        }
+        Sleep(50);
+    }
+    return false;
+}
+
+// 战斗节点的怪物 sid 计算，与 AS3 MonsterManger 一致：
+//   battle.id == -1   -> 用当前 NPC 作为目标
+//   battle.id < 10000 -> combine1(1,0,id,level)
+//   否则              -> combine2(2,id)
+static uint32_t BuildStoryBattleSid(const StoryTaskRecipe::Node& node, uint32_t npcId) {
+    const int spiritId = node.battleId;
+    if (spiritId == -1) {
+        return npcId != 0 ? npcId : 1;
+    }
+    if (spiritId <= 0) {
+        return 0;
+    }
+    if (spiritId < 10000) {
+        const int level = static_cast<int>(node.battleLevel);
+        return static_cast<uint32_t>((1 << 28 & 4026531840) |
+                                     (0 << 22 & 263192576) |
+                                     (spiritId << 8 & 4194048) |
+                                     (level & 0xFF));
+    }
+    return static_cast<uint32_t>((2 << 28 & 4026531840) | (spiritId & 268435455));
+}
+
+// 按节点类型回应服务端下发的 dialogId。
+static bool ReplyStoryDialogNode(unsigned long long sessionId, uint32_t dialogId, uint32_t npcId) {
+    if (g_storyTaskSession.load() != sessionId) {
+        return false;
+    }
+
+    const StoryTaskRecipe::Node* node = FindStoryNode(dialogId);
+
+    // 配方表里没有的节点（例如临时/动态节点）：当作普通对白回应，保持流程前进。
+    if (node == nullptr) {
+        UpdateTaskZoneUi(L"任务区：回应未登记对白 " + std::to_wstring(dialogId), true);
+        return SendTaskZoneTalkPacket(npcId, dialogId) != FALSE;
+    }
+
+    switch (node->kind) {
+        case StoryTaskRecipe::KIND_BATTLE: {
+            const uint32_t sid = BuildStoryBattleSid(*node, npcId);
+            if (sid == 0) {
+                return SendTaskZoneTalkPacket(npcId, dialogId) != FALSE;
+            }
+            // 战斗由服务端在点击后自行结算；这里只发点击，随后等待完成通知。
+            UpdateTaskZoneUi(L"任务区：发起任务战斗 " + std::to_wstring(node->battleId), true);
+            return SendBattlePacket(sid) != FALSE;
+        }
+        case StoryTaskRecipe::KIND_CHOOSE:
+            // 选项节点：先 TRAIN_INFO(7,[dialogId,acceptFlag]) 再 TASK_TALK。
+            return SendTaskZoneTalkPacket(npcId, dialogId, node->acceptFlag) != FALSE;
+        default:
+            return SendTaskZoneTalkPacket(npcId, dialogId) != FALSE;
+    }
+}
+
+// 执行单个子任务：进图 -> 点入口 NPC -> 服务端对话流 -> 等完成通知。
+static bool RunStorySubtask(unsigned long long sessionId, const StoryTaskRecipe::Subtask& subtask) {
+    if (g_storyTaskSession.load() != sessionId) {
+        return false;
+    }
+
+    std::wstring mapName = GetMapName(static_cast<int>(subtask.scene));
+    if (mapName.empty()) {
+        mapName = std::to_wstring(subtask.scene);
+    }
+    UpdateStoryTaskUi(L"任务区：进入 " + mapName + L" 执行子任务 " +
+                          std::to_wstring(subtask.subtaskId), true);
+
+    if (subtask.scene != 0) {
+        g_storyTaskMapEntered = false;
+        if (!SendEnterScenePacket(static_cast<int>(subtask.scene)) ||
+            !WaitForStoryMapEnter(sessionId, 8000)) {
+            UpdateStoryTaskUi(L"任务区：进入场景失败 " + mapName, false);
+            return false;
+        }
+        Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+    }
+
+    if (subtask.entryNpc != 0) {
+        if (!SendTaskZoneClickPacket(subtask.entryNpc, false)) {
+            UpdateTaskZoneUi(L"任务区：点击入口 NPC 失败", false);
+            return false;
+        }
+    }
+
+    // 服务端对话流：每收到一个 dialogId 就回应一次，直到完成通知或长时间无对话。
+    const DWORD dialogWaitMs = 8000;
+    const DWORD subtaskTimeoutMs = 60000;
+    const DWORD subtaskStart = GetTickCount();
+    uint32_t answeredCount = 0;
+
+    while (g_storyTaskRunning.load() && g_storyTaskSession.load() == sessionId) {
+        if (IsStorySubtaskFinishedInCache(subtask.subtaskId)) {
+            return true;
+        }
+        if (GetTickCount() - subtaskStart >= subtaskTimeoutMs) {
+            UpdateTaskZoneUi(L"任务区：子任务超时 " + std::to_wstring(subtask.subtaskId), false);
+            return IsStorySubtaskFinishedInCache(subtask.subtaskId);
+        }
+
+        uint32_t dialogId = 0;
+        uint32_t npcId = subtask.entryNpc;
+        if (!TakeStoryPendingDialog(sessionId, dialogId, npcId, dialogWaitMs)) {
+            // 一段时间没有新对话：可能服务端已结算，收尾确认一次完成状态。
+            if (IsStorySubtaskFinishedInCache(subtask.subtaskId)) {
+                return true;
+            }
+            UpdateTaskZoneUi(L"任务区：对话流结束 " + std::to_wstring(subtask.subtaskId), true);
+            return false;
+        }
+
+        g_storyTaskCurrentDialog.store(dialogId);
+        ++answeredCount;
+        if (!ReplyStoryDialogNode(sessionId, dialogId, npcId == 0 ? subtask.entryNpc : npcId)) {
+            UpdateTaskZoneUi(L"任务区：回应对话失败 " + std::to_wstring(dialogId), false);
+            return false;
+        }
+    }
+
+    return false;
+}
+
+static DWORD WINAPI StoryTaskThreadProc(LPVOID lpParam) {
+    std::unique_ptr<EightTrigramsTaskData> taskData(static_cast<EightTrigramsTaskData*>(lpParam));
+    const unsigned long long sessionId = taskData->sessionId;
+    bool flowCompleted = false;
+    bool flowFailed = false;
+
+    ResetStoryTaskState();
+    g_storyTaskMapEntered = false;
+
+    UpdateStoryTaskUi(L"任务区：读取主线任务进度...", true);
+    // 进度按任务组查询（USER_TASK_LIST 一次只回一个组的已接/已完成列表），
+    // 配方表覆盖多个任务组时逐个查并累积到本地完成集合。
+    {
+        std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
+        g_storyTaskState.acceptedSubtaskIds.clear();
+        g_storyTaskState.finishedSubtaskIds.clear();
+    }
+    uint32_t lastQueriedTaskId = 0;
+    for (uint32_t i = 0; i < StoryTaskRecipe::SUBTASK_COUNT; ++i) {
+        const uint32_t taskId = StoryTaskRecipe::SUBTASKS[i].taskId;
+        if (taskId == 0 || taskId == lastQueriedTaskId) {
+            continue;
+        }
+        lastQueriedTaskId = taskId;
+        if (!g_storyTaskRunning.load() || g_storyTaskSession.load() != sessionId) {
+            return 0;
+        }
+        if (!QueryTaskZoneUserTaskListProgress(taskId)) {
+            continue;
+        }
+        // 先在自己的锁下取出八挂进度快照，再并入主线集合：
+        // g_eightTrigramsProgress 的 vector 会被 socket 线程改写，不能无锁读。
+        std::vector<uint32_t> acceptedSnapshot;
+        std::vector<uint32_t> finishedSnapshot;
+        bool listLoaded = false;
+        {
+            std::lock_guard<std::mutex> progressLock(g_eightTrigramsProgress.mutex);
+            acceptedSnapshot = g_eightTrigramsProgress.acceptedSubtaskIds;
+            finishedSnapshot = g_eightTrigramsProgress.finishedSubtaskIds;
+            listLoaded = g_eightTrigramsProgress.userTaskListLoaded;
+        }
+        std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
+        for (uint32_t id : acceptedSnapshot) {
+            if (std::find(g_storyTaskState.acceptedSubtaskIds.begin(),
+                          g_storyTaskState.acceptedSubtaskIds.end(), id) ==
+                g_storyTaskState.acceptedSubtaskIds.end()) {
+                g_storyTaskState.acceptedSubtaskIds.push_back(id);
+            }
+        }
+        for (uint32_t id : finishedSnapshot) {
+            if (std::find(g_storyTaskState.finishedSubtaskIds.begin(),
+                          g_storyTaskState.finishedSubtaskIds.end(), id) ==
+                g_storyTaskState.finishedSubtaskIds.end()) {
+                g_storyTaskState.finishedSubtaskIds.push_back(id);
+            }
+        }
+        g_storyTaskState.userTaskListLoaded = listLoaded;
+    }
+    PushStoryTaskProgressToUi();
+
+    for (uint32_t i = 0; i < StoryTaskRecipe::SUBTASK_COUNT && g_storyTaskRunning.load(); ++i) {
+        if (g_storyTaskSession.load() != sessionId) {
+            break;
+        }
+        const StoryTaskRecipe::Subtask& subtask = StoryTaskRecipe::SUBTASKS[i];
+
+        // 跳过未勾选或已完成的子任务。
+        if (!IsStorySubtaskSelected(subtask.subtaskId)) {
+            continue;
+        }
+        if (IsStorySubtaskFinishedInCache(subtask.subtaskId)) {
+            continue;
+        }
+
+        g_storyTaskCurrentSubtask.store(subtask.subtaskId);
+        if (!RunStorySubtask(sessionId, subtask)) {
+            if (IsStorySubtaskFinishedInCache(subtask.subtaskId)) {
+                continue;
+            }
+            // 单步失败：记录后继续下一个，避免整条链断在一个非阻塞子任务上。
+            UpdateStoryTaskUi(L"任务区：子任务未确认完成 " + std::to_wstring(subtask.subtaskId), true);
+            flowFailed = true;
+            continue;
+        }
+    }
+
+    // 会话号先校验再清运行标记：被 Stop 掉或已被新会话取代的旧线程，
+    // 不能把新会话的 g_storyTaskRunning 清零（旧线程可能仍卡在进图/查询等待里）。
+    if (g_storyTaskSession.load() != sessionId) {
+        return 0;
+    }
+    const bool stillRunning = g_storyTaskRunning.exchange(false);
+    g_storyTaskMapEntered = false;
+    if (!flowFailed) {
+        flowCompleted = true;
+    }
+
+    if (flowCompleted) {
+        UpdateStoryTaskUi(L"任务区：主线任务流程已执行完毕", false);
+    } else if (stillRunning) {
+        UpdateStoryTaskUi(L"任务区：主线任务流程结束（部分子任务未确认完成）", false);
+    } else {
+        UpdateStoryTaskUi(L"任务区：已停止", false);
+    }
+    return 0;
+}
+
+BOOL StartStoryTaskAsync(const std::vector<uint32_t>& subtaskIds) {
+    if (g_storyTaskRunning.load() || g_taskZoneRunning.load()) {
+        UpdateStoryTaskUi(L"任务区：已有任务区流程在运行", true);
+        return FALSE;
+    }
+
+    if (g_battleSixAuto.IsInBattle() || g_battleSixAuto.IsAutoMatching() || g_shuangtaiAuto.IsRunning()) {
+        UpdateStoryTaskUi(L"任务区：请先停止其他自动战斗", false);
         return FALSE;
     }
 
     if (g_LastGameSocket == 0 || g_userId.load() == 0) {
-        UpdateHuangchengWeijiUi(L"任务区：请先进入游戏", false);
+        UpdateStoryTaskUi(L"任务区：请先进入游戏", false);
         return FALSE;
     }
 
-    const std::vector<uint32_t> normalizedSubtaskIds = NormalizeHuangchengWeijiSelection(subtaskIds);
-    if (normalizedSubtaskIds.empty()) {
-        UpdateHuangchengWeijiUi(L"任务区：请先勾选皇城危机任务", false);
-        return FALSE;
+    const unsigned long long sessionId = g_storyTaskSession.fetch_add(1) + 1;
+    g_storyTaskRunning = true;
+    g_storyTaskMapEntered = false;
+    ResetStoryTaskState();
+    {
+        std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
+        g_storyTaskState.selectedSubtaskIds = NormalizeStorySelection(subtaskIds);
     }
 
-    g_taskZoneRunning = true;
-    g_taskZoneMapEntered = false;
-    g_taskZoneSession.fetch_add(1);
-
-    UpdateHuangchengWeijiUi(L"任务区：读取皇城危机进度...", true);
-    if (!QueryTaskZoneUserTaskListProgress(HUANGCHENG_WEIJI_TASK_ID)) {
-        g_taskZoneRunning = false;
-        g_taskZoneMapEntered = false;
-        UpdateHuangchengWeijiUi(L"任务区：读取皇城危机进度失败", false);
-        return FALSE;
+    EightTrigramsTaskData* taskData = new EightTrigramsTaskData();
+    taskData->sessionId = sessionId;
+    HANDLE hThread = CreateThread(nullptr, 0, StoryTaskThreadProc, taskData, 0, nullptr);
+    if (hThread) {
+        CloseHandle(hThread);
+        return TRUE;
     }
 
-    const size_t finishedCount = g_eightTrigramsProgress.finishedSubtaskIds.size();
-    const size_t acceptedCount = g_eightTrigramsProgress.acceptedSubtaskIds.size();
-    std::wstring status = L"任务区：皇城危机列表已同步，";
-    status += L"已接 ";
-    status += std::to_wstring(acceptedCount);
-    status += L" 项，已完成 ";
-    status += std::to_wstring(finishedCount);
-    status += L" 项，当前仅完成列表/进度框架。";
-
-    const std::wstring selectionSummary = BuildHuangchengWeijiSelectionSummary(normalizedSubtaskIds);
-    if (!selectionSummary.empty()) {
-        status += L" 选中：";
-        status += selectionSummary;
-    }
-
-    UpdateHuangchengWeijiUi(status, false);
-    g_taskZoneRunning = false;
-    g_taskZoneMapEntered = false;
-    return TRUE;
+    delete taskData;
+    g_storyTaskRunning = false;
+    UpdateStoryTaskUi(L"任务区：启动失败", false);
+    return FALSE;
 }
 
-VOID StopHuangchengWeijiTask() {
-    if (!g_taskZoneRunning.load()) {
-        g_taskZoneProgressTaskId.store(0);
-        UpdateHuangchengWeijiUi(L"任务区：已停止", false);
+VOID StopStoryTask() {
+    if (!g_storyTaskRunning.load()) {
+        UpdateStoryTaskUi(L"任务区：已停止", false);
+        return;
+    }
+    g_storyTaskRunning = false;
+    g_storyTaskMapEntered = false;
+    g_storyTaskSession.fetch_add(1);
+    ResponseWaiter::CancelWait();
+    UpdateStoryTaskUi(L"任务区：已停止", false);
+}
+
+void StoryTaskOnDialogResponse(const GamePacket& packet) {
+    if (!g_storyTaskRunning.load()) {
+        return;
+    }
+    if (packet.body.size() < 4) {
+        return;
+    }
+    size_t offset = 0;
+    uint32_t dialogId = 0;
+    uint32_t npcId = 0;
+
+    switch (packet.params) {
+        case 1:
+        case 5:
+        case 22: {
+            // npcid, itemCount, (type,id,count)..., dialogId
+            if (offset + 4 > packet.body.size()) return;
+            npcId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+            const int itemCount = ReadInt32LE(packet.body.data(), offset);
+            for (int i = 0; i < itemCount; ++i) {
+                if (offset + 12 > packet.body.size()) return;
+                ReadInt32LE(packet.body.data(), offset);
+                ReadInt32LE(packet.body.data(), offset);
+                ReadInt32LE(packet.body.data(), offset);
+            }
+            if (offset + 4 > packet.body.size()) return;
+            dialogId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+            break;
+        }
+        case 21: {
+            // npcid, count, (type,id)..., dialogId（每项 2 个 int，与 case 1/5/22 不同）
+            if (offset + 4 > packet.body.size()) return;
+            npcId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+            const int paramCount = ReadInt32LE(packet.body.data(), offset);
+            for (int i = 0; i < paramCount; ++i) {
+                if (offset + 8 > packet.body.size()) return;
+                ReadInt32LE(packet.body.data(), offset);
+                ReadInt32LE(packet.body.data(), offset);
+            }
+            if (offset + 4 > packet.body.size()) return;
+            dialogId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+            break;
+        }
+        case 2:
+        case 14:
+        case 17:
+        case 3:
+        case 26:
+            dialogId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+            break;
+        case 7: {
+            if (offset + 12 > packet.body.size()) return;
+            ReadInt32LE(packet.body.data(), offset);  // boardId
+            dialogId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+            npcId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+            break;
+        }
+        case 8: {
+            if (offset + 4 > packet.body.size()) return;
+            dialogId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+            break;
+        }
+        default:
+            return;
+    }
+
+    if (dialogId == 0) {
         return;
     }
 
-    g_taskZoneRunning = false;
-    g_taskZoneMapEntered = false;
-    g_taskZoneSession.fetch_add(1);
-    g_taskZoneProgressTaskId.store(0);
-    ResponseWaiter::CancelWait();
-    UpdateHuangchengWeijiUi(L"任务区：已停止", false);
+    {
+        std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
+        g_storyTaskState.pendingDialogId = dialogId;
+        g_storyTaskState.pendingNpcId = npcId;
+        g_storyTaskState.pendingType = packet.params;
+        g_storyTaskState.pendingDialogReady = true;
+    }
+}
+
+void StoryTaskOnNpcTaskListResponse(const GamePacket& packet) {
+    if (!g_storyTaskRunning.load() || packet.body.size() < 4) {
+        return;
+    }
+    size_t offset = 0;
+    const uint32_t dialogId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+    if (dialogId == 0) {
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
+        g_storyTaskState.pendingDialogId = dialogId;
+        g_storyTaskState.pendingNpcId = packet.params;
+        g_storyTaskState.pendingType = 0;
+        g_storyTaskState.pendingDialogReady = true;
+    }
+}
+
+void StoryTaskOnTaskFinishedResponse(const GamePacket& packet) {
+    // AS3 TaskParse.onReqTaskFinishedBack：subtaskID 取自 params，body 只是可选奖励，
+    // 正常完成通知的 body 为空，所以这里不能按 body 判空。
+    if (!g_storyTaskRunning.load()) {
+        return;
+    }
+    const uint32_t subtaskId = packet.params;
+    if (subtaskId == 0) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
+    g_storyTaskState.finishedSubtaskId = subtaskId;
+    g_storyTaskState.finishedSubtaskReady = true;
+    if (std::find(g_storyTaskState.finishedSubtaskIds.begin(),
+                  g_storyTaskState.finishedSubtaskIds.end(),
+                  subtaskId) == g_storyTaskState.finishedSubtaskIds.end()) {
+        g_storyTaskState.finishedSubtaskIds.push_back(subtaskId);
+    }
+}
+
+BOOL StartHuangchengWeijiTaskAsync(const std::vector<uint32_t>& subtaskIds) {
+    return StartStoryTaskAsync(subtaskIds);
+}
+
+VOID StopHuangchengWeijiTask() {
+    StopStoryTask();
+}
+
+// 把配方表里的主线子任务列表推给 UI，避免前端维护一份硬编码清单。
+void PushStoryTaskDefinitionToUi() {
+    std::wstring script = L"if(window.setHuangchengWeijiTaskDefs) { window.setHuangchengWeijiTaskDefs([";
+    for (uint32_t i = 0; i < StoryTaskRecipe::SUBTASK_COUNT; ++i) {
+        const StoryTaskRecipe::Subtask& s = StoryTaskRecipe::SUBTASKS[i];
+        std::wstring mapName = GetMapName(static_cast<int>(s.scene));
+        if (i > 0) {
+            script += L",";
+        }
+        script += L"{subtaskId:" + std::to_wstring(s.subtaskId) +
+                  L",taskId:" + std::to_wstring(s.taskId) +
+                  L",sceneId:" + std::to_wstring(s.scene) +
+                  L",taskName:'" + UIBridge::EscapeJsonString(Utf8ToWide(s.taskName)) + L"'" +
+                  L",name:'" + UIBridge::EscapeJsonString(Utf8ToWide(s.subtaskName)) + L"'" +
+                  L",sceneName:'" + UIBridge::EscapeJsonString(mapName) + L"'}";
+    }
+    script += L"]); }";
+    PostScriptToUI(script);
+}
+
+// TASK_TALK_BACK 分发链：八卦灵盘与主线任务共用一个 opcode，两者都要收到回包。
+static void ProcessStoryTaskTalkResponse(const GamePacket& packet) {
+    ProcessEightTrigramsTaskTalkResponse(packet);
+    StoryTaskOnDialogResponse(packet);
+}
+
+static void ProcessStoryNpcTaskListResponse(const GamePacket& packet) {
+    StoryTaskOnNpcTaskListResponse(packet);
+}
+
+static void ProcessStoryTaskFinishedResponse(const GamePacket& packet) {
+    StoryTaskOnTaskFinishedResponse(packet);
 }
 
 // ============================================================================
@@ -15564,4 +16040,8 @@ void QueryActivityCountsAsync() {
 
     g_activityCountRefreshing = false;
     UIBridge::Instance().UpdateHelperText(L"刷新活动次数失败：无法创建查询线程");
+}
+
+SOCKET GetLastGameSocket() {
+    return g_LastGameSocket.load();
 }
