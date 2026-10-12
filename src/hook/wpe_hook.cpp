@@ -11191,7 +11191,7 @@ static void UpdateEightTrigramsResumeHintByDialogId(uint32_t dialogId) {
 static constexpr DWORD EIGHT_TRIGRAMS_TALK_DELAY_MS = 400;
 static constexpr DWORD EIGHT_TRIGRAMS_CLICK_DELAY_MS = 400;
 static constexpr DWORD EIGHT_TRIGRAMS_RESULT_DELAY_MS = 400;
-// 战斗开始等待窗口：常规战斗步等待 10s；水魂步复用同一窗口，开战与交丹对白谁先到就以谁为准。
+// 水魂交丹对白等待窗口：点击 61242 后等交丹对白（或超时）再回确认包。
 static constexpr DWORD EIGHT_TRIGRAMS_BATTLE_START_WAIT_MS = 10000;
 
 // 水魂交丹对话：点击 61242 后服务端多数情况下不开战，而是下发交丹对白（「不要再攻击我啦」），
@@ -11232,23 +11232,6 @@ static uint32_t TakeEightTrigramsWaterSoulDialogId() {
     }
 
     return EIGHT_TRIGRAMS_WATER_SOUL_DIALOG_ID;
-}
-
-
-// 轮询等待本次战斗真正开始（收到新的 BATTLE_START 且宠物实体就位）。
-static bool WaitForEightTrigramsBattleStart(unsigned long long sessionId, DWORD timeoutMs) {
-    const DWORD startTick = GetTickCount();
-    while (g_taskZoneRunning.load() && g_taskZoneSession.load() == sessionId) {
-        const BattleData battle = PacketParser::GetCurrentBattleSnapshot();
-        if (battle.active && !battle.myPets.empty() && !battle.otherPets.empty()) {
-            return true;
-        }
-        if (GetTickCount() - startTick >= timeoutMs) {
-            return false;
-        }
-        Sleep(100);
-    }
-    return false;
 }
 
 // 交丹确认前登记奖励等待：type 15 回包会写入 waterSoulRewardReceived。
@@ -11340,51 +11323,7 @@ static constexpr DWORD RESTART_BACKOFF_BASE_MS = 1000;
 static constexpr DWORD RESTART_BACKOFF_MAX_MS = 5000;
 static constexpr DWORD BATTLE_DRAIN_TIMEOUT_MS = 15000;
 
-
-static BOOL RunEightTrigramsBattleLoop(unsigned long long sessionId, bool battleStarted) {
-    if (!g_battleSixAuto.IsAutoBattleEnabled()) {
-        UpdateTaskZoneUi(L"任务区：请先开启自动战斗", false);
-        return FALSE;
-    }
-
-    if (!SendBattleReadyPacket()) {
-        return FALSE;
-    }
-
-    Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
-
-    const DWORD battleWaitStart = GetTickCount();
-    while (g_taskZoneRunning.load()) {
-        if (g_taskZoneSession.load() != sessionId) {
-            return FALSE;
-        }
-
-        const BattleData battle = PacketParser::GetCurrentBattleSnapshot();
-        if (battle.active && !battle.myPets.empty() && !battle.otherPets.empty()) {
-            battleStarted = true;
-        }
-
-        // BATTLE_END 只关闭 active 标志，公共快照会保留结算实体供 UI 展示。
-        // 必须先确认本次确实收到新的 BATTLE_START，再把 inactive 视为结束。
-        if (battleStarted && !battle.active && !g_battleSixAuto.IsInBattle()) {
-            return TRUE;
-        }
-
-        if (GetTickCount() - battleWaitStart > 60000) {
-            UpdateTaskZoneUi(
-                battleStarted ? L"任务区：等待战斗结束超时" : L"任务区：等待战斗开始超时",
-                false);
-            return FALSE;
-        }
-
-        Sleep(200);
-    }
-
-    return FALSE;
-}
-
-// 水魂点击后的双分支等待：服务端要么开战，要么只下发交丹对白。
-// 先到者胜出，因此对话路径不会白白等待战斗超时，战斗路径也不会被对话超时打断。
+// 水魂点击后的等待：等交丹对白到达即返回，超时也会返回，由调用方统一发确认包。
 enum class EightTrigramsWaterSoulOutcome {
     BattleStarted,
     DialogReply,
@@ -11417,7 +11356,11 @@ static EightTrigramsWaterSoulOutcome WaitForEightTrigramsWaterSoulOutcome(
     return EightTrigramsWaterSoulOutcome::Timeout;
 }
 
-// 点击水魂并按结果收口：开战则走战斗循环，只回对白则补发 TASK_TALK 拿内丹。
+// 点击水魂并收口：发送侧抓包显示水魂段同样零战斗包
+//（只有 CLICK_NPC(61242,[0]) + TASK_TALK(61242,[400600509])），
+// 服务端在点击后只下发交丹对白（「不要再攻击我啦」），
+// 回 TASK_TALK(61242,[dialogId]) 才会给妖怪内丹并推进到 7002。
+// 因此这里不做战斗检测，也不进入战斗循环。
 // 返回 false 表示流程中断或包发送失败（调用方应结束本步）。
 static bool RunEightTrigramsWaterSoulInteraction(
     unsigned long long sessionId,
@@ -11428,38 +11371,8 @@ static bool RunEightTrigramsWaterSoulInteraction(
         return false;
     }
 
-    // 单次等待：开战与交丹对白谁先到就以谁为准，因此对话路径不会白等，战斗路径也不会被提前打断。
-    // 用完整战斗等待窗口而不是短探测，避免开战报文稍慢时被误判成对话路径。
-    if (WaitForEightTrigramsWaterSoulOutcome(
-            sessionId,
-            EIGHT_TRIGRAMS_BATTLE_START_WAIT_MS) ==
-        EightTrigramsWaterSoulOutcome::BattleStarted) {
-        if (!g_taskZoneRunning.load() ||
-            g_taskZoneSession.load() != sessionId ||
-            !RunEightTrigramsBattleLoop(sessionId, true)) {
-            UpdateTaskZoneUi(L"任务区：战斗流程失败", false);
-            return false;
-        }
-
-        // 战后水魂还会再弹一次交丹对白：CLICK_NPC(61242,[0]) -> TASK_TALK(61242,[dialogId])。
-        ArmEightTrigramsWaterSoulDialogCapture();
-        if (!SendTaskZoneClickPacket(npcId, false)) {
-            UpdateTaskZoneUi(L"任务区：确认水魂战后对话失败", false);
-            return false;
-        }
-        if (WaitForEightTrigramsWaterSoulOutcome(
-                sessionId,
-                EIGHT_TRIGRAMS_BATTLE_START_WAIT_MS) ==
-            EightTrigramsWaterSoulOutcome::BattleStarted) {
-            // 战后点击又开了一场战斗：继续交给战斗循环，避免把对话参数塞进战斗。
-            if (!g_taskZoneRunning.load() ||
-                g_taskZoneSession.load() != sessionId ||
-                !RunEightTrigramsBattleLoop(sessionId, true)) {
-                UpdateTaskZoneUi(L"任务区：战斗流程失败", false);
-                return false;
-            }
-        }
-    }
+    // 等交丹对白到达（或超时）后统一走确认包，回包稍慢也不会卡死流程。
+    WaitForEightTrigramsWaterSoulOutcome(sessionId, EIGHT_TRIGRAMS_BATTLE_START_WAIT_MS);
 
     // 点击回包可能已经直接给了内丹（服务端直接把交丹奖励放在点击响应里）：
     // 那就不要再补发确认对话，否则会多一个多余的任务请求。
@@ -11601,53 +11514,20 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
                         break;
                     }
                 } else {
-                    // 墨魂：803 对话在上一 Talk 步已按 AS3 走完（CLICK_NPC(101201,[0]) 打开对话 +
-                    // TASK_TALK(101201,[400600803])，等价于点「少废话，看打！」），开战由该步触发。
+                    // 墨魂不走战斗：发送侧抓包（墨魂段 83-86 行）与第三方实现一致，全程零战斗包——
+                    // 没有 BATTLE_READY(1186049) / USER_OP(1186050) / BATTLE_END_SEND(1186323)。
+                    // 战斗由服务端在收到上一 Talk 步的 TASK_TALK(101201,[400600803])（「少废话，看打！」）
+                    // 后自行结算，native 既不用驱动也不用检测。
                     // 400600804 在 taskprop_4006000.xml 里只有 <alert>、没有 <desc>，是纯目标提示节点；
-                    // 第三方实现与运行时抓包都只发 803 -> 805，从不请求 804。
-                    // 之前的实现会为它补发 TASK_TALK(101201,[400600804])，实测表现为战斗与阴阳石
-                    // 都正常、界面却停在 27/28 不推进，故这里改成不发包。
-                    if (step.dialogId != 400600804 &&
-                        !SendTaskZoneClickPacket(step.npcId, true)) {
-                        UpdateTaskZoneUi(L"任务区：发起战斗失败", false);
+                    // 补发 TASK_TALK(101201,[400600804]) 会让服务端重推 803，界面卡在「少废话，看打！」。
+                    // 这里只补战后确认 TASK_TALK(101301,[400600805])，与第三方 803 -> 805 一致。
+                    if (step.dialogId == 400600804 &&
+                        !SendTaskZoneTalkPacket(101301, 400600805)) {
+                        UpdateTaskZoneUi(L"任务区：确认墨魂战后结果失败", false);
                         flowFailed = true;
                         break;
                     }
-
                     Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
-                    const bool battleObserved = WaitForEightTrigramsBattleStart(
-                        sessionId,
-                        EIGHT_TRIGRAMS_BATTLE_START_WAIT_MS);
-                    if (!battleObserved) {
-                        // 未观测到开战时不硬失败、也不重启：重启会重走 803 步的
-                        // CLICK_NPC(101201,[0])，让服务端重推 400600803；该回包一旦在战斗界面
-                        // 存在期间到达，就会被 TaskControl.onGetDialogBack 存进 tDialogObj
-                        //（TaskControl.as:305-310），并在战斗结束后由 onBattleWin ->
-                        // opDialogAfterBattle 重放（TaskControl.as:222-225），真机上就表现为
-                        //「战斗与阴阳石都正常，界面却停在『少废话，看打！』」。
-                        // 开战由 803 步的 TASK_TALK(101201,[400600803]) 在服务端侧触发，
-                        // 因此这里按「战斗已结束」继续走战后收口，不进入战斗循环。
-                        UpdateTaskZoneUi(L"任务区：未观测到墨魂开战，按已结束处理", true);
-                    }
-
-                    if (battleObserved &&
-                        (!g_taskZoneRunning.load() ||
-                         g_taskZoneSession.load() != sessionId ||
-                         !RunEightTrigramsBattleLoop(sessionId, true))) {
-                        UpdateTaskZoneUi(L"任务区：战斗流程失败", false);
-                        flowFailed = true;
-                        break;
-                    }
-
-                    if (step.dialogId == 400600804) {
-                        // 墨魂战后确认使用固定结果包，不读取 805/806 回包。
-                        if (!SendTaskZoneTalkPacket(101301, 400600805)) {
-                            UpdateTaskZoneUi(L"任务区：确认墨魂战后结果失败", false);
-                            flowFailed = true;
-                            break;
-                        }
-                        Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
-                    }
                 }
 
                 UpdateEightTrigramsResumeHint(i + 1);
@@ -11819,12 +11699,6 @@ BOOL StartEightTrigramsTaskAsync() {
         UpdateTaskZoneUi(L"任务区：八卦灵盘已经完成", false);
         return FALSE;
     }
-
-    if (!g_battleSixAuto.IsAutoBattleEnabled()) {
-        UpdateTaskZoneUi(L"任务区：请先开启自动战斗", false);
-        return FALSE;
-    }
-
     const unsigned long long sessionId = g_taskZoneSession.fetch_add(1) + 1;
     g_taskZoneRunning = true;
     g_taskZoneMapEntered = false;
