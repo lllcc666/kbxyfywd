@@ -893,9 +893,15 @@ void HandleStartOneKeyAct827Command(const std::wstring& msg) {
 
 // 最新活动（周活动小游戏）：统一按活动 ID 启动主流程。
 // 扫荡与否由 C++ 侧按历史最好成绩自动判定，前端无需传参。
+// 带 activity_ids 数组时整批串行执行（一个跑完次数再跑下一个）；
+// 只有单个 ID 时退化为单活动执行。
 void HandleStartLatestActivityCommand(const std::wstring& msg, uint32_t activityId) {
-    (void)msg;
-    StartOneKeyLatestActivityPacket(activityId);
+    std::vector<uint32_t> activityIds;
+    ParseUInt32Array(msg, L"activity_ids", activityIds);
+    if (activityIds.empty()) {
+        activityIds.push_back(activityId);
+    }
+    StartOneKeyLatestActivitiesPacket(activityIds);
 }
 
 void HandleDecomposeLingyuIndicesCommand(const std::wstring& msg, const wchar_t* indicesKey) {
@@ -1288,6 +1294,9 @@ public:
             HandleStartDungeonJumpCommand(msg);
         } else if (msg.find(L"dungeon_jump_stop") != std::wstring::npos) {
             HandleStopDungeonJumpCommand();
+        } else if (msg.find(L"one_key_latest_batch") != std::wstring::npos) {
+            // 批量通道：activity_ids 数组，C++ 侧单线程顺序执行到次数耗尽。
+            HandleStartLatestActivityCommand(msg, 0);
         } else if (msg.find(L"one_key_latest647") != std::wstring::npos) {
             HandleStartLatestActivityCommand(msg, LatestAct::ACT_MAZE);
         } else if (msg.find(L"one_key_latest869") != std::wstring::npos) {

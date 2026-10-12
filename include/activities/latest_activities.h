@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <vector>
 
 #include "packet_types.h"
 
@@ -58,7 +59,12 @@ int GetLatestActivityPlayCount(uint32_t activityId);
 BOOL SendLatestActivityOpenUIPacket(uint32_t activityId);
 
 /// 启动一键执行线程（自动判定扫荡或走一局，只做主流程）。
+/// 单活动入口：等价于只传一个 ID 的批量版本。
 BOOL StartOneKeyLatestActivityPacket(uint32_t activityId);
+
+/// 批量一键执行：单线程顺序处理，每个活动循环到次数耗尽（或冷却/失败）为止，
+/// 每轮结束自动把剩余次数回填前端，无需手动刷新。
+BOOL StartOneKeyLatestActivitiesPacket(const std::vector<uint32_t>& activityIds);
 
 /// 响应处理器：由 ACTIVITY_QUERY_BACK + activityId 路由进来。
 void ProcessLatestActivityResponse(const GamePacket& packet);
