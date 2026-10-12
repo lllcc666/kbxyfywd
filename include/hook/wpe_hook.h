@@ -33,6 +33,11 @@ typedef HRESULT (*EXECUTE_SCRIPT_FUNC)(const WCHAR* script);
 
 namespace WpeHook {
 
+// 版本与窗口标题：单一事实来源。窗口标题必须与 FindWindowW 的查找串完全一致，
+// 否则窗口句柄回退查找会失败，故统一在此定义，避免各处字面量不一致。
+constexpr wchar_t APP_VERSION_W[] = L"1.16";
+constexpr wchar_t APP_WINDOW_TITLE_W[] = L"卡布西游浮影微端 V1.16";
+
 constexpr int DANCE_MAP_ID = 1028;
 
 constexpr int DANCE_MAX_DAILY_COUNT = 3;
@@ -379,3 +384,11 @@ std::wstring BuildLoginUrl(const std::wstring& hexPacket);
 
 void ProcessMD5CheckAndReply(const std::vector<BYTE>& body, uint32_t params);
 
+
+/**
+ * @brief 查询全部「最新活动」的剩余次数并异步回填到前端。
+ *
+ * 逐个下发活动 open_ui 查询，解析后调用 JS 的 window.updateActivityCounts，
+ * 由前端更新次数显示并自动禁用次数为 0 的活动。
+ */
+void QueryActivityCountsAsync();

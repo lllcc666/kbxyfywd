@@ -661,6 +661,29 @@ namespace {
 
 // 跳舞大赛 owner：进程、响应状态和进度统一由该状态对象维护。
 
+// 单次跳舞失败原因：用于在重试日志中说明是哪一步出的问题。
+enum DanceFailReason {
+    DANCE_FAIL_NONE = 0,
+    DANCE_FAIL_ENTER_MAP,      ///< 进入地图失败
+    DANCE_FAIL_START_SEND,     ///< 开始封包发送失败
+    DANCE_FAIL_START_TIMEOUT,  ///< 未在超时内进入游戏（服务端未响应/未开局）
+    DANCE_FAIL_POSITION_TAKEN, ///< 位置被其它小卡布占用或网络不稳（gameState 5/3）
+    DANCE_FAIL_THREAD_CREATE,  ///< 跳舞线程创建失败
+    DANCE_FAIL_ROUND_TIMEOUT,  ///< 跳舞线程未在限定时间内完成
+};
+
+const wchar_t* DanceFailReasonText(int reason) {
+    switch (reason) {
+        case DANCE_FAIL_ENTER_MAP: return L"进入地图失败";
+        case DANCE_FAIL_START_SEND: return L"开始封包发送失败";
+        case DANCE_FAIL_START_TIMEOUT: return L"开局超时";
+        case DANCE_FAIL_POSITION_TAKEN: return L"位置被占用/网络不稳";
+        case DANCE_FAIL_THREAD_CREATE: return L"线程创建失败";
+        case DANCE_FAIL_ROUND_TIMEOUT: return L"本轮超时";
+        default: return L"未知";
+    }
+}
+
 struct DanceGameState {
     int processId = 0;           ///< 当前跳舞进程ID
     int serverTime = 0;          ///< 服务器时间
@@ -674,6 +697,8 @@ struct DanceGameState {
     int counter = 0;             ///< 跳舞计数
     bool waitingResponse = false;///< 等待响应
     bool enteredMap = false;     ///< 是否已进入地图
+    bool abnormalRound = false;  ///< 本轮被服务端判为异常（gameState 5/3）
+    int lastFailReason = DANCE_FAIL_NONE;  ///< 上一次失败原因（DanceFailReason）
 };
 
 static DanceGameState g_danceState;
@@ -1127,6 +1152,24 @@ uint32_t GetItemPosition(uint32_t itemId) {
 
 // ============ 航海大挑战功能实现 (Act685) ============
 
+// ============================================================================
+// 扫荡自动判定（所有活动共用）
+//
+// 扫荡会重放服务端的「历史最好成绩」，游戏流程会提交 flowScore（本工具认定的
+// 目标分）。仅当可重放的历史最好成绩 bestScore >= flowScore，即扫荡不比自己
+// 打一遍差时才自动扫荡；否则自己走一遍游戏流程分数更高，走游戏流程。
+//
+// bestScore <= 0 视为没有可重放成绩（服务端无可扫荡记录），不扫荡。
+// 是否真的允许扫荡由各活动后续的 sweep_info 响应再次校验，此处无需重复判断，
+// 否则像 826 这样 open_ui 不回传可扫荡标记的活动会被误判为永远不可扫荡。
+// ============================================================================
+bool ShouldAutoSweep(int bestScore, int flowScore) {
+    if (bestScore <= 0) {
+        return false;
+    }
+    return bestScore >= flowScore;
+}
+
 #define ACT685_STATE ActivityStateManager::Instance().GetAct685State()
 
 BOOL SendAct685Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
@@ -1203,7 +1246,11 @@ DWORD WINAPI Act685ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    if (useSweep) {
+    // 自动判定：可扫荡且扫荡成绩 >= 游戏流程成绩时才扫荡
+    const bool autoSweep = ShouldAutoSweep(
+        ACT685_STATE.maxScore.load(),
+        Act685::MAX_SCORE);
+    if (autoSweep) {
         Sleep(300);
         UIBridge::Instance().UpdateHelperText(L"航海大挑战：正在获取扫荡信息...");
 
@@ -1806,7 +1853,9 @@ DWORD WINAPI Act822ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    if (useSweep && g_act822HistoryBestScore.load() > 0) {
+    // 自动判定：可扫荡且扫荡成绩 >= 游戏流程成绩时才扫荡
+    if (ShouldAutoSweep(g_act822HistoryBestScore.load(),
+                        Act822::PASS_SCORE)) {
         Sleep(300);
         UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：正在获取扫荡信息...");
         SendAct822SweepInfoPacket();
@@ -1840,8 +1889,6 @@ DWORD WINAPI Act822ThreadProc(LPVOID lpParam) {
         }
 
         UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：扫荡失败，改为直接完成");
-    } else if (useSweep) {
-        UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：需要成功进行一局游戏才可以扫荡哦！");
     }
 
     Sleep(300);
@@ -2254,7 +2301,9 @@ DWORD WINAPI Act826ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    if (useSweep) {
+    // 自动判定：可扫荡且扫荡成绩 >= 游戏流程成绩时才扫荡
+    if (ShouldAutoSweep(ACT826_STATE.maxScore.load(),
+                        Act826::PASS_SCORE)) {
         Sleep(300);
         UIBridge::Instance().UpdateHelperText(L"圣石之战：正在获取扫荡信息...");
         SendAct826SweepInfoPacket();
@@ -2563,7 +2612,9 @@ DWORD WINAPI Act827ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    if (useSweep && ACT827_STATE.bestRecord.load() > 0) {
+    // 自动判定：可扫荡且扫荡成绩 >= 游戏流程成绩时才扫荡
+    if (ShouldAutoSweep(ACT827_STATE.bestRecord.load(),
+                        Act827::TARGET_SCORE)) {
         Sleep(300);
         UIBridge::Instance().UpdateHelperText(L"齐心协力大挑战：正在获取扫荡信息...");
         SendAct827SweepInfoPacket();
@@ -2864,7 +2915,9 @@ DWORD WINAPI Act641ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    if (useSweep && ACT641_STATE.bestRecord.load() > 0) {
+    // 自动判定：可扫荡且扫荡成绩 >= 本次游戏流程提交分时才扫荡
+    if (ShouldAutoSweep(ACT641_STATE.bestRecord.load(),
+                        std::clamp(targetScore, 1, Act641::MAX_SCORE))) {
         UIBridge::Instance().UpdateHelperText(L"清除煞气：正在获取扫荡信息...");
 
         Sleep(300);
@@ -3501,7 +3554,9 @@ DWORD WINAPI Act684ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    if (useSweep && ACT684_STATE.maxScore.load() > 0) {
+    // 自动判定：可扫荡且扫荡成绩 >= 本次游戏流程提交分时才扫荡
+    if (ShouldAutoSweep(ACT684_STATE.maxScore.load(),
+                        targetScore)) {
         Sleep(300);
         UIBridge::Instance().UpdateHelperText(L"土幻的曙光：正在获取扫荡信息...");
         ACT684_STATE.sweepSuccess = false;
@@ -3520,8 +3575,6 @@ DWORD WINAPI Act684ThreadProc(LPVOID lpParam) {
         }
 
         UIBridge::Instance().UpdateHelperText(L"土幻的曙光：扫荡失败，改为直接完成");
-    } else if (useSweep) {
-        UIBridge::Instance().UpdateHelperText(L"土幻的曙光：需要成功进行一局游戏才可以扫荡哦！");
     }
 
     Sleep(300);
@@ -3749,7 +3802,10 @@ DWORD WINAPI Act717ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    if (useSweep && ACT717_STATE.sweepAvailable.load()) {
+    // 717 的 open_ui 只回报 isSweep（可否扫荡），不回报可比的历史成绩，
+    // 无法判断扫荡是否优于游戏流程；此处按“可扫荡即扫荡”处理，扫荡由服务端
+    // 重放其保存的最好成绩。其余活动均按 ShouldAutoSweep 比较成绩后再决定。
+    if (ACT717_STATE.sweepAvailable.load()) {
         Sleep(300);
         UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：正在获取扫荡信息...");
         ACT717_STATE.sweepSuccess = false;
@@ -3768,8 +3824,6 @@ DWORD WINAPI Act717ThreadProc(LPVOID lpParam) {
         }
 
         UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：扫荡失败，改为直接完成");
-    } else if (useSweep) {
-        UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：需要先完成一局游戏才可以扫荡哦！");
     }
 
     Sleep(300);
@@ -4733,7 +4787,9 @@ DWORD WINAPI Act631ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    if (useSweep) {
+    // 自动判定：可扫荡且扫荡成绩 >= 游戏流程提交分（PASS_SCORE）时才扫荡
+    if (ShouldAutoSweep(ACT631_STATE.maxScore.load(),
+                        Act631::PASS_SCORE)) {
         Sleep(300);
         UIBridge::Instance().UpdateHelperText(L"妖力考验：正在获取扫荡信息...");
         ACT631_STATE.sweepSuccess = false;
@@ -5115,13 +5171,12 @@ void ProcessAct631Response(const GamePacket& packet) {
     }
 
     DWORD WINAPI Act808ThreadProc(LPVOID lpParam) {
-        const bool useSweep = lpParam ? *static_cast<bool*>(lpParam) : false;
         delete static_cast<bool*>(lpParam);
 
         ResetAct808State();
 
         Sleep(300);
-        UIBridge::Instance().UpdateHelperText(useSweep ? L"欢乐跷跷板：开始扫荡..." : L"欢乐跷跷板：正在获取活动信息...");
+        UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：正在获取活动信息...");
 
         if (!SendAct808OpenUIPacket() || !WaitForAct808Response()) {
             UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：获取活动信息失败");
@@ -5138,7 +5193,9 @@ void ProcessAct631Response(const GamePacket& packet) {
             return 0;
         }
 
-        if (useSweep && g_act808HistoryBestScore.load() > 0) {
+        // 自动判定：可扫荡且历史最好成绩 >= 游戏流程提交分（MAX_SCORE）时才扫荡
+        if (ShouldAutoSweep(g_act808HistoryBestScore.load(),
+                            Act808::MAX_SCORE)) {
             Sleep(300);
             UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：正在获取扫荡信息...");
 
@@ -5156,8 +5213,6 @@ void ProcessAct631Response(const GamePacket& packet) {
             }
 
             UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：扫荡失败，改为直接完成");
-        } else if (useSweep) {
-            UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：需要成功进行一局游戏才可以扫荡哦！");
         }
 
         Sleep(300);
@@ -5215,7 +5270,7 @@ void ProcessAct631Response(const GamePacket& packet) {
 
         const int score = Act808::MAX_SCORE;
         Sleep(300);
-        UIBridge::Instance().UpdateHelperText(useSweep ? L"欢乐跷跷板：快速结算..." : L"欢乐跷跷板：提交结算...");
+        UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：提交结算...");
 
         if (!SendAct808EndGamePacket(score) || !WaitForAct808Response()) {
             UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：结算失败");
@@ -5223,7 +5278,7 @@ void ProcessAct631Response(const GamePacket& packet) {
         }
 
         if (g_act808EndResult.load() != 0) {
-            UIBridge::Instance().UpdateHelperText(useSweep ? L"欢乐跷跷板：扫荡失败" : L"欢乐跷跷板：结算失败");
+            UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：结算失败");
             return 0;
         }
 
@@ -5235,7 +5290,7 @@ void ProcessAct631Response(const GamePacket& packet) {
         SendAct808OpenUIPacket();
         WaitForAct808Response();
 
-        UIBridge::Instance().UpdateHelperText(useSweep ? L"欢乐跷跷板：扫荡完成" : L"欢乐跷跷板：完成");
+        UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：完成");
         return 0;
     }
 
@@ -6859,7 +6914,7 @@ void ProcessEnterWorldPacket(const GamePacket& gp) {
     std::wstring kabuName = Utf8ToWide(nameUtf8);
     
     // 更新窗口标题
-    std::wstring newTitle = L"卡布西游浮影微端 V1.15 - " + 
+    std::wstring newTitle = std::wstring(WpeHook::APP_WINDOW_TITLE_W) + L" - " + 
                            std::to_wstring(kabuId) + L" " + kabuName;
     SetWindowTextW(g_hWnd, newTitle.c_str());
 }
@@ -9775,6 +9830,19 @@ void ProcessDanceActivityResponse(const GamePacket& packet) {
         }
     }
     else if (gameState == 5 || gameState == 3) {
+        // AS3：5=“位置已被其它小卡布占用”，3=“网络不太稳定,请重新进入游戏吧”。
+        // 二者都是本轮可重试的瞬时失败，不应当作整体失败中断后续次数。
+        g_danceState.abnormalRound = true;
+        g_danceState.lastFailReason = DANCE_FAIL_POSITION_TAKEN;
+        g_danceState.gameState = 0;
+        g_danceState.waitingResponse = false;
+    }
+    else {
+        // 其它异常 gameState（AS3 走 Alert("异常"+gameState)）同样按本轮失败处理。
+        g_danceState.abnormalRound = true;
+        if (g_danceState.lastFailReason == DANCE_FAIL_NONE) {
+            g_danceState.lastFailReason = DANCE_FAIL_START_TIMEOUT;
+        }
         g_danceState.gameState = 0;
         g_danceState.waitingResponse = false;
     }
@@ -9804,6 +9872,8 @@ static BOOL SendDanceContestOnce() {
     g_danceState.gameState = 0;
     g_danceState.waitingResponse = false;
     g_danceState.enteredMap = false;
+    g_danceState.abnormalRound = false;
+    g_danceState.lastFailReason = DANCE_FAIL_NONE;
 
     // 1. 循环发送进入地图封包（最多10次）
     int enterCount = 0;
@@ -9820,6 +9890,7 @@ static BOOL SendDanceContestOnce() {
     }
 
     if (!g_danceState.enteredMap) {
+        g_danceState.lastFailReason = DANCE_FAIL_ENTER_MAP;
         return FALSE;
     }
 
@@ -9835,60 +9906,103 @@ static BOOL SendDanceContestOnce() {
     if (!SendDanceStartPacket()) {
         // 发送封包失败
         g_danceState.waitingResponse = false;
+        g_danceState.lastFailReason = DANCE_FAIL_START_SEND;
         return FALSE;
     }
 
-    // 4. 等待gameState被设置为2（游戏中），最多等待15秒
-    for (int i = 0; i < 150 && g_danceState.gameState != 2; i++) {
+    // 4. 等待gameState被设置为2（游戏中），最多等待15秒。
+    //    若响应已把本轮判为异常（位置被占/网络不稳），立即结束等待转入重试，
+    //    避免白等满 15 秒。
+    for (int i = 0; i < 150 && g_danceState.gameState != 2 && !g_danceState.abnormalRound; i++) {
         Sleep(100);
     }
-    
+
     // 5. 如果状态变为2（游戏中），启动跳舞线程并等待完成
     if (g_danceState.gameState == 2) {
         HANDLE hThread = CreateThread(NULL, 0, DanceContestThreadProc, NULL, 0, NULL);
         if (hThread) {
-            WaitForSingleObject(hThread, 30000);
+            const DWORD waitResult = WaitForSingleObject(hThread, 30000);
             CloseHandle(hThread);
+            if (waitResult == WAIT_TIMEOUT) {
+                g_danceState.lastFailReason = DANCE_FAIL_ROUND_TIMEOUT;
+                return FALSE;
+            }
             return TRUE;
         }
+        g_danceState.lastFailReason = DANCE_FAIL_THREAD_CREATE;
+        return FALSE;
     }
 
+    // 未进入游戏中：若响应处理器标记了异常（位置被占/网络不稳），沿用其原因，
+    // 否则说明服务端压根没回应，按开局超时处理。
+    if (g_danceState.lastFailReason == DANCE_FAIL_NONE) {
+        g_danceState.lastFailReason = DANCE_FAIL_START_TIMEOUT;
+    }
     return FALSE;
 }
 
-// 跳舞大赛主流程（自动执行3次）
+// 跳舞大赛主流程（自动执行3次，允许瞬时失败重试）
 BOOL SendDanceContestPacket() {
-    // 客户端自己计数，固定执行3次，每次点击从0开始
+    const int maxRounds = WpeHook::DANCE_MAX_DAILY_COUNT;
+    // 每次理论上最多重试 3 次，避免活动不可用时无限循环。
+    const int maxAttempts = maxRounds + 3;
+
     int completedCount = 0;
-    
+
     // 辅助函数：通过 UIBridge 更新UI计数
     auto updateDanceCountUI = [](int count) {
         std::wstring jsCode = L"if(window.updateDanceCount) window.updateDanceCount(" 
             + std::to_wstring(count) + L");";
         UIBridge::Instance().ExecuteJS(jsCode);
     };
-    
+
+    // 辅助函数：回显本轮失败原因，便于用户判断是位置被占还是网络问题。
+    auto reportFailure = [](int reason, int attempt) {
+        std::wstring msg = L"跳舞大赛：第 " + std::to_wstring(attempt) +
+            L" 次尝试失败（" + DanceFailReasonText(reason) + L"），正在重试...";
+        UIBridge::Instance().UpdateHelperText(msg);
+    };
+
     // 初始化UI显示为0
     updateDanceCountUI(0);
 
-    // 循环执行3次
-    for (int i = 0; i < WpeHook::DANCE_MAX_DAILY_COUNT; i++) {
+    int attempts = 0;
+    while (completedCount < maxRounds && attempts < maxAttempts) {
+        attempts++;
+
         if (SendDanceContestOnce()) {
             completedCount++;
-            
+
             // 每次完成后更新UI计数
             updateDanceCountUI(completedCount);
-            
+
             // 等待一小段时间确保UI更新
             Sleep(300);
-        } else {
+            continue;
+        }
+
+        // 本轮失败不中断整批，退出活动后重试。仅「本轮线程超时」例外：此时
+        // 跳舞线程可能仍在运行并继续发包，重入会与之并发，故直接结束整批。
+        if (g_danceState.lastFailReason == DANCE_FAIL_ROUND_TIMEOUT) {
+            UIBridge::Instance().UpdateHelperText(
+                L"跳舞大赛：本轮超时，线程状态未清干净，已停止以避免冲突");
             break;
         }
+
+        reportFailure(g_danceState.lastFailReason, attempts);
+        SendDanceExitPacketEx();
+        Sleep(1200);
     }
-    
+
     // 最终确保UI显示正确
     updateDanceCountUI(completedCount);
-    
+
+    if (completedCount < maxRounds) {
+        std::wstring msg = L"跳舞大赛：完成 " + std::to_wstring(completedCount) +
+            L"/" + std::to_wstring(maxRounds) + L" 次，部分尝试未成功";
+        UIBridge::Instance().UpdateHelperText(msg);
+    }
+
     return completedCount > 0;
 }
 // 跳舞大赛线程函数
@@ -15207,4 +15321,183 @@ void ProcessSpiritPlayerInfoResponse(const GamePacket& packet) {
     }
 
     NotifySpiritAlert(L"验证玩家信息失败，返回状态异常: " + std::to_wstring(result));
+}
+
+// ============================================================================
+// 最新活动：剩余次数查询与回填
+//
+// 各活动 open_ui 响应会把剩余次数解析进各自状态的 playCount。这里逐个下发
+// open_ui 探针并回填前端：
+//   - 有响应且解析出次数：按 playCount 回填（0 表示次数已用完，前端禁用该行）。
+//   - 有响应但未解析出次数：按 0（不可用）处理。
+//   - 无响应（活动已过期/服务端不再下发）：按 0（不可用）处理并禁用该行。
+//   - 未连接游戏：上报 -1，前端显示“--”且保持可勾选，避免误禁用。
+//
+// 探针使用比常规流程更短的超时：过期活动不会响应，若沿用 3s 超时，9 个活动会
+// 让刷新静默挂起近半分钟。刷新过程中回显进度，结束时给出汇总，避免一直停留在
+// “正在获取活动剩余次数...”。
+// 必须在所有活动实现之后定义，故置于文件末尾。
+// ============================================================================
+namespace {
+
+// 探针超时：比常规流程的 TIMEOUT_RESPONSE(3s) 更短，过期活动需尽快跳过。
+constexpr DWORD kActivityCountProbeTimeoutMs = 1500;
+
+// 防止重复点击“刷新次数”导致多个查询线程相互抢占响应等待。
+std::atomic<bool> g_activityCountRefreshing{false};
+
+struct ActivityCountTarget {
+    uint32_t activityId;
+    const wchar_t* name;
+};
+
+const ActivityCountTarget kActivityCountTargets[] = {
+    {Act717::ACTIVITY_ID, L"驱赶毒蚊"},
+    {Act684::ACTIVITY_ID, L"土幻的曙光"},
+    {Act827::ACTIVITY_ID, L"齐心协力大挑战"},
+    {Act826::ACTIVITY_ID, L"圣石之战"},
+    {Act822::ACTIVITY_ID, L"光辉穿梭大考验"},
+    {Act685::ACTIVITY_ID, L"航海大挑战"},
+    {Act631::ACTIVITY_ID, L"妖力考验"},
+    {Act808::ACTIVITY_ID, L"欢乐跷跷板"},
+    {Act641::ACTIVITY_ID, L"清除煞气"},
+};
+
+constexpr int kActivityCountTargetNum =
+    static_cast<int>(sizeof(kActivityCountTargets) / sizeof(kActivityCountTargets[0]));
+
+// 返回单个活动剩余次数；< 0 表示未解析出（不含“次数为 0”的合法情况）。
+int GetActivityRemainingCount(uint32_t activityId) {
+    auto& mgr = ActivityStateManager::Instance();
+    switch (activityId) {
+        case Act717::ACTIVITY_ID: return mgr.GetAct717State().playCount.load();
+        case Act684::ACTIVITY_ID: return mgr.GetAct684State().playCount.load();
+        case Act827::ACTIVITY_ID: return mgr.GetAct827State().playCount.load();
+        case Act826::ACTIVITY_ID: return mgr.GetAct826State().playCount.load();
+        case Act822::ACTIVITY_ID: return mgr.GetAct822State().playCount.load();
+        case Act685::ACTIVITY_ID: return mgr.GetAct685State().playCount.load();
+        case Act631::ACTIVITY_ID: return mgr.GetAct631State().playCount.load();
+        case Act641::ACTIVITY_ID: return mgr.GetAct641State().playCount.load();
+        case Act808::ACTIVITY_ID: return g_act808PlayCount.load();
+        default: return -1;
+    }
+}
+
+void ReportActivityCount(uint32_t activityId, int remainingCount) {
+    wchar_t jsCode[256];
+    swprintf_s(
+        jsCode,
+        L"if(window.updateActivityCounts) { window.updateActivityCounts({ %u: %d }); }",
+        activityId,
+        remainingCount);
+    UIBridge::Instance().ExecuteJS(jsCode);
+}
+
+// 直接构造 open_ui 探针封包，协议字节与各活动 SendActNNNOpenUIPacket 一致，
+// 但使用更短超时。各活动响应处理器只读取 operation/playCount，不依赖
+// waitingResponse 预置，故此处无需先置位等待标记。
+bool ProbeActivityOpenUI(uint32_t activityId) {
+    std::vector<BYTE> packet = BuildActivityPacket(
+        Opcode::ACTIVITY_QINGYANG_NEW_SEND, activityId, "open_ui", {});
+    if (packet.empty()) {
+        return false;
+    }
+
+    return SendPacket(
+               0,
+               packet.data(),
+               static_cast<DWORD>(packet.size()),
+               Opcode::ACTIVITY_QUERY_BACK,
+               kActivityCountProbeTimeoutMs,
+               activityId,
+               true) != FALSE;
+}
+
+}  // anonymous namespace
+
+void QueryActivityCountsAsync() {
+    bool expected = false;
+    if (!g_activityCountRefreshing.compare_exchange_strong(expected, true)) {
+        UIBridge::Instance().UpdateHelperText(L"正在刷新活动次数，请稍候...");
+        return;
+    }
+
+    HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID) -> DWORD {
+        if (!g_bInitialized) {
+            g_activityCountRefreshing = false;
+            return 0;
+        }
+
+        // 未连接游戏时不应把活动判成“已过期”，只上报未知（-1）并提示。
+        if (g_LastGameSocket.load() == 0) {
+            for (const auto& target : kActivityCountTargets) {
+                ReportActivityCount(target.activityId, -1);
+            }
+            UIBridge::Instance().UpdateHelperText(L"未连接游戏，无法获取活动次数");
+            g_activityCountRefreshing = false;
+            return 0;
+        }
+
+        int availableCount = 0;
+        int unavailableCount = 0;
+
+        for (int i = 0; i < kActivityCountTargetNum; ++i) {
+            if (!g_bInitialized) {
+                break;
+            }
+
+            const uint32_t activityId = kActivityCountTargets[i].activityId;
+
+            wchar_t progress[128];
+            swprintf_s(
+                progress,
+                L"正在获取活动次数 (%d/%d)：%s",
+                i + 1,
+                kActivityCountTargetNum,
+                kActivityCountTargets[i].name);
+            UIBridge::Instance().UpdateHelperText(progress);
+
+            if (!ProbeActivityOpenUI(activityId)) {
+                // 无响应：活动已过期或服务端不再下发，按不可用（0）处理。
+                ReportActivityCount(activityId, 0);
+                ++unavailableCount;
+                Sleep(120);
+                continue;
+            }
+
+            // 响应等待被唤醒发生在 recv hook，而解析 playCount 的 handler 跑在
+            // 派发 worker 线程上，二者存在先后差；等待 handler 落地后再读取。
+            Sleep(150);
+            const int remaining = GetActivityRemainingCount(activityId);
+            if (remaining < 0) {
+                // 有响应但未解析出次数，同样视为不可用。
+                ReportActivityCount(activityId, 0);
+                ++unavailableCount;
+            } else {
+                ReportActivityCount(activityId, remaining);
+                ++availableCount;
+            }
+
+            Sleep(120);
+        }
+
+        wchar_t summary[160];
+        swprintf_s(
+            summary,
+            L"刷新完成：可用 %d 个，不可用/已过期 %d 个",
+            availableCount,
+            unavailableCount);
+        UIBridge::Instance().UpdateHelperText(summary);
+
+        g_activityCountRefreshing = false;
+        return 0;
+    }, nullptr, 0, nullptr);
+
+    if (hThread) {
+        CloseHandle(hThread);
+        return;
+    }
+
+    g_activityCountRefreshing = false;
+    UIBridge::Instance().UpdateHelperText(L"刷新活动次数失败：无法创建查询线程");
 }

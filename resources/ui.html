@@ -461,6 +461,31 @@
         .tab-button.active::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: var(--color-primary); border-radius: var(--radius-full); transition: all var(--duration-fast) var(--easing-bounce); }
         .tab-button::before { content: ''; position: absolute; bottom: 0; left: 50%; right: 50%; height: 2px; background: var(--color-primary); border-radius: var(--radius-full); opacity: 0; transition: all var(--duration-normal) var(--easing-standard); }
         .tab-button:hover::before { left: 0; right: 0; opacity: 0.5; }
+        /* 一级标签图标：与文字同排居中，沿用描边图标规范，不改变原有下划线动画 */
+        .tab-button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+        .tab-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 13px;
+            width: 13px;
+            height: 13px;
+            opacity: 0.9;
+        }
+        .tab-icon svg {
+            display: block;
+            width: 13px;
+            height: 13px;
+            overflow: visible;
+        }
+        .tab-icon svg * {
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 1.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .tab-button.active .tab-icon { opacity: 1; }
         .content { 
             flex: 1; 
             padding: 0; 
@@ -731,6 +756,152 @@
             flex-direction: column;
         }
 
+        /* ====================================================================
+           功能区子夹统一布局骨架
+           可用高度仅约 132px，横向空间充足：统一采用「横向面板行 + 面板内
+           部滚动」的组织方式，禁止依赖固定像素高度，所有区域自适应容器。
+           ==================================================================== */
+        .fx-page {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex: 1;
+            min-height: 0;
+            padding: 3px 6px;
+        }
+        /* 横向面板行：面板等高拉伸，填满整行 */
+        .fx-row {
+            display: flex;
+            gap: 8px;
+            align-items: stretch;
+            flex: 1;
+            min-height: 0;
+        }
+        /* 单个功能面板 */
+        .fx-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            min-height: 0;
+            min-width: 0;
+            background: var(--color-background);
+            border: 1px solid var(--color-border);
+            border-radius: 4px;
+            padding: 5px 6px;
+            box-shadow: var(--shadow-sm);
+            overflow: hidden;
+        }
+        .fx-panel-grow { flex: 1 1 auto; }
+        .fx-panel-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--color-text-primary);
+            line-height: 1.2;
+            flex: 0 0 auto;
+        }
+        .fx-panel-note {
+            font-size: 8.5px;
+            color: var(--color-text-tertiary);
+            line-height: 1.35;
+            flex: 0 0 auto;
+        }
+        /* 面板内需要滚动的区域：占满剩余高度并内部滚动 */
+        .fx-scroll {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        /* 底部按钮行固定贴底 */
+        .fx-actions {
+            display: flex;
+            gap: 4px;
+            flex: 0 0 auto;
+            margin-top: auto;
+        }
+        .fx-actions > .btn { margin: 0; }
+        /* 紧凑复选框网格 */
+        .fx-checks {
+            display: grid;
+            gap: 2px 4px;
+            align-content: start;
+        }
+        .fx-check {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            padding: 1px 4px;
+            background: #FFFFFF;
+            border-radius: 2px;
+            cursor: pointer;
+            font-size: 9.5px;
+            color: var(--color-text-primary);
+            white-space: nowrap;
+        }
+        /* 竖直分隔线 */
+        .fx-sep {
+            width: 1px;
+            background: var(--color-border);
+            flex: 0 0 auto;
+        }
+        /* 活动条目（最新活动）：一行「勾选 + 名称 + 剩余次数 + 扫荡」，
+           与材料采集保持同一视觉语言，紧凑排列一屏可容纳全部活动。 */
+        .act-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            min-width: 0;
+            padding: 2px 6px;
+            background: #FFFFFF;
+            border: 1px solid #D9E4F1;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 10px;
+            color: var(--color-text-primary);
+            transition: border-color var(--duration-fast) var(--easing-standard), background var(--duration-fast) var(--easing-standard);
+        }
+        .act-item:hover { border-color: var(--color-border-hover); background: var(--color-background-hover); }
+        /* 次数为 0 或未获取时整行禁用 */
+        .act-item.act-disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            background: var(--color-background-secondary);
+        }
+        .act-item.act-disabled .act-item-name { color: var(--color-text-tertiary); }
+        .act-item > input[type="checkbox"].act-pick {
+            flex: 0 0 auto;
+            width: 12px;
+            height: 12px;
+            cursor: pointer;
+        }
+        .act-item-name {
+            flex: 1 1 auto;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .act-item-count {
+            flex: 0 0 auto;
+            min-width: 30px;
+            text-align: center;
+            font-size: 9px;
+            font-weight: 600;
+            color: var(--color-primary);
+            background: #e8f4fd;
+            border-radius: 3px;
+            padding: 0 4px;
+            line-height: 1.5;
+        }
+        .act-item-count.act-count-zero {
+            color: var(--color-text-tertiary);
+            background: var(--color-background-secondary);
+        }
+        .act-item-count.act-count-unknown {
+            color: var(--color-text-tertiary);
+            background: transparent;
+        }
+
         .btn,
         .sub-tab-button,
         .tab-action-button {
@@ -758,8 +929,11 @@
             transform: translateY(0);
         }
 
+        /* 精魄系统：可用高度约 124px。重构为「顶部工具条 + 下方双列」：
+           统计/已选/赠送/状态全部收进一行工具条，双列中左列列表、右列记录面板
+           各自独占剩余纵向空间并内部滚动，避免固定行把记录面板高度挤到不可见。 */
         #sub-spiritcollect {
-            padding: 4px;
+            padding: 4px 6px;
             box-sizing: border-box;
             height: 100%;
             min-height: 0;
@@ -774,8 +948,87 @@
         #sub-spiritcollect .spirit-collect-layout {
             flex: 1;
             min-height: 0;
-            display: grid;
-            grid-template-columns: minmax(0, 1.05fr) minmax(220px, 0.95fr);
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            overflow: hidden;
+        }
+
+        /* 顶部工具条：单行水平排列，固定 26px，不参与纵向争抢 */
+        .spirit-toolbar {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
+            height: 26px;
+            overflow: hidden;
+        }
+
+        .spirit-toolbar .spirit-stat-chip {
+            flex: 0 0 auto;
+        }
+
+        .spirit-toolbar-selected {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-size: 9.5px;
+            color: var(--color-text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .spirit-toolbar-send {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .spirit-toolbar-send label {
+            font-size: 9.5px;
+            color: var(--color-text-secondary);
+            white-space: nowrap;
+        }
+
+        .spirit-toolbar-send input {
+            width: 96px;
+            height: 22px;
+            border-radius: 5px;
+            border: 1px solid var(--color-border);
+            font-size: 9.5px;
+            padding: 2px 6px;
+            box-sizing: border-box;
+        }
+
+        .spirit-toolbar-send .btn {
+            font-size: 9.5px;
+            padding: 3px 10px;
+            min-height: 22px;
+            margin: 0;
+            line-height: 1.1;
+        }
+
+        .spirit-toolbar .spirit-status-line {
+            flex: 0 1 auto;
+            max-width: 200px;
+        }
+
+        .spirit-toolbar > .btn {
+            flex: 0 0 auto;
+            font-size: 9.5px;
+            padding: 3px 10px;
+            min-height: 22px;
+            margin: 0;
+            line-height: 1.1;
+        }
+
+        /* 下方双列：左精魄列表 | 右记录面板，平分剩余纵向空间 */
+        #sub-spiritcollect .spirit-columns {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
             gap: 8px;
             align-items: stretch;
             overflow: hidden;
@@ -785,57 +1038,34 @@
         .spirit-record-side {
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 4px;
             min-width: 0;
             min-height: 0;
             background: var(--color-background);
             border: 1px solid var(--color-border);
             border-radius: 6px;
-            padding: 8px;
+            padding: 6px 7px;
             box-shadow: var(--shadow-sm);
             overflow: hidden;
         }
 
         .spirit-giving-panel {
-            overflow-y: auto;
-            overflow-x: hidden;
-            padding-right: 6px;
-        }
-
-        .spirit-giving-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 6px;
-            flex-wrap: nowrap;
+            flex: 1.25;
         }
 
         .spirit-giving-actions {
             display: flex;
             flex-wrap: nowrap;
             gap: 4px;
-            margin-left: auto;
+            flex: 0 0 auto;
         }
 
         .spirit-giving-actions .btn {
             font-size: 8.5px;
             padding: 2px 6px;
-            min-height: 22px;
+            min-height: 20px;
             margin: 0;
             line-height: 1.1;
-        }
-
-        .spirit-stats {
-            display: flex;
-            flex-wrap: nowrap;
-            gap: 4px 6px;
-            font-size: 9.5px;
-            color: var(--color-text-secondary);
-            padding: 0;
-            background: transparent;
-            border-radius: 0;
-            line-height: 1.2;
-            min-width: 0;
         }
 
         .spirit-stat-chip {
@@ -849,13 +1079,14 @@
             white-space: nowrap;
         }
 
+        /* 精魄列表：左列主体，占满剩余纵向空间并内部滚动 */
         #spirit-list {
             flex: 1 1 auto;
-            min-height: 88px;
+            min-height: 0;
             overflow-y: auto;
             border: 1px solid var(--color-border);
             border-radius: 6px;
-            padding: 4px;
+            padding: 3px;
             background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
             font-size: 10px;
             scrollbar-gutter: stable;
@@ -868,22 +1099,23 @@
 
         .spirit-list-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 4px;
+            grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+            gap: 3px;
             align-content: start;
         }
 
         .spirit-list-empty {
             color: var(--color-text-tertiary);
             text-align: center;
-            padding: 18px 8px;
+            padding: 10px 8px;
         }
 
+        /* 精魄卡片：紧凑两行，单卡约 26px，列表可见 2-3 项 */
         .spirit-item {
             position: relative;
-            padding: 5px 6px 4px;
+            padding: 3px 6px;
             cursor: pointer;
-            border-radius: 8px;
+            border-radius: 6px;
             border: 1px solid #d9e4ef;
             background: linear-gradient(180deg, #fbfdff 0%, #f1f6fb 100%);
             transition: transform var(--duration-fast) var(--easing-standard), box-shadow var(--duration-fast) var(--easing-standard), border-color var(--duration-fast) var(--easing-standard), background var(--duration-fast) var(--easing-standard);
@@ -912,22 +1144,21 @@
             pointer-events: none;
         }
 
+        /* 精魄卡片内容：单行三段式（名称+标签 | 系别/性格 | 技能），高度约 20px */
         .spirit-item-top {
             display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
+            align-items: center;
             gap: 6px;
-            margin-bottom: 2px;
+            min-width: 0;
         }
 
         .spirit-item-name {
-            flex: 1 1 auto;
+            flex: 0 1 auto;
             min-width: 0;
-            display: block;
             font-size: 9.5px;
             font-weight: 700;
             color: var(--color-text-primary);
-            line-height: 1.25;
+            line-height: 1.2;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -935,21 +1166,22 @@
 
         .spirit-item-tag {
             flex: 0 0 auto;
-            padding: 1px 5px;
+            padding: 0 5px;
             border-radius: 999px;
             background: rgba(0, 120, 212, 0.1);
             color: var(--color-primary);
             font-weight: 700;
             font-size: 8.5px;
-            line-height: 1.2;
+            line-height: 1.3;
             white-space: nowrap;
         }
 
         .spirit-item-chips {
             display: flex;
-            flex-wrap: wrap;
+            flex-wrap: nowrap;
             gap: 3px;
-            margin-bottom: 2px;
+            min-width: 0;
+            overflow: hidden;
         }
 
         .spirit-mini-chip {
@@ -957,12 +1189,12 @@
             align-items: center;
             min-width: 0;
             max-width: 100%;
-            padding: 1px 4px;
+            padding: 0 4px;
             border-radius: 999px;
             background: rgba(0, 0, 0, 0.04);
             color: var(--color-text-secondary);
             font-size: 8.5px;
-            line-height: 1.2;
+            line-height: 1.3;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -984,67 +1216,56 @@
             text-overflow: ellipsis;
         }
 
-        .spirit-selected-line {
-            font-size: 10.5px;
-            color: var(--color-text-secondary);
-            padding: 5px 7px;
-            background: #e8f4fd;
-            border-radius: 6px;
-            line-height: 1.35;
-            word-break: break-word;
-        }
-
-        .spirit-send-row {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            flex-wrap: wrap;
-        }
-
-        .spirit-send-row input {
-            flex: 1 1 104px;
-            min-width: 0;
-            border-radius: 6px;
-            border: 1px solid var(--color-border);
-            font-size: 9.5px;
-            padding: 4px 6px;
-            height: 26px;
-            box-sizing: border-box;
-        }
-
         .spirit-status-line {
             font-size: 9.5px;
             color: var(--color-text-tertiary);
-            min-height: 16px;
-            padding: 2px 2px 0;
-            line-height: 1.35;
-            word-break: break-word;
+            padding: 0 2px;
+            line-height: 1.25;
+            flex: 0 1 auto;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .spirit-record-side {
             flex: 1;
             min-width: 0;
             min-height: 0;
-            gap: 6px;
+            gap: 3px;
         }
 
         .spirit-record-header {
             display: flex;
-            align-items: flex-start;
+            align-items: center;
             justify-content: space-between;
-            gap: 8px;
-            flex-wrap: wrap;
+            gap: 6px;
+            flex: 0 0 auto;
         }
 
         .spirit-record-title {
-            font-size: 12px;
+            font-size: 10.5px;
             font-weight: 700;
             color: var(--color-text-primary);
+        }
+
+        /* 记录面板副标题与记录正文合体：标题行内联，正文独占剩余空间 */
+        .spirit-record-meta {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 0 0 auto;
+            min-width: 0;
         }
 
         .spirit-record-subtitle {
             font-size: 9.5px;
             color: var(--color-text-tertiary);
+            flex: 1 1 auto;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .spirit-record-body {
@@ -1054,59 +1275,26 @@
             background: linear-gradient(180deg, #fffdf8 0%, #f8fbff 100%);
             border: 1px solid var(--color-border);
             border-radius: 6px;
-            padding: 8px;
-            font-size: 10.5px;
-            line-height: 1.45;
+            padding: 4px 6px;
+            font-size: 10px;
+            line-height: 1.35;
             color: var(--color-text-secondary);
             white-space: pre-wrap;
             word-break: break-word;
         }
 
-        .spirit-send-label {
-            font-size: 9.5px;
-            color: var(--color-text-secondary);
-            min-width: 38px;
-            line-height: 1.25;
-        }
-
-        .spirit-send-button {
-            flex: 0 1 84px;
-            min-width: 84px;
-            min-height: 26px;
-            margin: 0;
-            font-size: 9.5px;
-            padding: 4px 8px;
-            white-space: nowrap;
-        }
-
         @media (max-width: 960px) {
-            #sub-spiritcollect .spirit-collect-layout {
-                grid-template-columns: minmax(0, 1fr);
-            }
-
-            .spirit-giving-panel {
-                max-height: none;
-            }
-
-            .spirit-record-body {
-                min-height: 0;
-            }
-
             .spirit-list-grid {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
 
-            .spirit-giving-header {
+            .spirit-toolbar {
+                height: auto;
                 flex-wrap: wrap;
-                align-items: flex-start;
             }
 
-            .spirit-giving-actions {
-                margin-left: 0;
-            }
-
-            .spirit-stats {
-                flex-wrap: wrap;
+            .spirit-toolbar-send input {
+                width: 80px;
             }
         }
 
@@ -1115,16 +1303,11 @@
                 grid-template-columns: minmax(0, 1fr);
             }
 
-            .spirit-send-row {
-                align-items: stretch;
+            #sub-spiritcollect .spirit-columns {
+                flex-direction: column;
             }
 
-            .spirit-send-label {
-                min-width: auto;
-                width: 100%;
-            }
-
-            .spirit-send-button {
+            .spirit-toolbar-send input {
                 width: 100%;
             }
         }
@@ -1416,7 +1599,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
     <div class="title-bar">
         <div class="title-bar-left">
             <div class="title-bar-icon">卡</div>
-            <span class="title-bar-title">卡布西游浮影微端 V1.15</span>
+            <span class="title-bar-title">卡布西游浮影微端 V1.16</span>
         </div>
         <div class="title-bar-controls">
             <button class="title-bar-button" id="btn-minimize" title="最小化">
@@ -1534,12 +1717,12 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
         </div>
         
         <div class="tabs">
-            <button class="tab-button active" onclick="openTab(event, 'battle')">战斗数据</button>
-            <button class="tab-button" onclick="openTab(event, 'monster')">妖怪背包</button>
-            <button class="tab-button" onclick="openTab(event, 'daily')">功能区</button>
-            <button class="tab-button" onclick="openTab(event, 'wpe')">WPE</button>
-            <button class="tab-button" onclick="openTab(event, 'settings')">设置</button>
-            <button class="tab-button" onclick="openTab(event, 'helper-log')">辅助日志</button>
+            <button class="tab-button active" onclick="openTab(event, 'battle')"><span class="tab-icon"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M8 2v7.8"/><path d="M5.2 9.8h5.6"/><path d="M8 9.8V13"/><path d="M6.9 13h2.2"/></svg></span><span>战斗数据</span></button>
+            <button class="tab-button" onclick="openTab(event, 'monster')"><span class="tab-icon"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M4.6 5.6h6.8A1.6 1.6 0 0 1 13 7.2v4.8a1.6 1.6 0 0 1-1.6 1.6H4.6A1.6 1.6 0 0 1 3 12V7.2a1.6 1.6 0 0 1 1.6-1.6z"/><path d="M6.2 5.6V4.4a1.8 1.8 0 0 1 3.6 0v1.2"/><path d="M6 9.6h4"/></svg></span><span>妖怪背包</span></button>
+            <button class="tab-button" onclick="openTab(event, 'daily')"><span class="tab-icon"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="4.2" height="4.2" rx="1.1"/><rect x="8.8" y="3" width="4.2" height="4.2" rx="1.1"/><rect x="3" y="8.8" width="4.2" height="4.2" rx="1.1"/><rect x="8.8" y="8.8" width="4.2" height="4.2" rx="1.1"/></svg></span><span>功能区</span></button>
+            <button class="tab-button" onclick="openTab(event, 'wpe')"><span class="tab-icon"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="3.6" r="1.5"/><circle cx="3.6" cy="12.2" r="1.5"/><circle cx="12.4" cy="12.2" r="1.5"/><path d="M7.2 4.9L4.4 10.8"/><path d="M8.8 4.9l2.8 5.9"/><path d="M5.1 12.2h5.8"/></svg></span><span>WPE</span></button>
+            <button class="tab-button" onclick="openTab(event, 'settings')"><span class="tab-icon"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M2.6 4.6h10.8"/><path d="M2.6 8h10.8"/><path d="M2.6 11.4h10.8"/><circle cx="6" cy="4.6" r="1.3"/><circle cx="10.2" cy="8" r="1.3"/><circle cx="5.4" cy="11.4" r="1.3"/></svg></span><span>设置</span></button>
+            <button class="tab-button" onclick="openTab(event, 'helper-log')"><span class="tab-icon"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M4.4 2.4h4.9l2.9 2.9v8.3a.9.9 0 0 1-.9.9H4.4a.9.9 0 0 1-.9-.9V3.3a.9.9 0 0 1 .9-.9z"/><path d="M9.3 2.4v2.9h2.9"/><path d="M5.9 8.7h4.2"/><path d="M5.9 11.2h4.2"/></svg></span><span>辅助日志</span></button>
 
             <!-- 右侧图标按钮 -->
             <div class="tab-actions">
@@ -1567,27 +1750,25 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                     <span class="tab-action-label">Key登录</span>
                 </button>
 
-                <!-- 刷新游戏按钮 - 双箭头刷新图标 -->
+                <!-- 刷新游戏按钮 - 环形箭头刷新图标 -->
                 <button class="tab-action-button" id="refresh-game" title="刷新游戏">
                     <span class="icon-refresh">
                         <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M12.5 5.7A4.8 4.8 0 0 0 4.3 4.2"/>
-                            <path d="M3.5 1.9v3.3h3.3"/>
-                            <path d="M3.5 10.3A4.8 4.8 0 0 0 11.7 11.8"/>
-                            <path d="M12.5 14.1v-3.3H9.2"/>
+                            <path d="M13 8A5 5 0 1 1 10.9 3.9"/>
+                            <path d="M13.2 2.7v3.1h-3.1"/>
                         </svg>
                     </span>
                     <span class="tab-action-label">刷新游戏</span>
                 </button>
 
-                <!-- 不换号刷新按钮 - 刷新+锁定组合图标 -->
+                <!-- 不换号刷新按钮 - 环形刷新+锁定组合图标 -->
                 <button class="tab-action-button" id="refresh-no-login" title="不换号刷新">
                     <span class="icon-refresh-nologin">
                         <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M10.4 5A4.4 4.4 0 0 0 3.9 4"/>
-                            <path d="M3.2 2.6v3h3"/>
-                            <path d="M10.2 8.8h2.6a.8.8 0 0 1 .8.8v1.9a.8.8 0 0 1-.8.8h-2.6a.8.8 0 0 1-.8-.8V9.6a.8.8 0 0 1 .8-.8z"/>
-                            <path d="M10.3 8.8V7.9a1.2 1.2 0 0 1 2.4 0v.9"/>
+                            <path d="M11.6 6.9a4.3 4.3 0 1 0 .3 2.6"/>
+                            <path d="M12.3 3.4v3.1h-3.1"/>
+                            <path d="M10.9 9.3h2.4a.8.8 0 0 1 .8.8v1.7a.8.8 0 0 1-.8.8h-2.4a.8.8 0 0 1-.8-.8v-1.7a.8.8 0 0 1 .8-.8z"/>
+                            <path d="M11 9.3v-.8a1.1 1.1 0 0 1 2.2 0v.8"/>
                         </svg>
                     </span>
                     <span class="tab-action-label">不换号刷新</span>
@@ -1922,161 +2103,153 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
 
                 <!-- 子标签页内容 -->
                 <div id="sub-daily" class="sub-tab-content active">
-                    <!-- 功能模块横向布局 -->
-                    <div style="display: flex; gap: 12px; height: 100%; padding: 4px;">
-                        
-                        <!-- 每日模块 -->
-                        <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; min-width: 140px;">
-                            <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">每日</div>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2px 4px;">
-                                <!-- 第一列 -->
-                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
-                                    <input type="checkbox" id="daily-deep-dig" checked style="width: 11px; height: 11px;">
-                                    <span>深度挖宝</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
-                                    <input type="checkbox" id="family-checkin" checked style="width: 11px; height: 11px;">
-                                    <span>家族考勤</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
-                                    <input type="checkbox" id="daily-card" checked style="width: 11px; height: 11px;">
-                                    <span>每日卡牌</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
-                                    <input type="checkbox" id="family-report" checked style="width: 11px; height: 11px;">
-                                    <span>家族报道</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
-                                    <input type="checkbox" id="daily-gift" checked style="width: 11px; height: 11px;">
-                                    <span>每日礼包</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
-                                    <input type="checkbox" id="family-defend" checked style="width: 11px; height: 11px;">
-                                    <span>家族保卫</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
-                                    <input type="checkbox" id="weekly-gift" checked style="width: 11px; height: 11px;">
-                                    <span>每周礼包</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
-                                    <input type="checkbox" id="shop-surprise" checked style="width: 11px; height: 11px;">
-                                    <span>商城惊喜</span>
-                                </label>
+                    <div class="fx-page">
+                        <!-- 功能模块横向布局：各面板等高，撑满可用高度 -->
+                        <div class="fx-row">
+
+                            <!-- 每日模块 -->
+                            <div class="fx-panel" style="flex: 2.2;">
+                                <span class="fx-panel-title">每日</span>
+                                <div class="fx-checks" style="grid-template-columns: repeat(4, minmax(0, 1fr));">
+                                    <label class="fx-check">
+                                        <input type="checkbox" id="daily-deep-dig" checked style="width: 11px; height: 11px;">
+                                        <span>深度挖宝</span>
+                                    </label>
+                                    <label class="fx-check">
+                                        <input type="checkbox" id="family-checkin" checked style="width: 11px; height: 11px;">
+                                        <span>家族考勤</span>
+                                    </label>
+                                    <label class="fx-check">
+                                        <input type="checkbox" id="daily-card" checked style="width: 11px; height: 11px;">
+                                        <span>每日卡牌</span>
+                                    </label>
+                                    <label class="fx-check">
+                                        <input type="checkbox" id="family-report" checked style="width: 11px; height: 11px;">
+                                        <span>家族报道</span>
+                                    </label>
+                                    <label class="fx-check">
+                                        <input type="checkbox" id="daily-gift" checked style="width: 11px; height: 11px;">
+                                        <span>每日礼包</span>
+                                    </label>
+                                    <label class="fx-check">
+                                        <input type="checkbox" id="family-defend" checked style="width: 11px; height: 11px;">
+                                        <span>家族保卫</span>
+                                    </label>
+                                    <label class="fx-check">
+                                        <input type="checkbox" id="weekly-gift" checked style="width: 11px; height: 11px;">
+                                        <span>每周礼包</span>
+                                    </label>
+                                    <label class="fx-check">
+                                        <input type="checkbox" id="shop-surprise" checked style="width: 11px; height: 11px;">
+                                        <span>商城惊喜</span>
+                                    </label>
+                                </div>
+                                <div class="fx-actions">
+                                    <button id="complete-daily-tasks" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px; width: 100%;">一键完成</button>
+                                </div>
                             </div>
-                            <button id="complete-daily-tasks" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px; margin-top: auto;">一键完成</button>
-                        </div>
-                        
-                        <!-- 分隔线 -->
-                        <div style="width: 1px; background: var(--color-border);"></div>
-                        
-                        <!-- 试炼模块 -->
-                        <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; min-width: 90px;">
-                            <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">试炼</div>
-                            <div style="display: flex; flex-direction: column; gap: 2px;">
-                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
-                                    <input type="checkbox" id="daily-fire-wind" style="width: 11px; height: 11px;">
-                                    <span>火风试炼</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
-                                    <input type="checkbox" id="daily-fire" style="width: 11px; height: 11px;">
-                                    <span>火焰试炼</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
-                                    <input type="checkbox" id="daily-storm" style="width: 11px; height: 11px;">
-                                    <span>风暴试炼</span>
-                                </label>
+
+                            <!-- 试炼模块 -->
+                            <div class="fx-panel">
+                                <span class="fx-panel-title">试炼</span>
+                                <div class="fx-checks" style="grid-template-columns: 1fr;">
+                                    <label class="fx-check">
+                                        <input type="checkbox" id="daily-fire-wind" style="width: 11px; height: 11px;">
+                                        <span>火风试炼</span>
+                                    </label>
+                                    <label class="fx-check">
+                                        <input type="checkbox" id="daily-fire" style="width: 11px; height: 11px;">
+                                        <span>火焰试炼</span>
+                                    </label>
+                                    <label class="fx-check">
+                                        <input type="checkbox" id="daily-storm" style="width: 11px; height: 11px;">
+                                        <span>风暴试炼</span>
+                                    </label>
+                                </div>
+                                <div class="fx-actions">
+                                    <button id="complete-trial-tasks" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px; width: 100%;">一键试炼</button>
+                                </div>
                             </div>
-                            <button id="complete-trial-tasks" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px; margin-top: auto;">一键试炼</button>
-                        </div>
-                        
-                        <!-- 分隔线 -->
-                        <div style="width: 1px; background: var(--color-border);"></div>
-                        
-                        <!-- 跳舞大赛模块 -->
-                        <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; min-width: 80px;">
-                            <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">跳舞大赛</div>
-                            <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
-                                <input type="checkbox" id="daily-dance" style="width: 11px; height: 11px;">
-                                <span>自动跳舞</span>
-                            </label>
-                            <div style="font-size: 9px; color: var(--color-text-secondary);">已完成: <span id="dance-count" style="color: var(--color-primary); font-weight: 600;">0</span>/3 次</div>
-                            <button id="complete-dance-tasks" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 6px; margin-top: auto;">一键跳舞</button>
-                        </div>
-                        
-                        <!-- 分隔线 -->
-                        <div style="width: 1px; background: var(--color-border);"></div>
-                        
-                        <!-- 玄塔模块 -->
-                        <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; min-width: 80px;">
-                            <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">玄塔</div>
-                            <div style="display: flex; flex-direction: column; gap: 3px;">
-                                <button id="one-key-xuantta" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 6px;">一键玄塔</button>
-                                <button id="buy-dice-18" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 6px;">购买18骰子</button>
-                                <div style="display: flex; align-items: center; gap: 4px; margin-top: 2px;">
+
+                            <!-- 跳舞大赛模块 -->
+                            <div class="fx-panel">
+                                <span class="fx-panel-title">跳舞大赛</span>
+                                <label class="fx-check">
+                                    <input type="checkbox" id="daily-dance" style="width: 11px; height: 11px;">
+                                    <span>自动跳舞</span>
+                                </label>
+                                <div style="font-size: 9px; color: var(--color-text-secondary); flex: 0 0 auto;">已完成: <span id="dance-count" style="color: var(--color-primary); font-weight: 600;">0</span>/3 次</div>
+                                <div class="fx-actions">
+                                    <button id="complete-dance-tasks" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 6px; width: 100%;">一键跳舞</button>
+                                </div>
+                            </div>
+
+                            <!-- 玄塔模块 -->
+                            <div class="fx-panel" style="flex: 1.3;">
+                                <span class="fx-panel-title">玄塔</span>
+                                <div class="fx-actions" style="margin-top: 0;">
+                                    <button id="one-key-xuantta" class="btn btn-primary" style="flex: 1; font-size: 9.5px; padding: 3px 4px;">一键玄塔</button>
+                                    <button id="buy-dice-18" class="btn btn-secondary" style="flex: 1; font-size: 9.5px; padding: 3px 4px;">购买骰子18</button>
+                                </div>
+                                <label class="fx-check" style="flex: 0 0 auto;">
                                     <input type="checkbox" id="auto-go-home" style="width: 12px; height: 12px; cursor: pointer;" onchange="toggleAutoGoHome(this.checked)">
-                                    <label for="auto-go-home" style="font-size: 9.5px; color: var(--color-text-secondary); cursor: pointer; user-select: none;">自动回家</label>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 4px;">
+                                    <span>自动回家</span>
+                                </label>
+                                <label class="fx-check" style="flex: 0 0 auto;">
                                     <input type="checkbox" id="block-battle" style="width: 12px; height: 12px; cursor: pointer;" onchange="toggleBlockBattle(this.checked)">
-                                    <label for="block-battle" style="font-size: 9.5px; color: var(--color-text-secondary); cursor: pointer; user-select: none;">屏蔽战斗</label>
+                                    <span>屏蔽战斗</span>
+                                </label>
+                            </div>
+
+                            <!-- 福瑞宝箱模块 -->
+                            <div class="fx-panel" style="flex: 1.2;">
+                                <span class="fx-panel-title">福瑞宝箱</span>
+                                <div class="fx-panel-note">自动福瑞 11:00-13:00 / 17:00-19:00</div>
+                                <div style="display: flex; align-items: center; gap: 4px; flex: 0 0 auto;">
+                                    <label style="font-size: 9.5px; color: var(--color-text-secondary);">目标:</label>
+                                    <input type="number" id="heaven-furui-max" value="30" min="1" max="30" style="width: 40px; font-size: 9.5px; padding: 2px 4px; border: 1px solid var(--color-border); border-radius: 2px;">
+                                    <span style="font-size: 9.5px; color: var(--color-text-secondary);">个</span>
+                                </div>
+                                <div style="font-size: 9.5px; color: var(--color-text-secondary); flex: 0 0 auto;">已拾取: <span id="heaven-furui-count" style="color: var(--color-primary); font-weight: 600;">0</span>/<span id="heaven-furui-target">30</span></div>
+                                <div class="fx-actions">
+                                    <button id="start-heaven-furui" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;">开始</button>
+                                    <button id="stop-heaven-furui" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;" disabled>停止</button>
                                 </div>
                             </div>
-                        </div>
-                        
-                        <!-- 分隔线 -->
-                        <div style="width: 1px; background: var(--color-border);"></div>
-                        
-                        <!-- 福瑞宝箱模块 -->
-                        <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; min-width: 120px;">
-                            <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">福瑞宝箱</div>
-                            <div style="font-size: 8.5px; color: var(--color-text-secondary);">自动福瑞 11:00-13:00 / 17:00-19:00</div>
-                            <div style="display: flex; align-items: center; gap: 4px;">
-                                <label style="font-size: 9.5px; color: var(--color-text-secondary);">目标:</label>
-                                <input type="number" id="heaven-furui-max" value="30" min="1" max="30" style="width: 40px; font-size: 9.5px; padding: 2px 4px; border: 1px solid var(--color-border); border-radius: 2px;">
-                                <span style="font-size: 9.5px; color: var(--color-text-secondary);">个</span>
+
+                            <!-- 坐骑大赛模块 (Act665) -->
+                            <div class="fx-panel" style="flex: 1.3;">
+                                <span class="fx-panel-title">坐骑大赛</span>
+                                <div class="fx-panel-note">多人竞速 · 每日50点上限 · 固定临时坐骑</div>
+                                <div style="font-size: 9.5px; color: var(--color-text-secondary); flex: 0 0 auto;">可获得积分: <span id="horse-competition-points" style="color: var(--color-primary); font-weight: 600;">--</span></div>
+                                <div style="font-size: 9.5px; color: var(--color-text-secondary); flex: 0 0 auto;">状态: <span id="horse-competition-status" style="color: var(--color-text-tertiary);">就绪</span></div>
+                                <div class="fx-actions">
+                                    <button id="one-key-horse-competition" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;">开始</button>
+                                    <button id="stop-horse-competition" class="btn" style="font-size: 9.5px; padding: 3px 6px; flex: 1; background: #fff4e5; color: #9a5b00; border: 1px solid #ffd08a;">停止</button>
+                                </div>
                             </div>
-                            <div style="font-size: 9.5px; color: var(--color-text-secondary);">已拾取: <span id="heaven-furui-count" style="color: var(--color-primary); font-weight: 600;">0</span>/<span id="heaven-furui-target">30</span></div>
-                            <div style="display: flex; gap: 4px;">
-                                <button id="start-heaven-furui" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;">开始</button>
-                                <button id="stop-heaven-furui" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;" disabled>停止</button>
-                            </div>
+
                         </div>
-                        
-                        <!-- 分隔线 -->
-                        <div style="width: 1px; background: var(--color-border);"></div>
-                        
-                        <!-- 坐骑大赛模块 (Act665) -->
-                        <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; min-width: 140px;">
-                            <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">坐骑大赛</div>
-                            <div style="font-size: 8.5px; color: var(--color-text-secondary);">多人竞速小游戏 每日50点上限</div>
-                            <div style="font-size: 9.5px; color: var(--color-text-secondary);">模式: 自动刷满每日骑乘点（固定临时坐骑）</div>
-                            <div style="font-size: 9.5px; color: var(--color-text-secondary);">可获得积分: <span id="horse-competition-points" style="color: var(--color-primary); font-weight: 600;">--</span></div>
-                            <div style="font-size: 9.5px; color: var(--color-text-secondary);">状态: <span id="horse-competition-status" style="color: var(--color-text-tertiary);">就绪</span></div>
-                            <div style="display: flex; gap: 4px;">
-                                <button id="one-key-horse-competition" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;">开始</button>
-                                <button id="stop-horse-competition" class="btn" style="font-size: 9.5px; padding: 3px 6px; flex: 1; background: #fff4e5; color: #9a5b00; border: 1px solid #ffd08a;">停止</button>
-                            </div>
+                        <!-- 状态提示 -->
+                        <div id="daily-task-status" style="font-size: 9px; color: var(--color-text-secondary); padding: 2px 6px; background: var(--color-background-secondary); border-radius: 2px; text-align: center; flex: 0 0 auto;">
+                            勾选需要完成的日常活动，点击对应按钮执行
                         </div>
-                        
-                    </div>
-                    <!-- 状态提示 -->
-                    <div id="daily-task-status" style="font-size: 9.5px; color: var(--color-text-secondary); padding: 3px 6px; background: var(--color-background-secondary); border-radius: 2px; text-align: center; margin: 4px;">
-                        勾选需要完成的日常活动，点击对应按钮执行
                     </div>
                 </div>
 
                 <div id="sub-taskzone" class="sub-tab-content">
-                    <div style="padding: 4px; display: flex; flex-direction: column; gap: 8px;">
-                        <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start;">
-                            <div style="flex: 0 0 auto; width: 220px; background: #FFFFFF; border: 1px solid var(--color-border); border-radius: 4px; padding: 8px; display: flex; flex-direction: column; gap: 4px;">
-                                <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">八卦灵盘</div>
-                                <div style="font-size: 9px; color: var(--color-text-secondary); line-height: 1.4;">按任务链顺序推进，当前先覆盖对话、采集和场景切换，最终战斗会尝试自动处理。</div>
-                                <div style="display: flex; gap: 4px;">
-                                    <button id="start-task-zone" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;">开始</button>
-                                    <button id="stop-task-zone" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;" disabled>停止</button>
-                                </div>
-                                <div id="task-zone-status" style="font-size: 9px; color: var(--color-text-secondary); background: var(--color-background-secondary); border-radius: 2px; padding: 3px 6px;">等待开始</div>
+                    <div class="fx-row" style="padding: 4px 6px; flex-wrap: wrap;">
+
+                        <!-- 八卦灵盘 -->
+                        <div class="fx-panel" style="flex: 0 0 240px;">
+                            <span class="fx-panel-title">八卦灵盘</span>
+                            <div class="fx-panel-note" style="white-space: normal;">按任务链顺序推进，覆盖对话、采集与场景切换，最终战斗自动处理。</div>
+                            <div class="fx-actions">
+                                <button id="start-task-zone" class="btn btn-primary" style="flex: 1; font-size: 9.5px; padding: 3px 6px;">开始</button>
+                                <button id="stop-task-zone" class="btn btn-secondary" style="flex: 1; font-size: 9.5px; padding: 3px 6px;" disabled>停止</button>
                             </div>
+                            <div id="task-zone-status" style="font-size: 9px; color: var(--color-text-secondary); background: var(--color-background-secondary); border-radius: 2px; padding: 2px 6px; flex: 0 0 auto;">等待开始</div>
+                        </div>
 
                             <!-- 皇城危机功能暂未开放，先隐藏入口 -->
                             <div id="huangcheng-weiji-panel" hidden style="flex: 1 1 560px; min-width: 560px; background: #FFFFFF; border: 1px solid var(--color-border); border-radius: 4px; padding: 8px; display: none; flex-direction: column; gap: 5px;">
@@ -2104,122 +2277,89 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                                         <div style="text-align: center;">奖励</div>
                                         <div style="text-align: center;">状态</div>
                                     </div>
-                                    <div id="huangcheng-weiji-list" style="overflow-y: auto; flex: 1; min-height: 214px; max-height: 214px; font-size: 9.5px;">
+                                    <div id="huangcheng-weiji-list" style="overflow-y: auto; flex: 1 1 auto; min-height: 0; font-size: 9.5px;">
                                         <div style="text-align: center; padding: 12px; color: var(--color-text-tertiary);">正在加载皇城危机列表...</div>
                                     </div>
                                 </div>
                                 <div id="huangcheng-weiji-status" style="font-size: 9px; color: var(--color-text-secondary); background: var(--color-background-secondary); border-radius: 2px; padding: 3px 6px;">等待刷新进度</div>
                             </div>
-                        </div>
                     </div>
                 </div>
 
                 <div id="sub-latest" class="sub-tab-content">
-                    <div style="padding: 4px;">
-                        <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 6px;">最新活动</div>
-                        <!-- 活动卡片网格布局 -->
-                        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                            <div style="background: #FFFFFF; border: 1px solid #D9E4F1; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
-                                <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <div style="font-size: 11px; font-weight: 600; color: #333;">驱赶毒蚊</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
-                                        <input type="checkbox" id="act717-sweep" style="width: 11px; height: 11px; cursor: pointer;">
-                                        <span>扫荡</span>
-                                    </label>
-                                    <button id="one-key-act717" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
-                                </div>
-                            </div>
-                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 150px; flex-shrink: 0;">
-                                <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <div style="font-size: 11px; font-weight: 600; color: #333;">土幻的曙光</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
-                                        <input type="checkbox" id="act684-sweep" style="width: 11px; height: 11px; cursor: pointer;">
-                                        <span>扫荡</span>
-                                    </label>
-                                    <button id="one-key-act684" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
-                                </div>
-                            </div>
-                            <div style="background: #FFFFFF; border: 1px solid #D6E6F7; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
-                                <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <div style="font-size: 11px; font-weight: 600; color: #333;">齐心协力大挑战</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
-                                        <input type="checkbox" id="act827-sweep" style="width: 11px; height: 11px; cursor: pointer;">
-                                        <span>扫荡</span>
-                                    </label>
-                                    <button id="one-key-act827" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
-                                </div>
-                            </div>
-                            <div style="background: #FFFFFF; border: 1px solid #D9E4F1; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
-                                <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <div style="font-size: 11px; font-weight: 600; color: #333;">圣石之战</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
-                                        <input type="checkbox" id="act826-sweep" style="width: 11px; height: 11px; cursor: pointer;">
-                                        <span>扫荡</span>
-                                    </label>
-                                    <button id="one-key-act826" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
-                                </div>
-                            </div>
-                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
-                                <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <div style="font-size: 11px; font-weight: 600; color: #333;">光辉穿梭大考验</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
-                                        <input type="checkbox" id="act822-sweep" style="width: 11px; height: 11px; cursor: pointer;">
-                                        <span>扫荡</span>
-                                    </label>
-                                    <button id="one-key-act822" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
-                                </div>
-                            </div>
-                            <div style="background: #FFFFFF; border: 1px solid #D6E6F7; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
-                                <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <div style="font-size: 11px; font-weight: 600; color: #333;">航海大挑战</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
-                                        <input type="checkbox" id="act685-sweep" style="width: 11px; height: 11px; cursor: pointer;">
-                                        <span>扫荡</span>
-                                    </label>
-                                    <button id="one-key-act685" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
-                                </div>
-                            </div>
-                            <div style="background: #FFFFFF; border: 1px solid #DDE8DD; border-radius: 4px; padding: 8px; width: 160px; flex-shrink: 0;">
-                                <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <div style="font-size: 11px; font-weight: 600; color: #333;">妖力考验</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
-                                        <input type="checkbox" id="act631-sweep" style="width: 11px; height: 11px; cursor: pointer;">
-                                        <span>扫荡</span>
-                                    </label>
-                                    <button id="one-key-act631" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
-                                </div>
-                            </div>
-                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 150px; flex-shrink: 0;">
-                                <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <div style="font-size: 11px; font-weight: 600; color: #333;">欢乐跷跷板</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
-                                        <input type="checkbox" id="act808-sweep" style="width: 11px; height: 11px; cursor: pointer;">
-                                        <span>扫荡</span>
-                                    </label>
-                                    <button id="one-key-act808" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
-                                </div>
-                            </div>
-                            <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 8px; width: 150px; flex-shrink: 0;">
-                                <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <div style="font-size: 11px; font-weight: 600; color: #333;">清除煞气</div>
-                                    <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 9.5px; color: #666;">
-                                        <input type="checkbox" id="act641-sweep" style="width: 11px; height: 11px; cursor: pointer;">
-                                        <span>扫荡</span>
-                                    </label>
-                                    <button id="one-key-act641" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">一键完成</button>
-                                </div>
-                            </div>
+                    <div class="fx-panel" style="margin: 4px 6px; align-self: stretch;">
+                        <!-- 标题行：说明 + 剩余次数总览 -->
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: 0 0 auto;">
+                            <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">活动选择</div>
+                            <div id="act-latest-hint" style="font-size: 9px; color: var(--color-text-tertiary);">勾选要执行的活动，点击“一键执行”；扫荡自动判定</div>
+                        </div>
+
+                        <!-- 活动项网格：勾选框 + 名称 + 剩余次数（是否扫荡由 C++ 侧自动判定） -->
+                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 2px 6px; flex: 0 0 auto;">
+                            <label class="act-item" id="act-row-717">
+                                <input type="checkbox" id="act-check-717" class="act-pick">
+                                <span class="act-item-name">驱赶毒蚊</span>
+                                <span class="act-item-count" id="act-count-717">--</span>
+                            </label>
+                            <label class="act-item" id="act-row-684">
+                                <input type="checkbox" id="act-check-684" class="act-pick">
+                                <span class="act-item-name">土幻的曙光</span>
+                                <span class="act-item-count" id="act-count-684">--</span>
+                            </label>
+                            <label class="act-item" id="act-row-827">
+                                <input type="checkbox" id="act-check-827" class="act-pick">
+                                <span class="act-item-name">齐心协力大挑战</span>
+                                <span class="act-item-count" id="act-count-827">--</span>
+                            </label>
+                            <label class="act-item" id="act-row-826">
+                                <input type="checkbox" id="act-check-826" class="act-pick">
+                                <span class="act-item-name">圣石之战</span>
+                                <span class="act-item-count" id="act-count-826">--</span>
+                            </label>
+                            <label class="act-item" id="act-row-822">
+                                <input type="checkbox" id="act-check-822" class="act-pick">
+                                <span class="act-item-name">光辉穿梭大考验</span>
+                                <span class="act-item-count" id="act-count-822">--</span>
+                            </label>
+                            <label class="act-item" id="act-row-685">
+                                <input type="checkbox" id="act-check-685" class="act-pick">
+                                <span class="act-item-name">航海大挑战</span>
+                                <span class="act-item-count" id="act-count-685">--</span>
+                            </label>
+                            <label class="act-item" id="act-row-631">
+                                <input type="checkbox" id="act-check-631" class="act-pick">
+                                <span class="act-item-name">妖力考验</span>
+                                <span class="act-item-count" id="act-count-631">--</span>
+                            </label>
+                            <label class="act-item" id="act-row-808">
+                                <input type="checkbox" id="act-check-808" class="act-pick">
+                                <span class="act-item-name">欢乐跷跷板</span>
+                                <span class="act-item-count" id="act-count-808">--</span>
+                            </label>
+                            <label class="act-item" id="act-row-641">
+                                <input type="checkbox" id="act-check-641" class="act-pick">
+                                <span class="act-item-name">清除煞气</span>
+                                <span class="act-item-count" id="act-count-641">--</span>
+                            </label>
+                        </div>
+
+                        <!-- 操作按钮行 -->
+                        <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px; flex: 0 0 auto;">
+                            <button onclick="selectAllActivities(true)" class="btn btn-secondary" style="font-size: 10px; padding: 3px 10px;">全选</button>
+                            <button onclick="selectAllActivities(false)" class="btn btn-secondary" style="font-size: 10px; padding: 3px 10px;">全不选</button>
+                            <button onclick="refreshActivityCounts()" class="btn btn-secondary" style="font-size: 10px; padding: 3px 10px;">刷新次数</button>
+                            <button onclick="runSelectedActivities()" class="btn btn-primary" style="font-size: 10.5px; padding: 3px 14px; margin-left: auto;">一键执行所选</button>
                         </div>
                     </div>
                 </div>
 
                 <div id="sub-materials" class="sub-tab-content">
-                    <div style="background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 4px; padding: 6px 8px; display: flex; flex-direction: column; width: 450px; margin-left: 5px;">
+                    <div class="fx-panel" style="margin: 4px 6px; flex: 0 1 auto; align-self: stretch;">
                         <!-- 标题 -->
-                        <div style="font-size: 12px; font-weight: 700; color: #333333; margin-bottom: 5px;">每日采集</div>
-                        
-                        <!-- 复选框列表 -->
-                        <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px 3px; margin-bottom: 5px;">
+                        <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary); flex: 0 0 auto;">每日采集</div>
+
+                        <!-- 复选框列表：自适应多列 -->
+                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 2px 4px; flex: 0 0 auto;">
                             <!-- 第1行：6项 -->
                             <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-0" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
@@ -2292,10 +2432,10 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                         </div>
                         
                         <!-- 操作按钮 -->
-                        <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: auto;">
-                            <button onclick="selectAllCollect(true)" style="background: #FFFFFF; color: #333333; border: 1px solid #CCCCCC; border-radius: 3px; padding: 4px 10px; font-size: 10.5px; font-weight: 500; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#F5F5F5'" onmouseout="this.style.background='#FFFFFF'">全选</button>
-                            <button onclick="selectAllCollect(false)" style="background: #FFFFFF; color: #333333; border: 1px solid #CCCCCC; border-radius: 3px; padding: 4px 10px; font-size: 10.5px; font-weight: 500; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#F5F5F5'" onmouseout="this.style.background='#FFFFFF'">全不选</button>
-                            <button onclick="startOneKeyCollect()" style="background: var(--color-primary); color: #FFFFFF; border: none; border-radius: 3px; padding: 4px 12px; font-size: 11.5px; font-weight: 600; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='var(--color-primary-hover)'" onmouseout="this.style.background='var(--color-primary)'" onmousedown="this.style.background='var(--color-primary-pressed)'" onmouseup="this.style.background='var(--color-primary-hover)'">一键采集</button>
+                        <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; flex: 0 0 auto;">
+                            <button onclick="selectAllCollect(true)" style="background: #FFFFFF; color: #333333; border: 1px solid #CCCCCC; border-radius: 3px; padding: 3px 10px; font-size: 10px; font-weight: 500; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#F5F5F5'" onmouseout="this.style.background='#FFFFFF'">全选</button>
+                            <button onclick="selectAllCollect(false)" style="background: #FFFFFF; color: #333333; border: 1px solid #CCCCCC; border-radius: 3px; padding: 3px 10px; font-size: 10px; font-weight: 500; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#F5F5F5'" onmouseout="this.style.background='#FFFFFF'">全不选</button>
+                            <button onclick="startOneKeyCollect()" style="background: var(--color-primary); color: #FFFFFF; border: none; border-radius: 3px; padding: 3px 12px; font-size: 10.5px; font-weight: 600; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='var(--color-primary-hover)'" onmouseout="this.style.background='var(--color-primary)'" onmousedown="this.style.background='var(--color-primary-pressed)'" onmouseup="this.style.background='var(--color-primary-hover)'">一键采集</button>
                         </div>
                     </div>
                 </div>
@@ -2339,17 +2479,17 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 </div>
 
                 <div id="sub-lingyu" class="sub-tab-content">
-                    <div style="display: flex; gap: 8px; align-items: stretch; min-height: 260px;">
-                        <!-- 左侧：灵玉列表 (约占 1/2) -->
-                        <div style="flex: 1.1; background: var(--color-background); border: 1px solid var(--color-border); border-radius: 3px; padding: 6px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; min-width: 0;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; padding: 0 2px;">
-                                <div style="display: flex; align-items: center; gap: 6px;">
-                                    <h3 style="font-size: 12px; font-weight: 600; color: var(--color-text-primary); margin: 0;">灵玉列表</h3>
-                                    <div id="lingyu-count" class="badge badge-success" style="padding: 1px 6px; font-size: 10.5px;">0</div>
+                    <div class="fx-row">
+                        <!-- 左侧：灵玉列表 -->
+                        <div class="fx-panel" style="flex: 1.15;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; flex: 0 0 auto;">
+                                <div style="display: flex; align-items: center; gap: 5px; min-width: 0;">
+                                    <span class="fx-panel-title">灵玉列表</span>
+                                    <div id="lingyu-count" class="badge badge-success" style="padding: 0 6px; font-size: 10px;">0</div>
                                 </div>
                                 <!-- 排序与筛选控制区 -->
-                                <div style="display: flex; align-items: center; gap: 4px;">
-                                    <select id="lingyu-sort-attr" style="font-size: 10.5px; padding: 1px 4px; border: 1px solid var(--color-border); border-radius: 2px; outline: none; height: 20px; background: var(--color-background);">
+                                <div style="display: flex; align-items: center; gap: 4px; flex: 0 0 auto;">
+                                    <select id="lingyu-sort-attr" style="font-size: 10px; padding: 1px 4px; border: 1px solid var(--color-border); border-radius: 2px; outline: none; height: 19px; background: var(--color-background);">
                                         <option value="none">不排序</option>
                                         <option value="体力">体力</option>
                                         <option value="攻击">攻击</option>
@@ -2359,63 +2499,50 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                                         <option value="速度">速度</option>
                                         <option value="威力">威力</option>
                                     </select>
-                                    <button onclick="window.applyLingyuSort()" style="padding: 1px 8px; font-size: 10.5px; background: var(--color-primary); color: white; border: none; border-radius: 2px; cursor: pointer; height: 20px;">排序</button>
-                                    <button onclick="window.queryLingyu()" style="padding: 1px 8px; font-size: 10.5px; background: #2e7d32; color: white; border: none; border-radius: 2px; cursor: pointer; height: 20px;">查询灵玉</button>
+                                    <button onclick="window.applyLingyuSort()" style="padding: 1px 8px; font-size: 10px; background: var(--color-primary); color: white; border: none; border-radius: 2px; cursor: pointer; height: 19px;">排序</button>
+                                    <button onclick="window.queryLingyu()" style="padding: 1px 8px; font-size: 10px; background: #2e7d32; color: white; border: none; border-radius: 2px; cursor: pointer; height: 19px;">查询灵玉</button>
                                 </div>
                             </div>
-                            
-                            <!-- 灵玉列表容器 -->
-                            <div style="flex: 1; border: 1px solid var(--color-border); border-radius: 3px; overflow: hidden; background: var(--color-background); display: flex; flex-direction: column;">
-                                <!-- 列表表头 -->
-                                <div style="display: grid; grid-template-columns: 55px 40px 65px 1fr; background: var(--color-background-hover); padding: 3px 6px; border-bottom: 1px solid var(--color-border); font-size: 10.5px; font-weight: 600; color: var(--color-text-primary);">
+
+                            <!-- 灵玉列表容器：内部滚动 -->
+                            <div style="flex: 1 1 auto; min-height: 0; border: 1px solid var(--color-border); border-radius: 3px; overflow: hidden; background: var(--color-background); display: flex; flex-direction: column;">
+                                <div style="display: grid; grid-template-columns: 55px 40px 65px 1fr; background: var(--color-background-hover); padding: 2px 6px; border-bottom: 1px solid var(--color-border); font-size: 10px; font-weight: 600; color: var(--color-text-primary); flex: 0 0 auto;">
                                     <div style="text-align: center;">名称</div>
                                     <div style="text-align: center;">索引</div>
                                     <div style="text-align: center;">宠物</div>
                                     <div style="text-align: center;">附加属性</div>
                                 </div>
-                                
-                                <!-- 列表内容 -->
-                                <div id="lingyu-list" style="overflow-y: auto; flex: 1; font-size: 10.5px; min-height: 214px; max-height: 214px;">
+                                <div id="lingyu-list" class="fx-scroll" style="font-size: 10px;">
                                     <div style="text-align: center; padding: 10px; color: var(--color-text-tertiary);">暂无数据</div>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- 右侧：分解队列面板 (约占 1/2) -->
-                        <div style="flex: 0.9; background: var(--color-background); border: 1px solid var(--color-border); border-radius: 3px; padding: 6px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 5px; min-width: 0;">
-                            <h3 style="font-size: 12px; font-weight: 600; color: var(--color-text-primary); margin: 0; border-bottom: 1px solid var(--color-border); padding-bottom: 4px;">分解队列</h3>
-                            
-                            <!-- 已添加到分解队列的灵玉列表 -->
-                            <div id="decompose-queue-list" style="flex: 1; border: 1px solid var(--color-border); border-radius: 3px; overflow: hidden; background: var(--color-background); display: flex; flex-direction: column; margin-bottom: 4px;">
-                                <!-- 列表表头 -->
-                                <div style="display: grid; grid-template-columns: 45px 1fr; background: var(--color-background-hover); padding: 3px 6px; border-bottom: 1px solid var(--color-border); font-size: 10.5px; font-weight: 600; color: var(--color-text-primary);">
+                        <!-- 右侧：分解队列面板 -->
+                        <div class="fx-panel" style="flex: 0.85;">
+                            <span class="fx-panel-title" style="border-bottom: 1px solid var(--color-border); padding-bottom: 3px;">分解队列</span>
+
+                            <!-- 待分解列表：内部滚动 -->
+                            <div style="flex: 1 1 auto; min-height: 0; border: 1px solid var(--color-border); border-radius: 3px; overflow: hidden; background: var(--color-background); display: flex; flex-direction: column;">
+                                <div style="display: grid; grid-template-columns: 45px 1fr; background: var(--color-background-hover); padding: 2px 6px; border-bottom: 1px solid var(--color-border); font-size: 10px; font-weight: 600; color: var(--color-text-primary); flex: 0 0 auto;">
                                     <div style="text-align: center;">#</div>
                                     <div style="text-align: center;">灵玉名称</div>
                                 </div>
-                                <!-- 列表内容 -->
-                                <div id="decompose-list" style="overflow-y: auto; flex: 1; font-size: 10.5px; min-height: 145px; max-height: 145px;">
+                                <div id="decompose-list" class="fx-scroll" style="font-size: 10px;">
                                     <div style="text-align: center; padding: 10px; color: var(--color-text-tertiary);">未添加灵玉</div>
                                 </div>
                             </div>
 
                             <!-- 操作按钮组 -->
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-                                <button onclick="window.decomposeAllInQueue()" class="btn btn-primary" style="margin: 0; font-size: 11.5px; height: 24px; padding: 0; line-height: 24px;">一键分解</button>
-                                <button onclick="window.clearDecomposeQueue()" class="btn btn-secondary" style="margin: 0; font-size: 11.5px; height: 24px; padding: 0; line-height: 24px;">清空队列</button>
+                            <div class="fx-actions" style="display: grid; grid-template-columns: 1fr 1fr;">
+                                <button onclick="window.decomposeAllInQueue()" class="btn btn-primary" style="font-size: 10.5px; height: 21px; padding: 0; line-height: 21px;">一键分解</button>
+                                <button onclick="window.clearDecomposeQueue()" class="btn btn-secondary" style="font-size: 10.5px; height: 21px; padding: 0; line-height: 21px;">清空队列</button>
                             </div>
 
-                            <!-- 统计信息 -->
-                            <div style="font-size: 10.5px; color: var(--color-text-secondary); padding: 3px 6px; background: var(--color-background-secondary); border-radius: 2px;">
+                            <!-- 统计信息（提示文案并入，避免占用纵向空间） -->
+                            <div style="font-size: 9.5px; color: var(--color-text-secondary); line-height: 1.3; flex: 0 0 auto;">
                                 <span id="decompose-queue-count">已添加: 0 个灵玉</span>
-                            </div>
-
-                            <div class="divider" style="margin: 3px 0;"></div>
-                            
-                            <!-- 提示区域 -->
-                            <div style="font-size: 10.5px; color: var(--color-text-tertiary); line-height: 1.4;">
-                                <div>• 从左侧列表选择灵玉添加到分解队列</div>
-                                <div>• 多个灵玉可一次性分解</div>
-                                <div>• 分解后无法找回，请谨慎</div>
+                                <span style="color: var(--color-text-tertiary);"> · 分解后无法找回</span>
                             </div>
                         </div>
                     </div>
@@ -2423,70 +2550,61 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
 
             <!-- 副本区标签页 -->
             <div id="sub-dungeon" class="sub-tab-content">
-                <div style="display: flex; gap: 12px; height: 100%; padding: 4px;">
-                    
+                <div class="fx-row" style="padding: 4px 6px;">
+
                     <!-- 副本跳层模块 -->
-                    <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; min-width: 130px;">
-                        <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">副本跳层</div>
-                        
+                    <div class="fx-panel" style="flex: 1;">
+                        <span class="fx-panel-title">副本跳层</span>
+
                         <!-- 层数输入 -->
-                        <div style="display: flex; align-items: center; gap: 4px;">
+                        <div style="display: flex; align-items: center; gap: 4px; flex: 0 0 auto;">
                             <label for="dungeon-layer-input" style="font-size: 9.5px; color: var(--color-text-secondary);">目标层数:</label>
-                            <input type="number" id="dungeon-layer-input" value="1" min="1" max="9999" 
+                            <input type="number" id="dungeon-layer-input" value="1" min="1" max="9999"
                                 style="width: 50px; font-size: 9.5px; padding: 2px 4px; border: 1px solid var(--color-border); border-radius: 2px;">
                             <span style="font-size: 8.5px; color: var(--color-text-tertiary);">层</span>
                         </div>
-                        
-                        <!-- 说明文本 -->
-                        <div style="font-size: 8.5px; color: var(--color-text-tertiary);">需50级以下妖怪</div>
-                        
-                        <!-- 操作按钮 -->
-                        <div style="display: flex; gap: 4px; margin-top: auto;">
-                            <button id="dungeon-jump-btn" onclick="startDungeonJump()" class="btn btn-primary" style="width: 55px; font-size: 9.5px; padding: 3px 6px;">跳层</button>
-                            <button id="dungeon-stop-btn" onclick="stopDungeonJump()" class="btn btn-secondary" style="width: 55px; font-size: 9.5px; padding: 3px 6px;">停止</button>
+
+                        <div class="fx-panel-note">需50级以下妖怪</div>
+
+                        <div class="fx-actions">
+                            <button id="dungeon-jump-btn" onclick="startDungeonJump()" class="btn btn-primary" style="flex: 1; font-size: 9.5px; padding: 3px 6px;">跳层</button>
+                            <button id="dungeon-stop-btn" onclick="stopDungeonJump()" class="btn btn-secondary" style="flex: 1; font-size: 9.5px; padding: 3px 6px;">停止</button>
                         </div>
                     </div>
-                    
-                    <!-- 分隔线 -->
-                    <div style="width: 1px; background: var(--color-border);"></div>
-                    
+
                     <!-- 双台谷刷级模块 -->
-                    <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; min-width: 180px;">
-                        <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">双台谷刷级</div>
-                        
-                        <!-- 妖怪选择 -->
-                        <div style="display: flex; align-items: center; gap: 4px;">
+                    <div class="fx-panel" style="flex: 1.35;">
+                        <span class="fx-panel-title">双台谷刷级</span>
+
+                        <div style="display: flex; align-items: center; gap: 4px; flex: 0 0 auto;">
                             <label style="font-size: 9.5px; color: var(--color-text-secondary); min-width: 35px;">主宠:</label>
-                            <select id="shuangtai-pet" style="width: 100px; font-size: 9.5px; padding: 2px; border: 1px solid var(--color-border); border-radius: 2px; height: 18px;" disabled>
+                            <select id="shuangtai-pet" style="flex: 1; min-width: 0; font-size: 9.5px; padding: 2px; border: 1px solid var(--color-border); border-radius: 2px; height: 18px;" disabled>
                                 <option value="">请先查询</option>
                             </select>
-                            <button id="query-shuangtai" class="btn btn-secondary" style="width: 45px; font-size: 9.5px; padding: 2px 4px;">查询</button>
+                            <button id="query-shuangtai" class="btn btn-secondary" style="flex: 0 0 auto; font-size: 9.5px; padding: 2px 6px;">查询</button>
                         </div>
-                        
-                        <!-- 技能选择 -->
-                        <div style="display: flex; align-items: center; gap: 4px;">
+
+                        <div style="display: flex; align-items: center; gap: 4px; flex: 0 0 auto;">
                             <label style="font-size: 9.5px; color: var(--color-text-secondary); min-width: 35px;">技能:</label>
-                            <select id="shuangtai-skill" style="width: 145px; font-size: 9.5px; padding: 2px; border: 1px solid var(--color-border); border-radius: 2px; height: 18px;" disabled>
+                            <select id="shuangtai-skill" style="flex: 1; min-width: 0; font-size: 9.5px; padding: 2px; border: 1px solid var(--color-border); border-radius: 2px; height: 18px;" disabled>
                                 <option value="">自动选择最高威力</option>
                             </select>
                         </div>
-                        
-                        <!-- 屏蔽战斗选项 -->
-                        <label style="display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #FFFFFF; border-radius: 2px; cursor: pointer; font-size: 9.5px;">
-                            <input type="checkbox" id="shuangtai-block-battle" style="width: 11px; height: 11px;">
-                            <span>屏蔽战斗</span>
-                        </label>
-                        
-                        <!-- 说明文本 -->
-                        <div style="font-size: 8.5px; color: var(--color-text-tertiary);">主宠末位，至少2只妖怪</div>
-                        
-                        <!-- 操作按钮 -->
-                        <div style="display: flex; gap: 4px; margin-top: auto;">
-                            <button id="start-shuangtai" class="btn btn-primary" style="width: 55px; font-size: 9.5px; padding: 3px 6px;" disabled>启动</button>
-                            <button id="stop-shuangtai" class="btn btn-secondary" style="width: 55px; font-size: 9.5px; padding: 3px 6px;" disabled>停止</button>
+
+                        <div style="display: flex; align-items: center; gap: 6px; flex: 0 0 auto;">
+                            <label class="fx-check" style="flex: 0 0 auto;">
+                                <input type="checkbox" id="shuangtai-block-battle" style="width: 11px; height: 11px;">
+                                <span>屏蔽战斗</span>
+                            </label>
+                            <span class="fx-panel-note">主宠末位 · 至少2只妖怪</span>
+                        </div>
+
+                        <div class="fx-actions">
+                            <button id="start-shuangtai" class="btn btn-primary" style="flex: 1; font-size: 9.5px; padding: 3px 6px;" disabled>启动</button>
+                            <button id="stop-shuangtai" class="btn btn-secondary" style="flex: 1; font-size: 9.5px; padding: 3px 6px;" disabled>停止</button>
                         </div>
                     </div>
-                    
+
                 </div>
             </div>
 
@@ -2530,43 +2648,45 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             <!-- 精魄系统标签页 -->
             <div id="sub-spiritcollect" class="sub-tab-content">
                 <div class="spirit-collect-layout">
-                    <div class="spirit-giving-panel">
-                        <div class="spirit-giving-header">
-                            <div class="spirit-stats">
-                                <span class="spirit-stat-chip">今日可赠 <span id="spirit-daily-out" style="color: var(--color-primary); font-weight: 600;">-</span></span>
-                                <span class="spirit-stat-chip">本周可赠 <span id="spirit-weekly-out" style="color: var(--color-primary); font-weight: 600;">-</span></span>
-                            </div>
-                            <div class="spirit-giving-actions">
-                                <button onclick="refreshSpiritPanel()" class="btn btn-secondary">刷新</button>
-                                <button onclick="getSpiritRecord(1)" class="btn btn-secondary">赠送记录</button>
-                                <button onclick="getSpiritRecord(2)" class="btn btn-secondary">接收记录</button>
-                            </div>
-                        </div>
-
-                        <div id="spirit-list">
-                            <div style="color: var(--color-text-tertiary); text-align: center; padding: 20px 8px;">点击“刷新”加载精魄列表</div>
-                        </div>
-
-                        <div class="spirit-selected-line">
-                            已选精魄: <span id="spirit-selected" style="color: var(--color-primary); font-weight: 600;">无</span>
-                        </div>
-
-                        <div class="spirit-send-row">
-                            <label class="spirit-send-label">卡布号:</label>
+                    <!-- 顶部工具条：统计 / 已选 / 赠送 / 状态 收进一行，不再挤占记录面板高度 -->
+                    <div class="spirit-toolbar">
+                        <span class="spirit-stat-chip">今日可赠 <span id="spirit-daily-out" style="color: var(--color-primary); font-weight: 600;">-</span></span>
+                        <span class="spirit-stat-chip">本周可赠 <span id="spirit-weekly-out" style="color: var(--color-primary); font-weight: 600;">-</span></span>
+                        <div class="spirit-toolbar-selected">已选精魄: <span id="spirit-selected" style="color: var(--color-primary); font-weight: 600;">无</span></div>
+                        <div class="spirit-toolbar-send">
+                            <label>卡布号:</label>
                             <input type="text" id="spirit-friend-id" placeholder="输入对方卡布号">
-                            <button onclick="verifyAndSendSpirit()" class="btn btn-primary spirit-send-button">赠送精魄</button>
+                            <button onclick="verifyAndSendSpirit()" class="btn btn-primary">赠送</button>
                         </div>
-
                         <div class="spirit-status-line" id="spirit-status"></div>
+                        <button onclick="refreshSpiritPanel()" class="btn btn-secondary">刷新</button>
                     </div>
 
-                    <div class="spirit-record-side">
-                        <div class="spirit-record-header">
-                            <div class="spirit-record-title">记录面板</div>
-                            <div id="spirit-record-title" class="spirit-record-subtitle">等待加载</div>
+                    <!-- 下方双列：左列表 | 右记录面板，平分剩余纵向空间 -->
+                    <div class="spirit-columns">
+                        <!-- 左列：精魄列表独占纵向空间 -->
+                        <div class="spirit-giving-panel">
+                            <div id="spirit-list">
+                                <div style="color: var(--color-text-tertiary); text-align: center; padding: 10px 8px;">点击“刷新”加载精魄列表</div>
+                            </div>
                         </div>
-                        <div id="spirit-record-panel" class="spirit-record-body">
-                            点击右上角按钮查看赠送记录或接收记录。
+
+                        <!-- 右列：记录面板 -->
+                        <div class="spirit-record-side">
+                            <div class="spirit-record-header">
+                                <div class="spirit-record-title">记录面板</div>
+                                <div class="spirit-record-meta">
+                                    <div id="spirit-record-title" class="spirit-record-subtitle">等待加载</div>
+                                    <div class="spirit-giving-actions">
+                                        <button onclick="getSpiritRecord(1)" class="btn btn-secondary">赠送</button>
+                                        <button onclick="getSpiritRecord(2)" class="btn btn-secondary">接收</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div id="spirit-record-panel" class="spirit-record-body">
+                                点击上方按钮查看赠送记录或接收记录。
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -3824,180 +3944,165 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
 
         // 妖力考验 - 一键完成
         window.oneKeyAct631 = function() {
-            var sweepCheckbox = document.getElementById('act631-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            // act631 已并入“最新活动”勾选式批量执行；此处保留兼容入口。
+            // 扫荡与否由 C++ 侧按历史最好成绩自动判定。
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
-                    action: 'one_key_act631',
-                    sweep: useSweep
+                    action: 'one_key_act631'
                 }));
             }
         };
 
         // 果宝救援 - 一键完成
         window.oneKeyAct757 = function() {
-            var sweepCheckbox = document.getElementById('act757-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            // act757 已并入“最新活动”勾选式批量执行；此处保留兼容入口。
+            // 扫荡与否由 C++ 侧按历史最好成绩自动判定。
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
-                    action: 'one_key_act757',
-                    sweep: useSweep
+                    action: 'one_key_act757'
                 }));
             }
         };
 
         // 航海大挑战 - 一键完成
         window.oneKeyAct685 = function() {
-            var sweepCheckbox = document.getElementById('act685-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            // act685 已并入“最新活动”勾选式批量执行；此处保留兼容入口。
+            // 扫荡与否由 C++ 侧按历史最好成绩自动判定。
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
-                    action: 'one_key_act685',
-                    sweep: useSweep
+                    action: 'one_key_act685'
                 }));
             }
         };
 
         // 天之骄子的特训 - 一键完成
         window.oneKeyAct666 = function() {
-            var sweepCheckbox = document.getElementById('act666-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            // act666 已并入“最新活动”勾选式批量执行；此处保留兼容入口。
+            // 扫荡与否由 C++ 侧按历史最好成绩自动判定。
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
-                    action: 'one_key_act666',
-                    sweep: useSweep
+                    action: 'one_key_act666'
                 }));
             }
         };
 
         // 欢乐跷跷板 - 一键完成
         window.oneKeyAct808 = function() {
-            var sweepCheckbox = document.getElementById('act808-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            // act808 已并入“最新活动”勾选式批量执行；此处保留兼容入口。
+            // 扫荡与否由 C++ 侧按历史最好成绩自动判定。
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
-                    action: 'one_key_act808',
-                    sweep: useSweep
+                    action: 'one_key_act808'
                 }));
             }
         };
 
         // 清除煞气 - 一键完成
         window.oneKeyAct641 = function() {
-            var sweepCheckbox = document.getElementById('act641-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            // act641 已并入“最新活动”勾选式批量执行；此处保留兼容入口。
+            // 扫荡与否由 C++ 侧按历史最好成绩自动判定。
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
-                    action: 'one_key_act641',
-                    sweep: useSweep
+                    action: 'one_key_act641'
                 }));
             }
         };
 
         // 驱赶毒蚊 - 一键完成
         window.oneKeyAct717 = function() {
-            var sweepCheckbox = document.getElementById('act717-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            // act717 已并入“最新活动”勾选式批量执行；此处保留兼容入口。
+            // 扫荡与否由 C++ 侧按历史最好成绩自动判定。
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
-                    action: 'one_key_act717',
-                    sweep: useSweep
+                    action: 'one_key_act717'
                 }));
             }
         };
 
         // 土幻的曙光 - 一键完成
         window.oneKeyAct684 = function() {
-            var sweepCheckbox = document.getElementById('act684-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            // act684 已并入“最新活动”勾选式批量执行；此处保留兼容入口。
+            // 扫荡与否由 C++ 侧按历史最好成绩自动判定。
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
-                    action: 'one_key_act684',
-                    sweep: useSweep
+                    action: 'one_key_act684'
                 }));
             }
         };
 
         // 守护梦境 - 一键完成
         window.oneKeyAct805 = function() {
-            var sweepCheckbox = document.getElementById('act805-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            // act805 已并入“最新活动”勾选式批量执行；此处保留兼容入口。
+            // 扫荡与否由 C++ 侧按历史最好成绩自动判定。
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
-                    action: 'one_key_act805',
-                    sweep: useSweep
+                    action: 'one_key_act805'
                 }));
             }
         };
 
         // 摘取大力果实 - 一键完成
         window.oneKeyAct782 = function() {
-            var sweepCheckbox = document.getElementById('act782-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            // act782 已并入“最新活动”勾选式批量执行；此处保留兼容入口。
+            // 扫荡与否由 C++ 侧按历史最好成绩自动判定。
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
-                    action: 'one_key_act782',
-                    sweep: useSweep
+                    action: 'one_key_act782'
                 }));
             }
         };
 
         // 我是神射手 - 一键完成
         window.oneKeyAct811 = function() {
-            var sweepCheckbox = document.getElementById('act811-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            // act811 已并入“最新活动”勾选式批量执行；此处保留兼容入口。
+            // 扫荡与否由 C++ 侧按历史最好成绩自动判定。
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
-                    action: 'one_key_act811',
-                    sweep: useSweep
+                    action: 'one_key_act811'
                 }));
             }
         };
 
         // 圣石之战 - 一键完成
         window.oneKeyAct826 = function() {
-            var sweepCheckbox = document.getElementById('act826-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            // act826 已并入“最新活动”勾选式批量执行；此处保留兼容入口。
+            // 扫荡与否由 C++ 侧按历史最好成绩自动判定。
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
-                    action: 'one_key_act826',
-                    sweep: useSweep
+                    action: 'one_key_act826'
                 }));
             }
         };
 
         // 齐心协力大挑战 - 一键完成
         window.oneKeyAct827 = function() {
-            var sweepCheckbox = document.getElementById('act827-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            // act827 已并入“最新活动”勾选式批量执行；此处保留兼容入口。
+            // 扫荡与否由 C++ 侧按历史最好成绩自动判定。
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
-                    action: 'one_key_act827',
-                    sweep: useSweep
+                    action: 'one_key_act827'
                 }));
             }
         };
 
         // 光辉穿梭大考验 - 一键完成
         window.oneKeyAct822 = function() {
-            var sweepCheckbox = document.getElementById('act822-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            // act822 已并入“最新活动”勾选式批量执行；此处保留兼容入口。
+            // 扫荡与否由 C++ 侧按历史最好成绩自动判定。
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
-                    action: 'one_key_act822',
-                    sweep: useSweep
+                    action: 'one_key_act822'
                 }));
             }
         };
 
         // 逆流的试炼 - 一键完成
         window.oneKeyAct804 = function() {
-            var sweepCheckbox = document.getElementById('act804-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            // act804 已并入“最新活动”勾选式批量执行；此处保留兼容入口。
+            // 扫荡与否由 C++ 侧按历史最好成绩自动判定。
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
                     action: 'one_key_act804',
-                    sweep: useSweep,
                     score: 450
                 }));
             }
@@ -4005,14 +4110,107 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
 
         // 疾速特训 - 一键完成
         window.oneKeyAct810 = function() {
-            var sweepCheckbox = document.getElementById('act810-sweep');
-            var useSweep = sweepCheckbox ? sweepCheckbox.checked : false;
+            // act810 已并入“最新活动”勾选式批量执行；此处保留兼容入口。
+            // 扫荡与否由 C++ 侧按历史最好成绩自动判定。
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({
-                    action: 'one_key_act810',
-                    sweep: useSweep
+                    action: 'one_key_act810'
                 }));
             }
+        };
+
+        // ====================================================================
+        // 最新活动：勾选式批量执行（与材料采集同一交互模型）
+        // 剩余次数由 C++ 侧通过 window.updateActivityCounts 回填；次数为 0
+        // 时自动禁用该行，避免无效操作。
+        // ====================================================================
+        window.actLatestIds = [717, 684, 827, 826, 822, 685, 631, 808, 641];
+
+        // C++ 回填各活动剩余次数：{ "717": 3, "822": 0, ... }
+        // 值为负数或 null 表示未知，显示“--”且不禁用。
+        window.updateActivityCounts = function(counts) {
+            if (!counts) return;
+            window.actLatestCounts = window.actLatestCounts || {};
+            window.actLatestIds.forEach(function(id) {
+                var raw = counts[id];
+                if (raw === undefined) raw = counts[String(id)];
+                if (raw === undefined) return;
+                window.actLatestCounts[id] = raw;
+                window.applyActivityCount(id, raw);
+            });
+        };
+
+        window.applyActivityCount = function(id, raw) {
+            var countEl = document.getElementById('act-count-' + id);
+            var rowEl = document.getElementById('act-row-' + id);
+            var pickEl = document.getElementById('act-check-' + id);
+            if (!countEl || !rowEl) return;
+
+            var n = (raw === null || raw === undefined) ? null : Number(raw);
+            if (n === null || isNaN(n) || n < 0) {
+                // 未知：显示占位，保持可勾选
+                countEl.textContent = '--';
+                countEl.className = 'act-item-count act-count-unknown';
+                rowEl.classList.remove('act-disabled');
+                if (pickEl) pickEl.disabled = false;
+                return;
+            }
+
+            countEl.textContent = '剩 ' + n;
+            if (n <= 0) {
+                countEl.className = 'act-item-count act-count-zero';
+                rowEl.classList.add('act-disabled');
+                if (pickEl) { pickEl.checked = false; pickEl.disabled = true; }
+            } else {
+                countEl.className = 'act-item-count';
+                rowEl.classList.remove('act-disabled');
+                if (pickEl) pickEl.disabled = false;
+            }
+        };
+
+        // 全选 / 全不选（跳过已禁用的行）
+        window.selectAllActivities = function(checked) {
+            window.actLatestIds.forEach(function(id) {
+                var pickEl = document.getElementById('act-check-' + id);
+                if (pickEl && !pickEl.disabled) pickEl.checked = checked;
+            });
+        };
+
+        // 请求刷新各活动剩余次数（C++ 侧逐个查询活动信息后回填）
+        window.refreshActivityCounts = function() {
+            window.updateHelperText('正在获取活动剩余次数...');
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({
+                    action: 'refresh_activity_counts'
+                }));
+            }
+        };
+
+        // 一键执行所勾选的活动：逐个复用既有 one_key_actNNN 通道
+        window.runSelectedActivities = function() {
+            var picked = [];
+            window.actLatestIds.forEach(function(id) {
+                var pickEl = document.getElementById('act-check-' + id);
+                if (pickEl && pickEl.checked && !pickEl.disabled) picked.push(id);
+            });
+
+            if (picked.length === 0) {
+                window.updateHelperText('请至少勾选一个活动');
+                return;
+            }
+
+            if (!(window.chrome && window.chrome.webview)) return;
+
+            window.updateHelperText('开始执行 ' + picked.length + ' 个活动...');
+            picked.forEach(function(id, index) {
+                // 依次下发，避免多个活动线程同时抢占响应等待。
+                // 扫荡与否由 C++ 侧自动判定（可扫荡且扫荡分数不低于游戏流程时自动扫荡）。
+                setTimeout(function() {
+                    window.chrome.webview.postMessage(JSON.stringify({
+                        action: 'one_key_act' + id,
+                    }));
+                }, index * 300);
+            });
         };
 
         window.heavenFuruiRunning = false;
@@ -6366,19 +6564,15 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             let html = '<div class="spirit-list-grid">';
             spiritState.spiritList.forEach(spirit => {
                 const isSelected = spiritState.selectedSpirit && spiritState.selectedSpirit.eggId === spirit.eggId;
-                html += '<div class="spirit-item' + (isSelected ? ' selected' : '') + '" onclick="selectSpirit(' + spirit.eggId + ')">' +
+                html += '<div class="spirit-item' + (isSelected ? ' selected' : '') + '" onclick="selectSpirit(' + spirit.eggId + ')" title="' + escapeSpiritHtml(getSpiritSkillSummary(spirit)) + '">' +
                     '<div class="spirit-item-top">' +
                         '<span class="spirit-item-name">' + escapeSpiritHtml(getSpiritDisplayName(spirit)) + '</span>' +
                         '<span class="spirit-item-tag">#' + spirit.eggId + '</span>' +
-                    '</div>' +
-                    '<div class="spirit-item-chips">' +
-                        '<span class="spirit-mini-chip">' + escapeSpiritHtml(getSpiritTypeName(spirit.eggType)) + '</span>' +
-                        '<span class="spirit-mini-chip">' + escapeSpiritHtml(spirit.elemName || '未知系别') + '</span>' +
-                        '<span class="spirit-mini-chip">' + escapeSpiritHtml(getSpiritCharacterName(spirit)) + '</span>' +
-                        '<span class="spirit-mini-chip">' + escapeSpiritHtml('获得 ' + formatSpiritDate(spirit.bornTime)) + '</span>' +
-                    '</div>' +
-                    '<div class="spirit-item-detail">' +
-                        '<div class="spirit-item-detail-line">技能: ' + escapeSpiritHtml(getSpiritSkillSummary(spirit)) + '</div>' +
+                        '<div class="spirit-item-chips">' +
+                            '<span class="spirit-mini-chip">' + escapeSpiritHtml(getSpiritTypeName(spirit.eggType)) + '</span>' +
+                            '<span class="spirit-mini-chip">' + escapeSpiritHtml(spirit.elemName || '未知系别') + '</span>' +
+                            '<span class="spirit-mini-chip">' + escapeSpiritHtml(getSpiritCharacterName(spirit)) + '</span>' +
+                        '</div>' +
                     '</div>' +
                 '</div>';
             });

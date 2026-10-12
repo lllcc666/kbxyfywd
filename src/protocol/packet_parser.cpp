@@ -1212,7 +1212,7 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
 void PacketParser::SendToUI(const std::wstring& type, const std::wstring& data) {
     // 如果 g_hWnd 为空，尝试查找窗口
     if (!g_hWnd) {
-        g_hWnd = FindWindowW(L"WebView2DemoWindowClass", L"卡布西游浮影微端 V1.15");
+        g_hWnd = FindWindowW(L"WebView2DemoWindowClass", WpeHook::APP_WINDOW_TITLE_W);
         if (!g_hWnd) {
             g_hWnd = FindWindowW(L"WebView2DemoWindowClass", nullptr);
         }
@@ -1234,7 +1234,7 @@ void PacketParser::SendBossListToUI() {
     
     // 如果 g_hWnd 为空，尝试查找窗口
     if (!g_hWnd) {
-        g_hWnd = FindWindowW(L"WebView2DemoWindowClass", L"卡布西游浮影微端 V1.15");
+        g_hWnd = FindWindowW(L"WebView2DemoWindowClass", WpeHook::APP_WINDOW_TITLE_W);
         if (!g_hWnd) {
             g_hWnd = FindWindowW(L"WebView2DemoWindowClass", nullptr);
         }
@@ -1346,7 +1346,7 @@ void PacketParser::UpdateUIBattleData() {
         g_hWnd = FindWindowW(L"WebView2DemoWindowClass", nullptr);
         if (!g_hWnd) {
             // 备用方案：通过窗口标题查找
-        g_hWnd = FindWindowW(nullptr, L"卡布西游浮影微端 V1.15");
+        g_hWnd = FindWindowW(nullptr, WpeHook::APP_WINDOW_TITLE_W);
             if (!g_hWnd) {
                 return;
             }

@@ -148,7 +148,13 @@ BOOL WaitForHorseFlag(const std::atomic<bool>& flag, DWORD timeoutMs) {
 void HorseGameMainLoop() {
     auto& state = ActivityStateManager::Instance().GetHorseCompetitionState();
 
-    const auto frameDuration = std::chrono::duration<double, std::milli>(1000.0 / 60.0);
+    // AS3 HorseTimer 以固定 16.666ms（60Hz）驱动 HorsePlayer.checkControl，每帧按
+    // 固定速度积分距离；PLAY_GAME 同步包也是每 60 帧（=1 秒）发一次。这里用
+    // 定步长（fixed timestep）+ 累加器复刻该节奏：无论单帧处理耗时如何波动，
+    // 都按固定步长推进模拟并均匀输出同步包，避免原先「处理耗时 + sleep 余量」
+    // 写法受 Windows 睡眠粒度影响而导致帧率抖动、进度与发包节奏不稳。
+    constexpr double kTargetFps = 60.0;
+    const auto frameDuration = std::chrono::duration<double, std::milli>(1000.0 / kTargetFps);
     const double ahp = 0.84;
     const double mhp = 3.33;
 
@@ -156,6 +162,12 @@ void HorseGameMainLoop() {
     constexpr int kSyncFrames = HorseCompetitionState::SYNC_INTERVAL;
     constexpr int kJumpFrames = 18;
     constexpr int kJumpCooldownFrames = 150;
+    // 单次循环最多补的模拟帧数：进程卡顿时不无限追帧，防止瞬间冲过终点。
+    constexpr int kMaxStepsPerTick = 6;
+
+    // 开局快照道具距离：与 AS3「本轮 itemList 固定」一致；同时避免与响应分发
+    // 线程重写 state.itemDistances 产生并发访问（vector 重分配会导致迭代器失效）。
+    const std::vector<int> itemDistances = state.itemDistances;
 
     int frameCount = 0;
     int accHoldFrames = 0;
@@ -163,136 +175,151 @@ void HorseGameMainLoop() {
     int jumpHoldFrames = 0;
     int jumpCooldownFrames = kJumpCooldownFrames;
     size_t nextItemIndex = 0;
-    const auto raceStartTime = std::chrono::steady_clock::now();
+
+    auto lastTick = std::chrono::steady_clock::now();
+    auto accumulator = std::chrono::duration<double, std::milli>(0.0);
 
     while (g_horseGameRunning && state.isGaming) {
-        auto frameStart = std::chrono::steady_clock::now();
-        const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(frameStart - raceStartTime).count();
-        const double elapsedSeconds = static_cast<double>(elapsedMs) / 1000.0;
-        const double desiredDistance = (std::min)(
-            static_cast<double>(HorseCompetitionState::ROUTE_DISTANCE),
-            HorseCompetitionState::ROUTE_DISTANCE * (elapsedSeconds / kTargetFinishSeconds));
-        const double distanceGap = desiredDistance - state.distance;
+        const auto now = std::chrono::steady_clock::now();
+        accumulator += std::chrono::duration<double, std::milli>(now - lastTick);
+        lastTick = now;
 
-        frameCount++;
+        // 长时间卡顿后直接对齐到最新时间，避免补帧堆积造成"瞬移"。
+        if (accumulator > frameDuration * kMaxStepsPerTick) {
+            accumulator = frameDuration;
+        }
 
-        if (state.canControl) {
-            if (accCooldownFrames > 0) {
-                --accCooldownFrames;
-            }
-            if (jumpCooldownFrames > 0) {
-                --jumpCooldownFrames;
-            }
+        int steps = 0;
+        while (accumulator >= frameDuration && steps < kMaxStepsPerTick
+               && g_horseGameRunning && state.isGaming) {
+            accumulator -= frameDuration;
+            ++steps;
 
-            if (jumpHoldFrames > 0) {
-                state.state = "JUMP";
-                --jumpHoldFrames;
-                if (jumpHoldFrames == 0) {
-                    state.state = state.lastState.empty() ? "RUN" : state.lastState;
-                    if (state.state != "ACCRUN") {
-                        state.state = "RUN";
-                    }
-                    jumpCooldownFrames = kJumpCooldownFrames;
+            // 用「模拟时间」而非墙钟推目标进度：帧率波动不影响节奏规划。
+            const double simSeconds = static_cast<double>(frameCount) / kTargetFps;
+            const double desiredDistance = (std::min)(
+                static_cast<double>(HorseCompetitionState::ROUTE_DISTANCE),
+                HorseCompetitionState::ROUTE_DISTANCE * (simSeconds / kTargetFinishSeconds));
+            const double distanceGap = desiredDistance - state.distance;
+
+            frameCount++;
+
+            if (state.canControl) {
+                if (accCooldownFrames > 0) {
+                    --accCooldownFrames;
                 }
-            } else {
-                bool shouldJumpForItem = false;
-                bool suppressAccForItem = false;
-                if (nextItemIndex < state.itemDistances.size()) {
-                    const int nextItemDistance = state.itemDistances[nextItemIndex];
-                    const double distanceToItem = static_cast<double>(nextItemDistance) - state.distance;
-                    if (distanceToItem < -40.0) {
-                        ++nextItemIndex;
-                    } else {
-                        shouldJumpForItem = distanceToItem >= 18.0 && distanceToItem <= 42.0;
-                        suppressAccForItem = distanceToItem >= -10.0 && distanceToItem <= 72.0;
-                    }
+                if (jumpCooldownFrames > 0) {
+                    --jumpCooldownFrames;
                 }
 
-                if (state.state == "ACCRUN") {
-                    --accHoldFrames;
-                    if (accHoldFrames <= 0 || state.hp <= state.maxHp * 0.34 || suppressAccForItem || distanceGap < -6.0) {
-                        state.state = "RUN";
-                        accCooldownFrames = 18;
-                    }
-                } else {
-                    state.state = "RUN";
-                    const bool canAccNow = accCooldownFrames <= 0 && state.hp >= state.maxHp * 0.5;
-                    if (canAccNow && !suppressAccForItem && distanceGap > 7.5) {
-                        state.lastState = "RUN";
-                        state.state = "ACCRUN";
-                        accHoldFrames = (distanceGap > 16.0) ? 36 : 18;
-                    }
-                }
-
-                const bool canJumpNow = jumpCooldownFrames <= 0;
-                if (canJumpNow && shouldJumpForItem) {
-                    state.lastState = state.state;
-                    jumpHoldFrames = kJumpFrames;
+                if (jumpHoldFrames > 0) {
                     state.state = "JUMP";
                     --jumpHoldFrames;
-                    if (jumpHoldFrames <= 0) {
+                    if (jumpHoldFrames == 0) {
                         state.state = state.lastState.empty() ? "RUN" : state.lastState;
+                        if (state.state != "ACCRUN") {
+                            state.state = "RUN";
+                        }
                         jumpCooldownFrames = kJumpCooldownFrames;
                     }
-                }
-            }
-
-            double distanceDelta = 0.0;
-            if (state.state == "RUN") {
-                state.hp += ahp;
-                distanceDelta = state.speed;
-            } else if (state.state == "ACCRUN") {
-                state.hp -= mhp;
-                distanceDelta = state.accSpeed;
-            } else if (state.state == "JUMP") {
-                if (state.lastState == "ACCRUN") {
-                    state.hp -= mhp;
-                    distanceDelta = state.accSpeed;
                 } else {
+                    bool shouldJumpForItem = false;
+                    bool suppressAccForItem = false;
+                    if (nextItemIndex < itemDistances.size()) {
+                        const int nextItemDistance = itemDistances[nextItemIndex];
+                        const double distanceToItem = static_cast<double>(nextItemDistance) - state.distance;
+                        if (distanceToItem < -40.0) {
+                            ++nextItemIndex;
+                        } else {
+                            shouldJumpForItem = distanceToItem >= 18.0 && distanceToItem <= 42.0;
+                            suppressAccForItem = distanceToItem >= -10.0 && distanceToItem <= 72.0;
+                        }
+                    }
+
+                    if (state.state == "ACCRUN") {
+                        --accHoldFrames;
+                        if (accHoldFrames <= 0 || state.hp <= state.maxHp * 0.34 || suppressAccForItem || distanceGap < -6.0) {
+                            state.state = "RUN";
+                            accCooldownFrames = 18;
+                        }
+                    } else {
+                        state.state = "RUN";
+                        const bool canAccNow = accCooldownFrames <= 0 && state.hp >= state.maxHp * 0.5;
+                        if (canAccNow && !suppressAccForItem && distanceGap > 7.5) {
+                            state.lastState = "RUN";
+                            state.state = "ACCRUN";
+                            accHoldFrames = (distanceGap > 16.0) ? 36 : 18;
+                        }
+                    }
+
+                    const bool canJumpNow = jumpCooldownFrames <= 0;
+                    if (canJumpNow && shouldJumpForItem) {
+                        state.lastState = state.state;
+                        jumpHoldFrames = kJumpFrames;
+                        state.state = "JUMP";
+                        --jumpHoldFrames;
+                        if (jumpHoldFrames <= 0) {
+                            state.state = state.lastState.empty() ? "RUN" : state.lastState;
+                            jumpCooldownFrames = kJumpCooldownFrames;
+                        }
+                    }
+                }
+
+                double distanceDelta = 0.0;
+                if (state.state == "RUN") {
                     state.hp += ahp;
                     distanceDelta = state.speed;
+                } else if (state.state == "ACCRUN") {
+                    state.hp -= mhp;
+                    distanceDelta = state.accSpeed;
+                } else if (state.state == "JUMP") {
+                    if (state.lastState == "ACCRUN") {
+                        state.hp -= mhp;
+                        distanceDelta = state.accSpeed;
+                    } else {
+                        state.hp += ahp;
+                        distanceDelta = state.speed;
+                    }
                 }
-            }
 
-            state.distance += distanceDelta;
+                state.distance += distanceDelta;
 
-            if (state.hp > state.maxHp) {
-                state.hp = state.maxHp;
-            }
-            if (state.hp <= 0) {
-                state.hp = 0;
-                state.state = "RUN";
-                accHoldFrames = 0;
-                accCooldownFrames = 48;
-            }
-
-            if (state.distance >= HorseCompetitionState::ROUTE_DISTANCE) {
-                state.distance = HorseCompetitionState::ROUTE_DISTANCE;
-                if (!state.localFinished) {
-                    state.localFinished = true;
-                    SendHorsePlayGamePacket(static_cast<int>(state.distance));
+                if (state.hp > state.maxHp) {
+                    state.hp = state.maxHp;
                 }
-            }
+                if (state.hp <= 0) {
+                    state.hp = 0;
+                    state.state = "RUN";
+                    accHoldFrames = 0;
+                    accCooldownFrames = 48;
+                }
 
-            if (state.localFinished && state.receivedEndGame) {
-                state.isGaming = false;
-                state.isFinished = true;
-                break;
-            }
+                if (state.distance >= HorseCompetitionState::ROUTE_DISTANCE) {
+                    state.distance = HorseCompetitionState::ROUTE_DISTANCE;
+                    if (!state.localFinished) {
+                        state.localFinished = true;
+                        SendHorsePlayGamePacket(static_cast<int>(state.distance));
+                    }
+                }
 
-            state.syncCount++;
-            if (state.syncCount >= kSyncFrames) {
-                state.syncCount = 0;
-                const int distToSend = static_cast<int>(state.distance);
-                SendHorsePlayGamePacket(distToSend);
+                if (state.localFinished && state.receivedEndGame) {
+                    state.isGaming = false;
+                    state.isFinished = true;
+                    break;
+                }
+
+                state.syncCount++;
+                if (state.syncCount >= kSyncFrames) {
+                    state.syncCount = 0;
+                    const int distToSend = static_cast<int>(state.distance);
+                    SendHorsePlayGamePacket(distToSend);
+                }
             }
         }
 
-        auto frameEnd = std::chrono::steady_clock::now();
-        const auto elapsed = frameEnd - frameStart;
-        if (elapsed < frameDuration) {
-            std::this_thread::sleep_for(frameDuration - elapsed);
-        }
+        // 睡到下一个帧边界：剩余等待 = 帧长 - 累加器余量。若已落后（余量为负），
+        // sleep_until 会立即返回，由下一轮循环的累加器补帧追上。
+        std::this_thread::sleep_until(lastTick + frameDuration - accumulator);
     }
 }
 

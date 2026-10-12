@@ -322,6 +322,11 @@ void HandleRefreshPackItemsCommand() {
     });
 }
 
+// 刷新「最新活动」剩余次数：QueryActivityCountsAsync 内部已异步执行，直接调用
+void HandleRefreshActivityCountsCommand() {
+    QueryActivityCountsAsync();
+}
+
 void HandleBuyDiceCommand() {
     HandleActionCommand(SendBuyDicePacket);
 }
@@ -684,8 +689,8 @@ void HandleStartOneKeyAct717Command(const std::wstring& msg) {
         Act717::TARGET_SCORE,
         0,
         9999,
-        L"驱赶毒蚊：开始扫荡...",
-        L"驱赶毒蚊：开始游戏...",
+        L"驱赶毒蚊：开始执行...",
+        L"驱赶毒蚊：开始执行...",
         L"驱赶毒蚊启动失败",
         StartOneKeyAct717Packet);
 }
@@ -697,8 +702,8 @@ void HandleStartOneKeyAct685Command(const std::wstring& msg) {
         0,
         0,
         0,
-        L"航海大挑战：开始扫荡...",
-        L"航海大挑战：开始游戏...",
+        L"航海大挑战：开始执行...",
+        L"航海大挑战：开始执行...",
         L"航海大挑战启动失败",
         StartOneKeyAct685Packet);
 }
@@ -736,8 +741,8 @@ void HandleStartOneKeyAct808Command(const std::wstring& msg) {
         0,
         0,
         0,
-        L"欢乐跷跷板：开始扫荡...",
-        L"欢乐跷跷板：开始游戏...",
+        L"欢乐跷跷板：开始执行...",
+        L"欢乐跷跷板：开始执行...",
         L"欢乐跷跷板启动失败",
         StartOneKeyAct808Packet);
 }
@@ -749,8 +754,8 @@ void HandleStartOneKeyAct641Command(const std::wstring& msg) {
         Act641::TARGET_SCORE,
         1,
         Act641::MAX_SCORE,
-        L"清除煞气：开始扫荡...",
-        L"清除煞气：开始游戏...",
+        L"清除煞气：开始执行...",
+        L"清除煞气：开始执行...",
         L"清除煞气启动失败",
         StartOneKeyAct641Packet);
 }
@@ -762,8 +767,8 @@ void HandleStartOneKeyAct684Command(const std::wstring& msg) {
         Act684::TARGET_SCORE,
         Act684::PASS_SCORE,
         Act684::MAX_SCORE,
-        L"土幻的曙光：开始扫荡...",
-        L"土幻的曙光：开始游戏...",
+        L"土幻的曙光：开始执行...",
+        L"土幻的曙光：开始执行...",
         L"土幻的曙光启动失败",
         StartOneKeyAct684Packet);
 }
@@ -788,8 +793,8 @@ void HandleStartOneKeyAct631Command(const std::wstring& msg) {
         0,
         0,
         0,
-        L"妖力考验已开始（扫荡模式）",
-        L"妖力考验已开始（完成游戏模式）",
+        L"妖力考验：开始执行...",
+        L"妖力考验：开始执行...",
         L"妖力考验启动失败",
         StartOneKeyAct631Packet);
 }
@@ -853,8 +858,8 @@ void HandleStartOneKeyAct822Command(const std::wstring& msg) {
         Act822::PASS_SCORE,
         Act822::PASS_SCORE,
         Act822::MAX_SCORE,
-        L"光辉穿梭大考验：开始扫荡...",
-        L"光辉穿梭大考验：开始游戏...",
+        L"光辉穿梭大考验：开始执行...",
+        L"光辉穿梭大考验：开始执行...",
         L"光辉穿梭大考验启动失败",
         StartOneKeyAct822Packet);
 }
@@ -866,8 +871,8 @@ void HandleStartOneKeyAct826Command(const std::wstring& msg) {
         0,
         0,
         0,
-        L"圣石之战：开始扫荡...",
-        L"圣石之战：开始游戏...",
+        L"圣石之战：开始执行...",
+        L"圣石之战：开始执行...",
         L"圣石之战启动失败",
         StartOneKeyAct826Packet);
 }
@@ -879,8 +884,8 @@ void HandleStartOneKeyAct827Command(const std::wstring& msg) {
         0,
         0,
         0,
-        L"齐心协力大挑战：开始扫荡...",
-        L"齐心协力大挑战：开始游戏...",
+        L"齐心协力大挑战：开始执行...",
+        L"齐心协力大挑战：开始执行...",
         L"齐心协力大挑战启动失败",
         StartOneKeyAct827Packet);
 }
@@ -1307,6 +1312,8 @@ public:
             HandleStartOneKeyAct826Command(msg);
         } else if (msg.find(L"one_key_act827") != std::wstring::npos) {
             HandleStartOneKeyAct827Command(msg);
+        } else if (msg.find(L"refresh_activity_counts") != std::wstring::npos) {
+            HandleRefreshActivityCountsCommand();
         } else if (msg.find(L"one_key_horse_competition") != std::wstring::npos) {
             HandleStartOneKeyHorseCompetitionCommand();
         } else if (msg.find(L"stop_horse_competition") != std::wstring::npos) {

@@ -71,7 +71,8 @@ void* g_realGetTickCount = nullptr;
 void* g_realQueryPerformanceCounter = nullptr;
 
 // 版本检查相关常量
-constexpr float CURRENT_VERSION = 1.15f;  // 当前版本：1.15
+// 版本号与窗口标题统一取自 WpeHook::APP_VERSION_W / APP_WINDOW_TITLE_W，避免多处字面量漂移。
+constexpr float CURRENT_VERSION = 1.16f;  // 当前版本：1.16，须与 WpeHook::APP_VERSION_W 保持一致
 constexpr wchar_t VERSION_CHECK_URL[] = L"https://gitee.com/deepmoutains/kxby-release-detection/raw/master/data.txt";
 constexpr wchar_t UPDATE_DOWNLOAD_URL[] = L"https://wwbov.lanzout.com/b03ancytve";
 
@@ -1448,7 +1449,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     g_hWnd = CreateWindowExW(
         0,  // 普通窗口样式
         CLASS_NAME,
-        L"卡布西游浮影微端 V1.12",
+        WpeHook::APP_WINDOW_TITLE_W,
         WS_POPUP | WS_THICKFRAME | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT, 976, 813,  // 窗口宽度976，高度813
         nullptr,
