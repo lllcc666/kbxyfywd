@@ -657,7 +657,7 @@ static bool ReadBattleEntityAfterState(BoundedReader& reader, int32_t rawState, 
     return true;
 }
 
-static bool ReadBattleEntity(BoundedReader& reader, BattleEntity& pet) {
+[[maybe_unused]] static bool ReadBattleEntity(BoundedReader& reader, BattleEntity& pet) {
     int32_t rawState = 0;
     return reader.ReadI32(rawState) && ReadBattleEntityAfterState(reader, rawState, pet);
 }
@@ -1050,8 +1050,8 @@ bool PacketParser::UncompressBody(const std::vector<uint8_t>& compressed, std::v
     if (compressed.size() > (10 * 1024 * 1024)) return false;
     
     // 尝试多次解压，逐步增加缓冲区大小
-    unsigned long destLen = compressed.size() * 4;
-    const unsigned long maxDestLen = compressed.size() * 100; // 最大100倍扩展
+    unsigned long destLen = static_cast<unsigned long>(compressed.size() * 4);
+    const unsigned long maxDestLen = static_cast<unsigned long>(compressed.size() * 100); // 最大100倍扩展
     
     // 额外安全检查：防止整数溢出
     if (destLen > (50 * 1024 * 1024)) { // 最大解压后50MB
@@ -2652,7 +2652,7 @@ void PacketParser::ProcessMonsterPacket(const GamePacket& packet) {
         
         // 不可用技能数量
         if (offset + 4 > size) break;
-        int32_t unableSkillCount = ReadInt32LE(data, offset);
+        (void)ReadInt32LE(data, offset);
         // 跳过不可用技能
         
         // 灵玉数量

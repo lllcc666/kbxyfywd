@@ -1,6 +1,7 @@
 #pragma once
 
 #include <mutex>
+#include <unordered_map>
 
 #include "wpe_hook.h"
 
@@ -62,17 +63,9 @@ private:
 
     static uint64_t MakeKey(uint32_t opcode, uint32_t params);
 
-    struct HandlerEntry {
-        uint64_t key;
-        ResponseHandler handler;
-    };
-    std::vector<HandlerEntry> m_handlers;
-
-    struct OpcodeHandlerEntry {
-        uint32_t opcode;
-        ResponseHandler handler;
-    };
-    std::vector<OpcodeHandlerEntry> m_opcodeOnlyHandlers;
+    // Key为(opcode << 32 | params)，精确匹配优先于仅opcode匹配。
+    std::unordered_map<uint64_t, ResponseHandler> m_handlers;
+    std::unordered_map<uint32_t, ResponseHandler> m_opcodeOnlyHandlers;
 
     std::mutex m_mutex;
 };

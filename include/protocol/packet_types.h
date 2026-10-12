@@ -323,3 +323,39 @@ inline std::string ReadStringBE(const uint8_t* data, size_t& offset) {
     offset += len;
     return str;
 }
+
+// ============================================================================
+// 有界读取重载：在原无检查版本之上增加长度校验。
+// 读取失败时返回false并保持offset不变，成功时行为与无检查版本一致。
+// 供新代码与逐步迁移的调用点使用，旧调用点可继续沿用无检查版本。
+// ============================================================================
+
+inline bool TryReadInt32LE(const uint8_t* data, size_t size, size_t& offset, int32_t& out) {
+    if (offset + 4 > size) return false;
+    out = ReadInt32LE(data, offset);
+    return true;
+}
+
+inline bool TryReadUInt32LE(const uint8_t* data, size_t size, size_t& offset, uint32_t& out) {
+    if (offset + 4 > size) return false;
+    out = ReadUInt32LE(data, offset);
+    return true;
+}
+
+inline bool TryReadInt16LE(const uint8_t* data, size_t size, size_t& offset, int16_t& out) {
+    if (offset + 2 > size) return false;
+    out = ReadInt16LE(data, offset);
+    return true;
+}
+
+inline bool TryReadUInt16LE(const uint8_t* data, size_t size, size_t& offset, uint16_t& out) {
+    if (offset + 2 > size) return false;
+    out = ReadUInt16LE(data, offset);
+    return true;
+}
+
+inline bool TryReadByte(const uint8_t* data, size_t size, size_t& offset, uint8_t& out) {
+    if (offset + 1 > size) return false;
+    out = ReadByte(data, offset);
+    return true;
+}

@@ -971,8 +971,8 @@ void ProcessPackageDataResponse(const GamePacket& packet) {
     size_t offset = 0;
     size_t bodySize = packet.body.size();
     
-    // 读取 isocode
-    int isocode = ReadInt32LE(body, offset);
+    // 读取 isocode（占位字段，仅需推进 offset）
+    (void)ReadInt32LE(body, offset);
     
     // 读取 packcount（包数量）
     int packcount = ReadInt32LE(body, offset);
@@ -987,7 +987,7 @@ void ProcessPackageDataResponse(const GamePacket& packet) {
         if (offset + 12 > bodySize) break;
         
         int packcode = ReadInt32LE(body, offset);
-        int packid = ReadInt32LE(body, offset);
+        (void)ReadInt32LE(body, offset);  // packid：占位字段，仅需推进 offset
         int count = ReadInt32LE(body, offset);
         
         // 遍历包内物品
@@ -1819,9 +1819,14 @@ DWORD WINAPI Act822ThreadProc(LPVOID lpParam) {
                 Sleep(300);
                 SendAct822OpenUIPacket();
                 WaitForAct822Response();
-                const int medal = FindAwardAmount(g_act822ResultAwards, 0);
-                const int exp = FindAwardAmount(g_act822ResultAwards, 202);
-                const int coin = FindAwardAmount(g_act822ResultAwards, 201);
+                std::vector<std::pair<int, int>> resultAwards;
+                {
+                    std::lock_guard<std::mutex> lock(g_act822Mutex);
+                    resultAwards = g_act822ResultAwards;
+                }
+                const int medal = FindAwardAmount(resultAwards, 0);
+                const int exp = FindAwardAmount(resultAwards, 202);
+                const int coin = FindAwardAmount(resultAwards, 201);
                 wchar_t msg[256];
                 swprintf_s(
                     msg,
@@ -1888,14 +1893,20 @@ DWORD WINAPI Act822ThreadProc(LPVOID lpParam) {
     SendAct822OpenUIPacket();
     WaitForAct822Response();
 
+    std::vector<std::pair<int, int>> resultAwards;
+    {
+        std::lock_guard<std::mutex> lock(g_act822Mutex);
+        resultAwards = g_act822ResultAwards;
+    }
+
     wchar_t msg[256];
     swprintf_s(
         msg,
         L"光辉穿梭大考验：结算完成，分数=%d 勋章=%d 经验=%d 铜钱=%d",
         g_act822LastScore.load(),
-        FindAwardAmount(g_act822ResultAwards, 0),
-        FindAwardAmount(g_act822ResultAwards, 202),
-        FindAwardAmount(g_act822ResultAwards, 201));
+        FindAwardAmount(resultAwards, 0),
+        FindAwardAmount(resultAwards, 202),
+        FindAwardAmount(resultAwards, 201));
     UIBridge::Instance().UpdateHelperText(msg);
     return 0;
 }
@@ -1990,7 +2001,7 @@ void ProcessAct822Response(const GamePacket& packet) {
             const int result = ReadInt32LE(body, offset);
             const int playCount = ReadInt32LE(body, offset);
             const int coolTimeLeft = ReadInt32LE(body, offset);
-            const int invite = ReadInt32LE(body, offset);
+            (void)ReadInt32LE(body, offset);  // invite：占位字段，仅需推进 offset
             const int passGmaeAward = ReadInt32LE(body, offset);
             const int medal = ReadInt32LE(body, offset);
             int exp = ReadInt32LE(body, offset);
@@ -2046,7 +2057,7 @@ void ProcessAct822Response(const GamePacket& packet) {
     } else if (operation == "sweep_info") {
         if (offset + 28 <= packet.body.size()) {
             const int resultType = ReadInt32LE(body, offset);
-            const int invite = ReadInt32LE(body, offset);
+            (void)ReadInt32LE(body, offset);  // invite：占位字段，仅需推进 offset
             const int passGmaeAward = ReadInt32LE(body, offset);
             const int medal = ReadInt32LE(body, offset);
             int exp = ReadInt32LE(body, offset);
@@ -2103,7 +2114,7 @@ void ProcessAct822Response(const GamePacket& packet) {
             const int result = ReadInt32LE(body, offset);
             const int buyCnt = ReadInt32LE(body, offset);
             const int restTime = ReadInt32LE(body, offset);
-            const int invite = ReadInt32LE(body, offset);
+            (void)ReadInt32LE(body, offset);  // invite：占位字段，仅需推进 offset
             const int passGmaeAward = ReadInt32LE(body, offset);
             const int medal = ReadInt32LE(body, offset);
             int exp = ReadInt32LE(body, offset);
@@ -4266,7 +4277,7 @@ static bool WaitForAct757Response() {
     return received;
 }
 
-static std::vector<std::pair<int, int>> BuildAct757RewardList(
+[[maybe_unused]] static std::vector<std::pair<int, int>> BuildAct757RewardList(
     int medal,
     int exp,
     int coin,
@@ -5007,7 +5018,7 @@ void ProcessAct631Response(const GamePacket& packet) {
         return received;
     }
 
-    static BOOL SendAct808Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
+    BOOL SendAct808Packet(const std::string& operation, const std::vector<int32_t>& bodyValues) {
         std::vector<BYTE> packet = BuildActivityPacket(
             Opcode::ACTIVITY_QINGYANG_NEW_SEND,
             Act808::ACTIVITY_ID,
@@ -6363,6 +6374,7 @@ void ProcessAct631Response(const GamePacket& packet) {
     static bool g_act778SweepSuccess = false;
     
     DWORD WINAPI Act778ThreadProc(LPVOID lpParam) {
+        (void)lpParam;
         Sleep(300);
         
         UIBridge::Instance().UpdateHelperText(L"驱傩聚福寿：正在获取游戏信息...");
@@ -6593,7 +6605,7 @@ void SyncPacketsToUI() {
         if (packet.dwSize >= PacketProtocol::HEADER_SIZE) {
             size_t offset = 0;
             uint16_t magic = ReadUInt16LE(packet.pData, offset);  // Magic: offset 0-1
-            uint16_t length = ReadUInt16LE(packet.pData, offset); // Length: offset 2-3
+            (void)ReadUInt16LE(packet.pData, offset);             // Length: offset 2-3
             if (magic == PacketProtocol::MAGIC_NORMAL || magic == PacketProtocol::MAGIC_COMPRESSED) {
                 uint32_t opcode = ReadUInt32LE(packet.pData, offset);  // Opcode: offset 4-7
                 labelUtf8 = GetPacketLabel(opcode, packet.bSend);
@@ -6624,6 +6636,8 @@ void SyncPacketsToUI() {
 }
 
 void AddPacketToUI(BOOL bSend, const BYTE* pData, DWORD dwSize, DWORD dwTime) {
+    (void)bSend;
+    (void)dwTime;
     if (!g_hWnd || !pData || dwSize == 0) return;
     if (!g_bInterceptEnabled) return;
 
@@ -7107,6 +7121,7 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
         // 3. 自动回血功能
         if (g_autoHeal && gp.opcode == Opcode::BATTLE_END && gp.params == 1) {
             CreateThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
+                (void)lpParam;
                 Sleep(100);
                 SendBeibeiHealPacket();
                 return 0;
@@ -7503,13 +7518,7 @@ BOOL ResponseDispatcher::Register(uint32_t opcode, ResponseHandler handler) {
     if (!handler) return FALSE;
 
     std::lock_guard<std::mutex> lock(m_mutex);
-    for (auto& entry : m_opcodeOnlyHandlers) {
-        if (entry.opcode == opcode) {
-            entry.handler = handler;
-            return TRUE;
-        }
-    }
-    m_opcodeOnlyHandlers.push_back({ opcode, handler });
+    m_opcodeOnlyHandlers[opcode] = handler;
     return TRUE;
 }
 
@@ -7517,14 +7526,7 @@ BOOL ResponseDispatcher::Register(uint32_t opcode, uint32_t params, ResponseHand
     if (!handler) return FALSE;
 
     std::lock_guard<std::mutex> lock(m_mutex);
-    const uint64_t key = MakeKey(opcode, params);
-    for (auto& entry : m_handlers) {
-        if (entry.key == key) {
-            entry.handler = handler;
-            return TRUE;
-        }
-    }
-    m_handlers.push_back({ key, handler });
+    m_handlers[MakeKey(opcode, params)] = handler;
     return TRUE;
 }
 
@@ -7532,52 +7534,42 @@ void ResponseDispatcher::Unregister(uint32_t opcode, uint32_t params) {
     std::lock_guard<std::mutex> lock(m_mutex);
 
     if (params != 0xFFFFFFFF) {
-        const uint64_t key = MakeKey(opcode, params);
-        m_handlers.erase(
-            std::remove_if(m_handlers.begin(), m_handlers.end(),
-                [key](const HandlerEntry& entry) {
-                    return entry.key == key;
-                }),
-            m_handlers.end()
-        );
+        m_handlers.erase(MakeKey(opcode, params));
         return;
     }
 
-    m_opcodeOnlyHandlers.erase(
-        std::remove_if(m_opcodeOnlyHandlers.begin(), m_opcodeOnlyHandlers.end(),
-            [opcode](const OpcodeHandlerEntry& entry) {
-                return entry.opcode == opcode;
-            }),
-        m_opcodeOnlyHandlers.end()
-    );
-    m_handlers.erase(
-        std::remove_if(m_handlers.begin(), m_handlers.end(),
-            [opcode](const HandlerEntry& entry) {
-                return static_cast<uint32_t>(entry.key >> 32) == opcode;
-            }),
-        m_handlers.end()
-    );
+    m_opcodeOnlyHandlers.erase(opcode);
+    for (auto it = m_handlers.begin(); it != m_handlers.end();) {
+        if (static_cast<uint32_t>(it->first >> 32) == opcode) {
+            it = m_handlers.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 BOOL ResponseDispatcher::Dispatch(const GamePacket& packet) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-
-    const uint64_t key = MakeKey(packet.opcode, packet.params);
-    for (const auto& entry : m_handlers) {
-        if (entry.key == key && entry.handler) {
-            entry.handler(packet);
-            return TRUE;
+    // 锁内只取handler指针，锁外再执行：handler可能耗时甚至回调注册接口。
+    ResponseHandler handler = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        auto exact = m_handlers.find(MakeKey(packet.opcode, packet.params));
+        if (exact != m_handlers.end()) {
+            handler = exact->second;
+        } else {
+            auto byOpcode = m_opcodeOnlyHandlers.find(packet.opcode);
+            if (byOpcode != m_opcodeOnlyHandlers.end()) {
+                handler = byOpcode->second;
+            }
         }
     }
 
-    for (const auto& entry : m_opcodeOnlyHandlers) {
-        if (entry.opcode == packet.opcode && entry.handler) {
-            entry.handler(packet);
-            return TRUE;
-        }
+    if (!handler) {
+        return FALSE;
     }
 
-    return FALSE;
+    handler(packet);
+    return TRUE;
 }
 
 void ResponseDispatcher::Clear() {
@@ -8482,6 +8474,7 @@ BOOL SendDeepDigPacketNTimes(int count) {
 // 深度挖宝 - 发送结束游戏封包
 // Opcode: 1185525, Params: 12, Body: [4, 0, 4, sessionId, 0, 0]
 static BOOL SendDeepDigEndPacket(int sessionId, int score) {
+    (void)score;
     auto packet = PacketBuilder()
         .SetOpcode(1185525)
         .SetParams(12)
@@ -8705,7 +8698,7 @@ static std::string DownloadImageAndGetMD5(const std::string& imageMd5) {
     // 发送请求
     std::string result;
     LPCWSTR headers = L"Content-Type: application/x-www-form-urlencoded\r\n";
-    if (WinHttpSendRequest(hRequest, headers, -1,
+    if (WinHttpSendRequest(hRequest, headers, static_cast<DWORD>(-1),
                            (LPVOID)postData.data(), (DWORD)postData.size(),
                            (DWORD)postData.size(), 0)) {
         if (WinHttpReceiveResponse(hRequest, NULL)) {
@@ -9064,7 +9057,7 @@ void ProcessTrialResponse(const GamePacket& packet) {
             
         case 15:  // 风暴试炼结束
             if (result == 0 && offset + 4 <= packet.body.size()) {
-                int32_t value = ReadInt32LE(body, offset);
+                (void)ReadInt32LE(body, offset);  // value：占位字段
             }
             break;
             
@@ -9548,7 +9541,7 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
             else if (operation == 6 && packet.body.size() >= 16) {
                 int32_t result = ReadInt32LE(packet.body.data(), offset);    // 结果 (0=成功)
                 int32_t num = ReadInt32LE(packet.body.data(), offset);       // 骰子数量
-                int32_t buycount = ReadInt32LE(packet.body.data(), offset);  // 购买次数
+                (void)ReadInt32LE(packet.body.data(), offset);               // buycount：占位字段
 
                 CriticalSectionLock lock(g_towerCS);
                 g_towerBuyBonesSuccess = (result == 0);
@@ -9577,6 +9570,9 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
                 int32_t param1 = ReadInt32LE(packet.body.data(), offset);
                 int32_t param2 = ReadInt32LE(packet.body.data(), offset);
                 int32_t param3 = ReadInt32LE(packet.body.data(), offset);    // 随机骰子点数
+                (void)param1;
+                (void)param2;
+                (void)param3;
 
                 CriticalSectionLock lock(g_towerCS);
                 // 记录投掷结果
@@ -9897,6 +9893,7 @@ BOOL SendDanceContestPacket() {
 }
 // 跳舞大赛线程函数
 DWORD WINAPI DanceContestThreadProc(LPVOID lpParam) {
+    (void)lpParam;
     // 跳舞计数从5开始，每次+5，直到超过100
     while (g_danceState.counter <= 100) {
         Sleep(220);
@@ -10265,7 +10262,7 @@ DWORD SendAllPackets(DWORD intervalMs, DWORD loopCount,
                 if (packet.dwSize >= PacketProtocol::HEADER_SIZE) {
                     size_t offset = 0;
                     uint16_t magic = ReadUInt16LE(packet.pData, offset);  // Magic: offset 0-1
-                    uint16_t length = ReadUInt16LE(packet.pData, offset); // Length: offset 2-3
+                    (void)ReadUInt16LE(packet.pData, offset);             // Length: offset 2-3
                     if (magic == PacketProtocol::MAGIC_NORMAL || magic == PacketProtocol::MAGIC_COMPRESSED) {
                         uint32_t opcode = ReadUInt32LE(packet.pData, offset);  // Opcode: offset 4-7
                         label = GetPacketLabel(opcode, true);
@@ -10295,7 +10292,7 @@ DWORD SendAllPackets(DWORD intervalMs, DWORD loopCount,
             if (packetData.size() >= 16) {
                 size_t offset = 0;
                 uint16_t magic = ReadUInt16LE(packetData.data(), offset);  // Magic: offset 0-1
-                uint16_t length = ReadUInt16LE(packetData.data(), offset); // Length: offset 2-3
+                (void)ReadUInt16LE(packetData.data(), offset);             // Length: offset 2-3
                 
                 if (magic == PacketProtocol::MAGIC_NORMAL || magic == PacketProtocol::MAGIC_COMPRESSED) {
                     uint32_t opcode = ReadUInt32LE(packetData.data(), offset);  // Opcode: offset 4-7
@@ -11161,7 +11158,7 @@ static bool WaitForEightTrigramsWaterSoulReward(
 }
 
 
-static bool WaitForEightTrigramsPostBattleDialog(
+[[maybe_unused]] static bool WaitForEightTrigramsPostBattleDialog(
     unsigned long long sessionId,
     DWORD timeoutMs) {
     const DWORD startTick = GetTickCount();
@@ -11181,7 +11178,7 @@ static bool WaitForEightTrigramsPostBattleDialog(
     return false;
 }
 
-static void UpdateEightTrigramsResumeHintByDialogId(uint32_t dialogId) {
+[[maybe_unused]] static void UpdateEightTrigramsResumeHintByDialogId(uint32_t dialogId) {
     const size_t stepIndex = FindEightTrigramsStepIndexByDialogId(dialogId);
     if (stepIndex < EIGHT_TRIGRAMS_STEP_COUNT) {
         UpdateEightTrigramsResumeHint(stepIndex + 1);
@@ -11424,7 +11421,6 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
         const size_t stepCount = sizeof(EIGHT_TRIGRAMS_STEPS) / sizeof(EIGHT_TRIGRAMS_STEPS[0]);
         size_t startIndex = 0;
         uint32_t currentSceneId = 0;
-        uint32_t lastRelevantNpcId = 0;
         std::wstring startText;
 
         if (startIndex >= stepCount) {
@@ -11956,7 +11952,7 @@ static const CollectItemData COLLECT_ITEMS[] = {
 static const int COLLECT_ITEM_COUNT = sizeof(COLLECT_ITEMS) / sizeof(COLLECT_ITEMS[0]);
 
 /** 辅助函数：格式化十六进制数为字符串 */
-static std::wstring fmt_hex(uint32_t value) {
+[[maybe_unused]] static std::wstring fmt_hex(uint32_t value) {
     wchar_t buf[16];
     swprintf_s(buf, L"%04X", value);
     return std::wstring(buf);
@@ -12715,6 +12711,7 @@ BOOL SendBattlePacket(uint32_t spiritId, uint32_t useId, uint8_t extraParam, uin
      * @brief 福瑞宝箱一键完成线程
      */
     DWORD WINAPI HeavenFuruiThreadProc(LPVOID lpParam) {
+        (void)lpParam;
         Sleep(300);
         
         // 重置已开启数量
@@ -12886,8 +12883,8 @@ BOOL SendBattlePacket(uint32_t spiritId, uint32_t useId, uint8_t extraParam, uin
             g_heavenFuruiQuerySuccess = true;
             
             if (offset + 12 <= packet.body.size()) {
-                int isVailTime = ReadInt32LE(body, offset);
-                int clickIconFlag = ReadInt32LE(body, offset);
+                (void)ReadInt32LE(body, offset);  // isVailTime：占位字段
+                (void)ReadInt32LE(body, offset);  // clickIconFlag：占位字段
                 int boxNum = ReadInt32LE(body, offset);
                 
                 // 如果已有宝箱数据且新响应 boxNum=0，则忽略
@@ -12910,7 +12907,7 @@ BOOL SendBattlePacket(uint32_t spiritId, uint32_t useId, uint8_t extraParam, uin
                 
                 // 读取已开宝箱数量
                 if (offset + 4 <= packet.body.size()) {
-                    int openBoxNum = ReadInt32LE(body, offset);
+                    (void)ReadInt32LE(body, offset);  // openBoxNum：占位字段
                 }
                 
                 // 通知UI - 显示实际保存的宝箱数量
@@ -13190,7 +13187,7 @@ void BattleSixAutoBattle::OnBattleRoundResult(const GamePacket& packet) {
         }
         
         int sid = ReadInt32LE(packet.body.data(), offset);
-        int uniqueId = ReadInt32LE(packet.body.data(), offset);
+        (void)ReadInt32LE(packet.body.data(), offset);  // uniqueId：占位字段，仅需推进 offset
         int sta = ReadInt32LE(packet.body.data(), offset);
         
         if (sta == 1 && offset + 44 <= packet.body.size()) {
@@ -13276,10 +13273,10 @@ void BattleSixAutoBattle::OnBattleRoundResult(const GamePacket& packet) {
                 }
             
             if (miss == 0) {
-                int brust = ReadInt32LE(packet.body.data(), offset);
+                (void)ReadInt32LE(packet.body.data(), offset);  // brust：占位字段
                 int atkHp = ReadInt32LE(packet.body.data(), offset);
                 int defHp = ReadInt32LE(packet.body.data(), offset);
-                int reboundHp = ReadInt32LE(packet.body.data(), offset);
+                (void)ReadInt32LE(packet.body.data(), offset);  // reboundHp：占位字段
                 
                 // 更新攻击者和防御者的HP
                 // 关键：atkHp和defHp的含义取决于谁是攻击者
@@ -13490,7 +13487,7 @@ BOOL SendBattleSixCombatInfoPacket() {
         .WriteBytes(body)
         .Build();
     
-    return SendPacket(0, packet.data(), packet.size());
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
 }
 
 static BOOL SendBattleSixMatchPacketOnce() {
@@ -13501,7 +13498,7 @@ static BOOL SendBattleSixMatchPacketOnce() {
         .WriteBytes(body)
         .Build();
 
-    return SendPacket(0, packet.data(), packet.size());
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
 }
 
 static void StartBattleSixMatchRetryLoop(unsigned long long token) {
@@ -13562,7 +13559,7 @@ BOOL SendBattleSixCancelMatchPacket() {
     
     ResetBattleSixFlowState();
     
-    return SendPacket(0, packet.data(), packet.size());
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
 }
 
 BOOL SendBattleSixReqStartPacket() {
@@ -13574,7 +13571,7 @@ BOOL SendBattleSixReqStartPacket() {
         .Build();
 
     g_battleSixReadySupplementSent = false;
-    return SendPacket(0, packet.data(), packet.size());
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
 }
 
 BOOL SendBattleSixUserOpPacket(int opType, int param1, int param2) {
@@ -13600,7 +13597,7 @@ BOOL SendBattleSixUserOpPacket(int opType, int param1, int param2) {
     
     auto finalPacket = packet.Build();
     
-    return SendPacket(0, finalPacket.data(), finalPacket.size());
+    return SendPacket(0, finalPacket.data(), static_cast<DWORD>(finalPacket.size()));
 }
 
 BOOL SendBattleSixEndPacket() {
@@ -13624,7 +13621,7 @@ static BOOL SendBattleReadyPacket() {
         .SetParams(0)
         .Build();
 
-    return SendPacket(0, packet.data(), packet.size());
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
 }
 
 static BOOL SendBattlePlayOverPacket() {
@@ -13635,7 +13632,7 @@ static BOOL SendBattlePlayOverPacket() {
         .SetParams(0)
         .Build();
 
-    return SendPacket(0, packet.data(), packet.size());
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
 }
 
 // 万妖盛会响应处理函数实现
@@ -13775,6 +13772,7 @@ void ProcessBattleSixFinishFirstSpiritResponse(const GamePacket& packet) {
 }
 
 void ProcessBattleSixReqStartResponse(const GamePacket& packet) {
+    (void)packet;
     // 请求开始战斗的响应处理
     UIBridge::Instance().UpdateHelperText(L"万妖盛会：已请求开始战斗");
 }
@@ -13880,6 +13878,7 @@ void ProcessBattleSixBattleRoundResultResponse(const GamePacket& packet) {
 }
 
 void ProcessBattleSixBattleEndResponse(const GamePacket& packet) {
+    (void)packet;
     // 记录战斗结果
     bool wasInBattle = g_battleSixAuto.IsInBattle();
     bool wasAutoMatching = g_battleSixAuto.IsAutoMatching();
@@ -14196,6 +14195,7 @@ int FindFirstSpiritId(const std::vector<MonsterItem>& monsters) {
 
 // 副本跳层异步线程
 static DWORD WINAPI DungeonJumpThreadProc(LPVOID lpParam) {
+    (void)lpParam;
     int targetLayer = g_dungeonJumpState.targetLayer;
     
     // 跳层开始
@@ -14352,6 +14352,7 @@ void StopDungeonJump() {
 }
 
 void ProcessDungeonJumpResponse(const GamePacket& packet) {
+    (void)packet;
     // 处理副本跳层相关响应
     // 注意：使用ResponseWaiter自动处理响应，此函数保留用于未来扩展
     if (!g_dungeonJumpState.isRunning) {
@@ -14390,7 +14391,7 @@ uint32_t GetLastSpiritId() {
 uint32_t GetHighestPowerSkillId(uint32_t spiritId) {
     const MonsterItem* monster = nullptr;
     for (const auto& m : g_monsterData.monsters) {
-        if (m.id == spiritId) {
+        if (static_cast<uint32_t>(m.id) == spiritId) {
             monster = &m;
             break;
         }
@@ -14525,7 +14526,7 @@ bool ShuangTaiAutoBattle::InitializePetData() {
     // 获取主宠最高威力技能及其PP值
     const MonsterItem* monster = nullptr;
     for (const auto& m : g_monsterData.monsters) {
-        if (m.id == m_mainPetId) {
+        if (static_cast<uint32_t>(m.id) == m_mainPetId) {
             monster = &m;
             break;
         }
@@ -14926,7 +14927,7 @@ void UpdateShuangTaiUIFromMonsterData() {
     uint32_t bestSkillId = GetHighestPowerSkillId(mainPet.id);
     std::wstring skillName = L"未知技能";
     for (const auto& skill : mainPet.skills) {
-        if (skill.id == bestSkillId) {
+        if (static_cast<uint32_t>(skill.id) == bestSkillId) {
             skillName = skill.name;
             break;
         }
@@ -14950,6 +14951,7 @@ void ProcessShuangTaiBattleStartResponse(const GamePacket& packet) {
 }
 
 void ProcessShuangTaiBattleRoundStartResponse(const GamePacket& packet) {
+    (void)packet;
     g_shuangtaiAuto.OnBattleRoundStartResponse();
 }
 

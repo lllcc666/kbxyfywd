@@ -29,6 +29,9 @@ add_executable(WebView2Demo WIN32
 # 鐠佸墽鐤嗙紓鏍槯閸ｃ劋濞囬悽鈺慣F-8缂傛牜鐖?
 if(MSVC)
     target_compile_options(WebView2Demo PRIVATE /utf-8)
+    # /W4：警告等级提升到 Level4，用于拦截未使用变量/参数、收窄转换、
+    # 有符号无符号混用等问题。暂不开启 /WX，避免历史代码阻断构建。
+    target_compile_options(WebView2Demo PRIVATE /W4)
 endif()
 
 # 鐠佸墽鐤?vcpkg 鐠侯垰绶?

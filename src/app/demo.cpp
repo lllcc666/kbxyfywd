@@ -1372,6 +1372,8 @@ public:
                         
                         HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args) override
                         {
+                            (void)sender;
+                            (void)args;
                             // 页面加载完成后，发送BOSS列表到UI
                             PacketParser::SendBossListToUI();
                             return S_OK;
@@ -1416,6 +1418,8 @@ public:
 // 主函数
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
+    (void)hPrevInstance;
+    (void)lpCmdLine;
     // 注册窗口类 (使用 Unicode 版本)
     const wchar_t CLASS_NAME[] = L"WebView2DemoWindowClass";
 
@@ -1557,12 +1561,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // 创建WebBrowser控件实例
     if (g_hwnd_webbrowser)
     {
-        HRESULT hr = g_axWindow.CreateControl(L"Shell.Explorer.2");
-        if (SUCCEEDED(hr))
+        HRESULT controlHr = g_axWindow.CreateControl(L"Shell.Explorer.2");
+        if (SUCCEEDED(controlHr))
         {
             // 获取IWebBrowser2接口
-            hr = g_axWindow.QueryControl(&g_pWebBrowser);
-            if (SUCCEEDED(hr) && g_pWebBrowser)
+            controlHr = g_axWindow.QueryControl(&g_pWebBrowser);
+            if (SUCCEEDED(controlHr) && g_pWebBrowser)
             {
                 // 设置WebBrowser控件为静默状态，不显示脚本错误和安全警告
                 g_pWebBrowser->put_Silent(VARIANT_TRUE);
