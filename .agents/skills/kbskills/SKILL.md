@@ -52,6 +52,7 @@ description: 卡布西游 SWF/AS3 逆向分析技能。用于任务、周活动�
 - 协议族对应 AS3 常量名：新活动 `OP_CLIENT_ACTIVITY_QINGYANG_NEW`，旧活动 `OP_CLIENT_ACTIVITY_QINGYANG`，小游戏 `OP_CLIENT_LITTLE_GAME`，跳舞 `OP_CLIENT_DANCE_ACTIVITY`，灵玉 `OP_CLIENT_SPIRIT_EQUIP_ALL`，妖怪背包 `OP_CLIENT_REQ_SPIRIT_LIST`，进入世界 `OP_CLIENT_REQ_ENTER_WORLD`。
 ## 需要细节时再展开
 - 通用分析套路：`references/module-game-analysis.md`
+- 小游戏/周活动自动化落地流水线与实现红线：`references/workflow-little-game-automation.md`
 - 周活动索引：`references/weekly-activities-analysis.md`
 - 协议与 opcode：`references/protocol.md`、`references/protocol-base.md`、`references/opcode-index.md`
 - 脚本辅助：`scripts/analyze_swf.py`、`scripts/calc_opcode.py`
@@ -69,3 +70,6 @@ description: 卡布西游 SWF/AS3 逆向分析技能。用于任务、周活动�
 - `FFDec` 可直接用 `java -jar "D:\Program Files (x86)\FFDec\ffdec.jar"` 启动；先跑 `-help export`，再执行 `-export script ...`。
 - 周活动固定流程：刷新远端 `weeklyactivity` -> 下载对应 SWF -> 用 FFDec 导出 `scripts/` -> 按 `入口类 -> 控制 -> 模型/常量 -> 视图/节点 -> 协议` 顺序分析。
 - 这条流程是固定流水线，不需要再额外思考或泛搜；只要定位到最新周活动，就直接按这条链路往下走。
+- 落地到自动化后，"编译通过"不等于逻辑正确：先按 AS3 状态机核对（回包成对等待、多阶段活动的状态迁移、各操作门槛逐字段比对），细节见 `references/workflow-little-game-automation.md`。
+- 结论与修复都要附 AS3 文件行号依据；"看起来合理"的推断不写进代码。交付前对改动做一次只读 review（含边界与回退链路）；子代理没给出结论时，自己逐条核对并附证据。
+- 现象相同、原因常不同：界面"只扣次数不发奖励 / 提前结束 / 该扫荡却走完整流程"这类表现，必须先用 AS3 与本地状态机逐段对照定位，再动代码。

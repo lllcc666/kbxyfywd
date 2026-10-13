@@ -75,6 +75,12 @@ constexpr uint32_t USER_TASK_LIST_BACK = 1315849;
 // 普通任务窗口由它拿到首个 dialogId，再由 taskDialogComplete 回 TASK_TALK。
 constexpr uint32_t NPCTASKLIST_BACK = 1315858;
 
+// 接受任务（AS3 MsgDoc.OP_CLIENT_REQ_ACCEPTTASK）。
+// 服务端在 NPCTASKLIST_BACK 里用 type=1 给出可接任务列表，客户端点「接受」后
+// 由 TaskControl.onAcceptTask() 以 params=subtaskId 发送，主线任务必须靠它接上。
+constexpr uint32_t ACCEPT_TASK_SEND = 1184774;
+constexpr uint32_t ACCEPT_TASK_BACK = 1315846;
+
 // 子任务完成通知（AS3 MsgDoc.OP_CLIENT_REQ_TASKFINISHED.back）。
 constexpr uint32_t TASK_FINISHED_BACK = 1315847;
 

@@ -10595,8 +10595,21 @@ void StartDailyTasksAsync(DWORD flags) {
 // 任务区（八卦灵盘）
 // ============================================================================
 
-// 皇城危机任务组号，UI 进度面板按该组号查询（组号 = taskinfo 里的 task id）。
+// 皇城危机任务组号，UI 进度面板默认按该组号查询（组号 = taskinfo 里的 task id）。
 static constexpr uint32_t HUANGCHENG_WEIJI_TASK_ID = 2001000;
+
+// 是否为主线剧情任务组（皇城危机 / 魔晶战记 等）。UI 面板按系列切换时要按各自组号查询进度。
+static bool IsMainlineStoryTaskId(uint32_t taskId) {
+    if (taskId == 0) {
+        return false;
+    }
+    for (uint32_t i = 0; i < StoryTaskRecipe::SUBTASK_COUNT; ++i) {
+        if (StoryTaskRecipe::SUBTASKS[i].taskId == taskId) {
+            return true;
+        }
+    }
+    return false;
+}
 
 enum class TaskZoneStepKind {
     Talk,
@@ -10730,7 +10743,7 @@ static std::wstring BuildUInt32JsonArray(const std::vector<uint32_t>& values) {
     return result;
 }
 
-static void PushHuangchengWeijiProgressToUi() {
+static void PushHuangchengWeijiProgressToUi(uint32_t taskId = HUANGCHENG_WEIJI_TASK_ID) {
     std::vector<uint32_t> acceptedSubtaskIds;
     std::vector<uint32_t> finishedSubtaskIds;
     {
@@ -10740,7 +10753,7 @@ static void PushHuangchengWeijiProgressToUi() {
     }
 
     std::wstring script = L"if(window.updateHuangchengWeijiProgress) { window.updateHuangchengWeijiProgress({taskId:" +
-                          std::to_wstring(HUANGCHENG_WEIJI_TASK_ID) +
+                          std::to_wstring(taskId) +
                           L", acceptedSubtaskIds:" + BuildUInt32JsonArray(acceptedSubtaskIds) +
                           L", finishedSubtaskIds:" + BuildUInt32JsonArray(finishedSubtaskIds) +
                           L"}); }";
@@ -10963,8 +10976,9 @@ static void ProcessTaskZoneUserTaskListResponse(const GamePacket& packet) {
 
     // 进度推送必须在释放 g_eightTrigramsProgress.mutex 之后进行：
     // PushHuangchengWeijiProgressToUi 自己会再取这把非递归锁，嵌套会自死锁。
-    if (progressTaskId == HUANGCHENG_WEIJI_TASK_ID) {
-        PushHuangchengWeijiProgressToUi();
+    // 主线卡片按系列切换，任何主线组查询都要回推，不能只认 2001000。
+    if (IsMainlineStoryTaskId(progressTaskId)) {
+        PushHuangchengWeijiProgressToUi(progressTaskId);
     }
 }
 
@@ -11919,6 +11933,8 @@ struct StoryTaskState {
     std::vector<uint32_t> acceptedSubtaskIds;
     std::vector<uint32_t> finishedSubtaskIds;
     bool userTaskListLoaded = false;
+    // NPCTASKLIST(type=1) 给出的可接子任务；工作线程据此补发 ACCEPT_TASK。
+    std::vector<uint32_t> pendingAcceptSubtaskIds;
     // UI 勾选的子任务；空 = 跑全部未完成。
     std::vector<uint32_t> selectedSubtaskIds;
 };
@@ -11992,6 +12008,7 @@ static void ResetStoryTaskState() {
     g_storyTaskState.pendingNpcId = 0;
     g_storyTaskState.pendingType = 0;
     g_storyTaskState.pendingDialogReady = false;
+    g_storyTaskState.pendingAcceptSubtaskIds.clear();
     g_storyTaskState.finishedSubtaskId = 0;
     g_storyTaskState.finishedSubtaskReady = false;
 }
@@ -12005,7 +12022,10 @@ static void UpdateStoryTaskUi(const std::wstring& text, bool running) {
 }
 
 // 取服务端下发的下一个对话节点。
-static bool TakeStoryPendingDialog(unsigned long long sessionId, uint32_t& dialogId, uint32_t& npcId, DWORD timeoutMs) {
+static bool TakeStoryPendingDialog(unsigned long long sessionId,
+                                   uint32_t& dialogId,
+                                   uint32_t& npcId,
+                                   DWORD timeoutMs) {
     const DWORD startTick = GetTickCount();
     while (g_storyTaskRunning.load() && g_storyTaskSession.load() == sessionId) {
         {
@@ -12023,6 +12043,40 @@ static bool TakeStoryPendingDialog(unsigned long long sessionId, uint32_t& dialo
         Sleep(50);
     }
     return false;
+}
+
+// 取走一条 NPCTASKLIST(type=1) 给出的可接子任务。
+static bool TakeStoryPendingAcceptSubtask(uint32_t& subtaskId) {
+    std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
+    if (g_storyTaskState.pendingAcceptSubtaskIds.empty()) {
+        return false;
+    }
+    subtaskId = g_storyTaskState.pendingAcceptSubtaskIds.front();
+    g_storyTaskState.pendingAcceptSubtaskIds.erase(
+        g_storyTaskState.pendingAcceptSubtaskIds.begin());
+    return true;
+}
+
+// 不消费地看一眼服务端是否已经下发了对话节点（接任务等待用）。
+static bool HasStoryPendingDialog() {
+    std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
+    return g_storyTaskState.pendingDialogReady;
+}
+
+// AS3 TaskControl.onAcceptTask：OP_CLIENT_REQ_ACCEPTTASK.send，params=subtaskId，无 body。
+static bool SendStoryAcceptTaskPacket(uint32_t subtaskId) {
+    if (subtaskId == 0) {
+        return false;
+    }
+    auto packet = PacketBuilder()
+        .SetOpcode(Opcode::ACCEPT_TASK_SEND)
+        .SetParams(subtaskId)
+        .Build();
+    if (!SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()))) {
+        return false;
+    }
+    Sleep(EIGHT_TRIGRAMS_TALK_DELAY_MS);
+    return true;
 }
 
 // 战斗节点的怪物 sid 计算，与 AS3 MonsterManger 一致：
@@ -12055,6 +12109,14 @@ static bool ReplyStoryDialogNode(unsigned long long sessionId, uint32_t dialogId
 
     const StoryTaskRecipe::Node* node = FindStoryNode(dialogId);
 
+    // alert 是纯提示节点（TaskXMLParser 解析成 alert，由 TaskAlert/TaskTips 展示）。
+    // TaskTips.dispos 只在 needToChangeMouse.sendback 有值时才回调发包，普通 alert 不发包；
+    // 这里多发一句 TASK_TALK 会让服务端重推同一节点。
+    if (node != nullptr && node->kind == StoryTaskRecipe::KIND_ALERT) {
+        UpdateTaskZoneUi(L"任务区：提示节点 " + std::to_wstring(dialogId), true);
+        return true;
+    }
+
     // 配方表里没有的节点（例如临时/动态节点）：当作普通对白回应，保持流程前进。
     if (node == nullptr) {
         UpdateTaskZoneUi(L"任务区：回应未登记对白 " + std::to_wstring(dialogId), true);
@@ -12071,10 +12133,10 @@ static bool ReplyStoryDialogNode(unsigned long long sessionId, uint32_t dialogId
             UpdateTaskZoneUi(L"任务区：发起任务战斗 " + std::to_wstring(node->battleId), true);
             return SendBattlePacket(sid) != FALSE;
         }
-        case StoryTaskRecipe::KIND_CHOOSE:
-            // 选项节点：先 TRAIN_INFO(7,[dialogId,acceptFlag]) 再 TASK_TALK。
-            return SendTaskZoneTalkPacket(npcId, dialogId, node->acceptFlag) != FALSE;
         default:
+            // 含 <choose> 的节点也走这里：AS3 TaskDialog.onClickPersonSay 对 flag 1/2/3
+            // 是本地分支（flag=1 继续、flag=2 直接关窗），都不发 TRAIN_INFO；
+            // 只有服务端回包带 chooseId 时才发，本流程拿不到该字段，故只回 TASK_TALK。
             return SendTaskZoneTalkPacket(npcId, dialogId) != FALSE;
     }
 }
@@ -12106,6 +12168,32 @@ static bool RunStorySubtask(unsigned long long sessionId, const StoryTaskRecipe:
         if (!SendTaskZoneClickPacket(subtask.entryNpc, false)) {
             UpdateTaskZoneUi(L"任务区：点击入口 NPC 失败", false);
             return false;
+        }
+
+        // 主线任务多以「接任务」开场：服务端用 NPCTASKLIST(type=1) 给出可接列表，
+        // 不补发 ACCEPT_TASK 就停在接任务窗口，后面所有对话都不会来。
+        // 两个退出条件：拿到可接任务立刻发；或服务端直接给了对话节点（本步不用接任务）。
+        const DWORD acceptWaitMs = 2500;
+        const DWORD acceptDeadline = GetTickCount() + acceptWaitMs;
+        while (g_storyTaskRunning.load() && g_storyTaskSession.load() == sessionId &&
+               GetTickCount() < acceptDeadline) {
+            uint32_t acceptId = 0;
+            if (!TakeStoryPendingAcceptSubtask(acceptId)) {
+                if (HasStoryPendingDialog()) {
+                    break;
+                }
+                Sleep(100);
+                continue;
+            }
+            UpdateStoryTaskUi(L"任务区：接受子任务 " + std::to_wstring(acceptId), true);
+            if (!SendStoryAcceptTaskPacket(acceptId)) {
+                UpdateTaskZoneUi(L"任务区：接任务发包失败", false);
+                return false;
+            }
+            Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+            // 接完任务要重新点一次 NPC 才会下发给这个子任务的首个对话节点。
+            SendTaskZoneClickPacket(subtask.entryNpc, false);
+            break;
         }
     }
 
@@ -12388,16 +12476,57 @@ void StoryTaskOnNpcTaskListResponse(const GamePacket& packet) {
         return;
     }
     size_t offset = 0;
+    const uint32_t npcId = packet.params;
     const uint32_t dialogId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
-    if (dialogId == 0) {
+
+    // AS3 TaskParse.onReqNPCTaskList：body 除 dialogId 外还有可选的 [type, taskcount, ...]。
+    // type == 1 是可接任务列表（后面跟 taskcount 个子任务号、canReceive、taskId），
+    // 玩家点「接受」才由 TaskControl.onAcceptTask 补发 ACCEPT_TASK；
+    // 主线任务多数以接任务开场，不解析这一段就永远接不上。
+    std::vector<uint32_t> acceptSubtaskIds;
+    if (offset + 8 <= packet.body.size()) {
+        const int listType = ReadInt32LE(packet.body.data(), offset);
+        int taskCount = ReadInt32LE(packet.body.data(), offset);
+        if (taskCount == -1) {
+            // specialType 分支：真正的条数在下一个 int，负数表示八卦/特殊入口。
+            if (offset + 4 > packet.body.size()) {
+                taskCount = 0;
+            } else {
+                taskCount = ReadInt32LE(packet.body.data(), offset);
+            }
+        }
+        if (listType == 1 && taskCount > 0) {
+            for (int i = 0; i < taskCount; ++i) {
+                if (offset + 4 > packet.body.size()) {
+                    break;
+                }
+                acceptSubtaskIds.push_back(
+                    static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset)));
+            }
+        }
+    }
+
+    if (dialogId == 0 && acceptSubtaskIds.empty()) {
         return;
     }
+
     {
         std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
-        g_storyTaskState.pendingDialogId = dialogId;
-        g_storyTaskState.pendingNpcId = packet.params;
-        g_storyTaskState.pendingType = 0;
-        g_storyTaskState.pendingDialogReady = true;
+        if (dialogId != 0) {
+            g_storyTaskState.pendingDialogId = dialogId;
+            g_storyTaskState.pendingNpcId = npcId;
+            g_storyTaskState.pendingType = 0;
+            g_storyTaskState.pendingDialogReady = true;
+        }
+        if (!acceptSubtaskIds.empty()) {
+            for (uint32_t id : acceptSubtaskIds) {
+                if (std::find(g_storyTaskState.pendingAcceptSubtaskIds.begin(),
+                              g_storyTaskState.pendingAcceptSubtaskIds.end(),
+                              id) == g_storyTaskState.pendingAcceptSubtaskIds.end()) {
+                    g_storyTaskState.pendingAcceptSubtaskIds.push_back(id);
+                }
+            }
+        }
     }
 }
 
