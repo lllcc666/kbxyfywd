@@ -107,31 +107,97 @@ sendMessage(OP_CLIENT_REQ_TASKTALK.send=1184788, npcid, [dialogid]);
 - `combine2(2,id)` = `type<<28 | id`（其它）
 - `battle.id == -1` → 用当前 NPC id；`useID != 0` 时 sid 走 `combine2(10, id)`
 
-## 3. native 引擎的偏差与已做修复
+### 2.9 点击 NPC 的第三态：任务列表窗口（此前遗漏，是首要根因）
+
+`NPCTASKLIST_BACK` 的 `type` 决定客户端弹哪种窗口，**两种窗口都不回包**，回包只发生在玩家点了条目之后：
+
+| type | 派发 | 窗口类 | 玩家动作 → 发包 |
+| --- | --- | --- | --- |
+| 1 | `OPENTASKACCEPTCLIP`（`TaskControl.as:909`） | `TaskAcceptMachine` | 点「接受」→ `ACCEPT_TASK(subtaskId)` |
+| 0 | `ADDTASKINTOTASKLISTITEMS`（`TaskControl.as:923`） | `TaskListItems` | 点任务条目 → `OPENDIALOG` → 对话 → `TASK_TALK(npcid,[dialogId])` |
+
+type==0 的完整链（行号依据）：
+
+- `TaskControl.as:898-903`：`params.type == 0 && taskcount > 0` → `onLoadPropsList(params,result)` 并 `return`（**不进后面的默认分支**）
+- `TaskControl.as:926-936` `onLoadPropsList` → `PropertyPool.getTaskPropsList(各条 dialogId)` → `loadPropsListBack`
+- `TaskControl.as:951` `loadPropsListBack`：对每个 `tasklist[i]` 用**该条目自己的 `dialogId`** 取 taskprop，`TaskXMLParser.parseXML(xml, tasklist[i].subtaskID, tasklist[i].taskID, tasklist[i].dialogId)`，成功才 push 进 `result.tasklist`
+- `TaskControl.as:965` `dispatch(ADDTASKINTOTASKLISTITEMS, result)` → `WindowLayerControl.as:389` `onAddTaskIntoTaskListItems` → `:410` `TaskListItems.addTask(event.body)`
+- `TaskListItems.as:373` `printComplete`：为每条 `data.tasklist[i]` 建 `TaskListItem(1, tasklist[i].data, opNPCList, tasklist[i].state)`（`:395`）；末尾再挂一条 `addTask(0, dialogTwo, dispos)`（`:471`）即「离开」
+- `TaskListItem.as:114-125` `onClick` type==1 → `callback.apply(null,[this.obj])` → `TaskListItems.opNPCList:478` → `TaskUtils.dispatchEvent(TaskEvent.OPENDIALOG,{task, needchoose:needSendChoose})` + `dispos(true)`
+- `TaskControl.as:112` 监听 `OPENDIALOG` → `openDialog:1151`；若该 Task 的 `describe/flash/battle/otherpopup` **全空**，直接 `dispatch(MASTERISOUTSPECIALAREA,{npcid,dialogID,chooseid})`（`:1156`）→ `taskDialogComplete`
+- 否则进 `TaskDialog`；`onClickPersonSay` default → `onAccept(true)` → `dialogComplete` → `DIALOGFINISHED` → `TaskControl.onDialogFinished:738` → `view.onDialogComplete` → `COM_TASK_DIALOG` → `taskDialogComplete:1047` → `TASK_TALK(npcid,[dialogId])`
+
+**关键结论：`NPCTASKLIST` body 的第一个 int（`params.dialogId`）在 type==0 分支里不是「可直接回包的对话」**，它只是该 NPC 的默认对白标识；真正对应子任务的节点在 `tasklist` 每一条自己的 `dialogId` 里（`loadPropsListBack:951` 用它取 taskprop）。
+
+**native 现有实现的错**：`StoryTaskOnNpcTaskListResponse`（`wpe_hook.cpp:~12480`）只解析了 `type==1` 的子任务号列表，对 `type==0` 完全没读 `tasklist`，却仍把 body[0] 当 `dialogId` 存进 `pendingDialogId` 并回 `TASK_TALK`。正确的做法是：type==0 时遍历 `tasklist`，取属于本子任务（`subtaskID = dialogId/100`）的那条 `dialogId`，用它回 `TASK_TALK`；body[0] 不能直接用。
+
+### 2.10 接取门槛 `canReceive`
+
+`TaskParse.as:544` 的 `canReceive` 与 `:545` 的 `taskId` 都在 `type==1` 分支里。`TaskAcceptMachine.onClickAccept:127` 只在 `canReceive == 1` 时才派发 `ONACCEPTTASKBYTASKMACHINE`；否则只弹「您已经接受了任务…还没有完成哦」并关窗，**不发 `ACCEPT_TASK`**。
+
+接取成功后客户端**不做任何事**：`TaskModel.as:112` `onAcceptTaskBack` 只有 `O.traceSocket`，没有刷新、没有自动点 NPC。所以「接完再点一次 NPC」是 AS3 的真实行为，native 补这一次点击是对的。
+
+### 2.11 主线系列的强制先后顺序
+
+`after` 不是任务号而是锚点，经 `TaskInfoXMLParser.getPrefixListByAfterID:466` 映射：
+
+- `after="101"` → `type = 101 % 100 % 10 = 1` → `2000000 + (101 % 100) * 1000` = **2001000**
+- `after="102"` → **2002000**，`after="103"` → **2003000**，依此类推
+
+`canInputOrNot:186` 要求被映射到的组状态 `== 2`（已完成），否则该组不可见、不可接。因此主线是**严格串行**：皇城危机(2001000) → 山崩地裂(2002000) → 龙战于野(2003000) → …。「魔晶战记一个都完不成」与「皇城危机第一关接不上」是同一个根因的两种表现，必须先修好 2001000。
+
+### 2.12 子任务没有入口 NPC
+
+配方 `SUBTASKS` 里 `2001002`（奇怪的声音，场景 2003）与 `2004002`（通过大裂口，场景 2102）的 `entryNpc == 0`。
+
+根因：`gen_story_recipe.py` 的 `parse_taskprop` 只从 `<desc id="N">` 里取**正数** NPC（`npcs = [x for x in npc_ids if x > 0]`）。这两个子任务的节点里 `desc` 的 id 全是 `-1`（自己）或 `0`（选项），没有说话 NPC：
+- `200100201`：`desc id` = `-1,0,-1,0`（flash + 自白，无 NPC）
+- `200400201`：`desc id` = `-1,0,-1,0`；`200400202` 是 `alert`（无 desc）
+
+这两个子任务是**场景触发型**：进图后由场景 AI（`SpecialArea.sendMsg` `modules/view/person/SpecialArea.as:68`）派发 `MASTERISINSPECIALAREA` 自动开对话，不是点某个固定 NPC。native 现状（`entryNpc==0` 时跳过点击、直接等服务端推 dialogId）对这条路是**合理的**，不是必然失败。是否真的会推，需真机进图后在诊断回显里看有没有 `TASK_TALK_BACK`。
+
+**是否要额外补一次点击，属待确认**：若要补，依据是 `npc.xml` 的 `<istask>1</istask>`（`Npc.as:186` 用 `istask == 1` 标记可点任务 NPC），而不是猜某个 id。
+
+## 3. native 引擎的偏差
 
 `src/hook/wpe_hook.cpp` 主线区块（`StartStoryTaskAsync` / `ReplyStoryDialogNode` / `RunStorySubtask` / `StoryTaskOn*Response`）。
 
-| # | 偏差 | 处理 |
+| # | 偏差 | 状态 |
 | --- | --- | --- |
-| 1 | 没有接任务能力（`ACCEPT_TASK` 全仓库不存在） | 已加 `Opcode::ACCEPT_TASK_SEND=1184774`；`StoryTaskOnNpcTaskListResponse` 解析 `type==1` 存 `pendingAcceptSubtaskIds`；`RunStorySubtask` 点完入口 NPC 后 2.5s 窗口内补发并重贴 NPC。**真机仍接不上，见 §4** |
-| 2 | `KIND_CHOOSE` 拿 taskprop 的 `<choose flag>` 当 chooseId 发 TRAIN_INFO | 已删除该分支，统一只回 `TASK_TALK` |
+| 1 | 没有接任务能力（`ACCEPT_TASK` 全仓库不存在） | 已加 `Opcode::ACCEPT_TASK_SEND=1184774`；`type==1` 时存 `pendingAcceptSubtaskIds`；点完入口 NPC 后 2.5s 窗口内补发并重贴 NPC |
+| 2 | `KIND_CHOOSE` 拿 taskprop 的 `<choose flag>` 当 chooseId 发 TRAIN_INFO | 已删除该分支，统一只回 `TASK_TALK`（与 2.4 一致，正确） |
 | 3 | 未登记 dialogId / alert 节点一律回 TASK_TALK | `KIND_ALERT` 改为不发包；未登记节点仍回（保流程） |
-| 4 | 配方 8 处 scene 与 entryNpc 的 `npc.xml mapid` 不一致 | 生成器改用 `mapid` 校验（npc id 不跨地图重复，可靠）；降到 4 处，剩余打印警告 |
+| 4 | 配方 8 处 scene 与 entryNpc 的 `npc.xml mapid` 不一致 | 生成器改用 `mapid` 校验；降到 4 处，剩余打印警告 |
+| **5** | **`NPCTASKLIST type==0` 的 `tasklist` 完全没解析**：`StoryTaskOnNpcTaskListResponse` 只读 body[0] 当 dialogId 就回 `TASK_TALK`，而 AS3 在 type==0 时用 `tasklist[i].dialogId`（见 2.9） | **已修**：完整解析两种 type；type==0 用列表条目 dialogId（优先本子任务、其次同组），type==1 只入接取队列 |
+| **6** | **`canReceive` 未参与判断**：AS3 只在 `canReceive==1` 时发 `ACCEPT_TASK` | **已修**：读 `type==1` 后的 `canReceive`，不为 1 则清空接取队列 |
+| 7 | 配方有 2 个子任务 `entryNpc==0`（2001002 / 2004002），native 跳过点击 | 研判为**场景触发型**，现状路径合理，见 2.12；待真机确认 |
 
 配方生成：`scripts/gen_story_recipe.py` → `include/activities/story_task_recipe.h`（365 节点 / 57 子任务 / 11 组）。
 `Node::acceptFlag` 与 `pick_accept_flag()` 已成死字段，已删。
 
-## 4. 未解决 / 待确认
+### 3.1 本轮落地（`src/hook/wpe_hook.cpp` `StoryTaskOnNpcTaskListResponse`，编译通过）
 
-**皇城危机第一个子任务（2001001 接受使命）真机仍接不上。** 这是当前首要问题，已排除：
-- 详情页/按钮不存在（native 已补发 `ACCEPT_TASK`）
-- 场景进不去（2001001 场景 1003，NPC 11001 阳光机长在 1003，匹配）
+1. 完整解析两种 `type`：
+   - `type==0`：读 `taskCount` 条 `[dialogId, state]`（`state` 按 AS3 只透传、不过滤），优先挑 `dialogId/100 == 当前子任务`；退一步取同组（`/1000` 相同）中 **dialogId 最小**的那条（AS3 列表按 dialogId 升序）；都取不到才回退 body 首个 int。
+   - `type==1`：读 `taskCount` 个子任务号，再读 `canReceive`；不为 1 就清空接取队列（不发 `ACCEPT_TASK`）。为 1 时只保留 `== 当前子任务` 的条目，匹配不到就一条都不接（避免把同一 NPC 的其它任务一起接下来）。
+   - 无 `type` 字段 / `taskCount<=0`：沿用 body 首个 int 作默认对白。
+2. `pendingAcceptSubtaskIds` 改为按 `type==1` 回包整体替换，避免上一个 NPC 的残留。
+3. 诊断回显扩展为打印 `type / count / canReceive / 采用dialogId / headerDialogId / bodyInts[]`，真机一眼可判分支。
 
-待验证方向（按可能性排序）：
-1. `ACCEPT_TASK` 的 params 到底该是 **subtaskId** 还是 **taskId**。当前按 `TaskAcceptMachine.acceptId = taskId(=子任务号)` 推断为 subtaskId，**没有抓包实测**。若错，改成 `2001000` 试。
-2. NPCTASKLIST 的 `type/taskcount` 偏移是否读对。需抓一份真实 2001001 的 `1315858` body 逐字节对照（`TaskParse.as:498` 那段）。
-3. 2001001 是否真的走 `type==1` 分支。它也可能是 `dialogId != 0` 直接进对话（即任务早已被自动接下但没显示）。需打印实际收到的 `dialogId/type/taskcount`。
-4. 接任务后是否必须**再次点击 NPC**才下发对话。当前实现重贴了一次，未验证必要性与时机（Sleep 是否够）。
+只读 review 结论（子代理，未改码）：越界检查、atomic 读取、`Take` 与写锁的配合**均无问题**；`taskcount==-1` 时不漏读，但 AS3 的 `specialType` 语义未保留（主线普通流程无影响）。已按 review 收敛两处：`type==0` 回退由"组内首条"改为"组内 dialogId 最小"，`type==1` 无匹配时不再保留整表。
+
+## 4. 验证方式
+
+改完后必须真机抓一份 2001001 的 `1315858` body，逐字节对照 `TaskParse.as:498` 的读取顺序，确认：
+
+- `type` 到底是 0 还是 1（决定走 2.9 还是 2.10）
+- `type==1` 时 `canReceive` 与 `taskId` 的值
+- `type==0` 时 `tasklist` 每项的 `dialogId / state`
+
+已排除的方向：
+- 场景进不去（2001001 场景 1003，NPC 11001 阳光机长 `mapid=1003`，匹配）
+- `ACCEPT_TASK` params 语义错（`TaskAcceptMachine.acceptId = tasklist[i]` = 子任务号，native 语义正确）
+- `after` 前置链挡接取（2001000 无 `after`，是链首）
 
 其余 4 处场景错配（2001005 / 2004004 / 2011001 / 2011002）：`taskinfo` 的 targets 与对话 NPC 所在图自相矛盾，需进图实测判定谁对。
 

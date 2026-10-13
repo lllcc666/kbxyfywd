@@ -12475,18 +12475,24 @@ void StoryTaskOnNpcTaskListResponse(const GamePacket& packet) {
     if (!g_storyTaskRunning.load() || packet.body.size() < 4) {
         return;
     }
-    size_t offset = 0;
+    // AS3 TaskParse.onReqNPCTaskList：body = [dialogId, (type, taskcount, ...)]。
+    //   type == 1 → 接取清单：tasklist 是 taskcount 个子任务号，之后跟 canReceive、taskId；
+    //               只有 canReceive == 1 玩家点「接受」才补发 ACCEPT_TASK。
+    //   type == 0 → 任务列表窗口：tasklist 每条是 [dialogId, state]，**要用每条自己的
+    //               dialogId 取 taskprop 并发 TASK_TALK**（TaskControl.loadPropsListBack:951），
+    //               body 首个 int 只是该 NPC 的默认对白标识，不是本步要回的对话。
     const uint32_t npcId = packet.params;
-    const uint32_t dialogId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+    const uint32_t currentSubtask = g_storyTaskCurrentSubtask.load();
 
-    // AS3 TaskParse.onReqNPCTaskList：body 除 dialogId 外还有可选的 [type, taskcount, ...]。
-    // type == 1 是可接任务列表（后面跟 taskcount 个子任务号、canReceive、taskId），
-    // 玩家点「接受」才由 TaskControl.onAcceptTask 补发 ACCEPT_TASK；
-    // 主线任务多数以接任务开场，不解析这一段就永远接不上。
-    std::vector<uint32_t> acceptSubtaskIds;
+    size_t offset = 0;
+    const uint32_t headerDialogId =
+        static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+
+    int listType = -1;
+    int taskCount = 0;
     if (offset + 8 <= packet.body.size()) {
-        const int listType = ReadInt32LE(packet.body.data(), offset);
-        int taskCount = ReadInt32LE(packet.body.data(), offset);
+        listType = ReadInt32LE(packet.body.data(), offset);
+        taskCount = ReadInt32LE(packet.body.data(), offset);
         if (taskCount == -1) {
             // specialType 分支：真正的条数在下一个 int，负数表示八卦/特殊入口。
             if (offset + 4 > packet.body.size()) {
@@ -12495,15 +12501,71 @@ void StoryTaskOnNpcTaskListResponse(const GamePacket& packet) {
                 taskCount = ReadInt32LE(packet.body.data(), offset);
             }
         }
-        if (listType == 1 && taskCount > 0) {
-            for (int i = 0; i < taskCount; ++i) {
-                if (offset + 4 > packet.body.size()) {
-                    break;
-                }
-                acceptSubtaskIds.push_back(
-                    static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset)));
+    }
+
+    uint32_t listDialogId = 0;
+    uint32_t sameGroupDialogId = 0;
+    std::vector<uint32_t> acceptSubtaskIds;
+    bool canReceive = false;
+
+    if (listType == 0 && taskCount > 0) {
+        for (int i = 0; i < taskCount; ++i) {
+            if (offset + 8 > packet.body.size()) {
+                break;
+            }
+            const uint32_t entryDialogId =
+                static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+            ReadInt32LE(packet.body.data(), offset);  // state：AS3 只透传给列表项，不过滤
+            // dialogId / 100 = 子任务号（200100101 -> 2001001），与本步匹配的才是目标。
+            const uint32_t entrySubtask = entryDialogId / 100;
+            if (currentSubtask != 0 && entrySubtask == currentSubtask) {
+                listDialogId = entryDialogId;
+            } else if (currentSubtask != 0 &&
+                       entrySubtask / 1000 == currentSubtask / 1000 &&
+                       (sameGroupDialogId == 0 || entryDialogId < sameGroupDialogId)) {
+                // 退一步：同组内取 dialogId 最小的那条（AS3 按 dialogId 升序排列，
+                // 对应"列表里最靠前、尚未完成"的节点），避免随机落到组内靠后的子任务。
+                sameGroupDialogId = entryDialogId;
             }
         }
+    } else if (listType == 1 && taskCount > 0) {
+        for (int i = 0; i < taskCount; ++i) {
+            if (offset + 4 > packet.body.size()) {
+                break;
+            }
+            acceptSubtaskIds.push_back(
+                static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset)));
+        }
+        // AS3 TaskParse:544/545：type=1 的 tasklist 之后紧跟 canReceive 与 taskId。
+        // canReceive != 1 表示这个 NPC 上已经在做该任务，AS3 只弹「已经接受了任务」，
+        // 不补发 ACCEPT_TASK（TaskAcceptMachine.onClickAccept:130），只能等服务端推对话。
+        if (offset + 4 <= packet.body.size()) {
+            canReceive = ReadInt32LE(packet.body.data(), offset) == 1;
+        }
+        if (!canReceive) {
+            acceptSubtaskIds.clear();
+        } else if (currentSubtask != 0) {
+            // 一个 NPC 可能同时给出多个可接子任务；只接本步要跑的那条，匹配不到就不接，
+            // 避免把同一 NPC 上的其它任务一起接下来。
+            std::vector<uint32_t> matched;
+            for (uint32_t id : acceptSubtaskIds) {
+                if (id == currentSubtask) {
+                    matched.push_back(id);
+                }
+            }
+            acceptSubtaskIds = std::move(matched);
+        }
+    }
+
+    // 取本步该回的对话节点：
+    //   type==1 且有条目 → AS3 只弹接取窗（onNPCTaskListBack 直接 return），没有对话；
+    //   type==0 且有条目 → 优先本子任务条目，其次同组条目，都没有就不回（窗口由玩家点）；
+    //   其余（无 type 字段 / taskcount<=0）→ 用 body 首个 int 作为默认对白标识。
+    uint32_t dialogId = 0;
+    if (listType == 0 && taskCount > 0) {
+        dialogId = (listDialogId != 0) ? listDialogId : sameGroupDialogId;
+    } else if (!(listType == 1 && taskCount > 0)) {
+        dialogId = headerDialogId;
     }
 
     if (dialogId == 0 && acceptSubtaskIds.empty()) {
@@ -12514,7 +12576,11 @@ void StoryTaskOnNpcTaskListResponse(const GamePacket& packet) {
     // 逐字段核对（该回包布局在真机上仍未验证，见 docs/task-automation-mainline-dialog-contract.md §4）。
     {
         std::wstring dump = L"任务区：NPCTASKLIST npc=" + std::to_wstring(npcId) +
-                            L" dialogId=" + std::to_wstring(dialogId) +
+                            L" type=" + std::to_wstring(listType) +
+                            L" count=" + std::to_wstring(taskCount) +
+                            L" canReceive=" + (canReceive ? L"1" : L"0") +
+                            L" 采用dialogId=" + std::to_wstring(dialogId) +
+                            L" headerDialogId=" + std::to_wstring(headerDialogId) +
                             L" bodyInts=[";
         for (size_t i = 0; i + 4 <= packet.body.size() && i < 40; i += 4) {
             if (i != 0) {
@@ -12528,20 +12594,15 @@ void StoryTaskOnNpcTaskListResponse(const GamePacket& packet) {
 
     {
         std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
+        if (listType == 1) {
+            // 每次 type=1 回包整体替换，避免上一个 NPC 的残留。
+            g_storyTaskState.pendingAcceptSubtaskIds = acceptSubtaskIds;
+        }
         if (dialogId != 0) {
             g_storyTaskState.pendingDialogId = dialogId;
             g_storyTaskState.pendingNpcId = npcId;
             g_storyTaskState.pendingType = 0;
             g_storyTaskState.pendingDialogReady = true;
-        }
-        if (!acceptSubtaskIds.empty()) {
-            for (uint32_t id : acceptSubtaskIds) {
-                if (std::find(g_storyTaskState.pendingAcceptSubtaskIds.begin(),
-                              g_storyTaskState.pendingAcceptSubtaskIds.end(),
-                              id) == g_storyTaskState.pendingAcceptSubtaskIds.end()) {
-                    g_storyTaskState.pendingAcceptSubtaskIds.push_back(id);
-                }
-            }
         }
     }
 }
