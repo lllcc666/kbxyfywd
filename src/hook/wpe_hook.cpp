@@ -12510,6 +12510,22 @@ void StoryTaskOnNpcTaskListResponse(const GamePacket& packet) {
         return;
     }
 
+    // 诊断回显：把服务端真实下发的字段打到状态栏，便于对照 AS3 TaskParse.onReqNPCTaskList
+    // 逐字段核对（该回包布局在真机上仍未验证，见 docs/task-automation-mainline-dialog-contract.md §4）。
+    {
+        std::wstring dump = L"任务区：NPCTASKLIST npc=" + std::to_wstring(npcId) +
+                            L" dialogId=" + std::to_wstring(dialogId) +
+                            L" bodyInts=[";
+        for (size_t i = 0; i + 4 <= packet.body.size() && i < 40; i += 4) {
+            if (i != 0) {
+                dump += L",";
+            }
+            dump += std::to_wstring(ReadInt32LE(packet.body.data(), i));
+        }
+        dump += L"]";
+        UpdateTaskZoneUi(dump, true);
+    }
+
     {
         std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
         if (dialogId != 0) {
