@@ -42,12 +42,12 @@ struct LatestActDesc {
 };
 
 const LatestActDesc kActivities[] = {
-    {LatestAct::ACT_MAZE, L"突破迷阵", "open_ui", 180, true, false, false},
+    {LatestAct::ACT_MAZE, L"突破迷阵", "open_ui", 180, true, false, true},
     {LatestAct::ACT_TOUCH_STAR, L"摘星之旅", "open_ui", 301, true, true, true},
-    {LatestAct::ACT_EXPLORE, L"寒冰洞历险记", "game_info", 70, true, false, true},
-    {LatestAct::ACT_MOON_CAKE, L"月饼大胃王", "open_ui", 40, true, true, false},
+    {LatestAct::ACT_EXPLORE, L"寒冰洞历险记", "game_info", 50, true, false, true},
+    {LatestAct::ACT_MOON_CAKE, L"月饼大胃王", "open_ui", 15, true, true, false},
     {LatestAct::ACT_FLOWER, L"夺回花束行动", "game_info", 70, false, false, false},
-    {LatestAct::ACT_FOOD, L"美食大作战", "open_ui", 400, false, true, false},
+    {LatestAct::ACT_FOOD, L"美食大作战", "open_ui", 400, false, true, true},
 };
 
 constexpr int kActivityNum = static_cast<int>(sizeof(kActivities) / sizeof(kActivities[0]));
@@ -72,6 +72,12 @@ constexpr DWORD kQueryTimeoutMs = 3000;   ///< 只读查询类（open_ui/sweep_i
 constexpr DWORD kActionTimeoutMs = 5000;  ///< 动作类（start_game/end_game）
 constexpr DWORD kWaitMarginMs = 1000;
 
+// 870（月饼大胃王）两关的满分：
+//   第 1 关 GameView.as  `passSum == 0 && curEatCount >= 5`                   → 5 个及格
+//   第 2 关 GameView.as  `passSum == 1 && curEatCount >= _secondCount(=15)`   → 15 个满额（最高分）
+constexpr int kMoonCakeStage1Score = 5;
+constexpr int kMoonCakeStage2Score = 15;
+
 // ---------------------------------------------------------------------------
 // 每活动运行时状态
 // ---------------------------------------------------------------------------
@@ -90,8 +96,12 @@ struct LatestActState {
     std::atomic<int> lastStartResult{-1};
 
     /// 最近一次 end_game 回包的 passSum（仅 870 有该字段，-1 表示未解析到）。
-    /// 870 的收尾包只在 passSum != 1 时补发，见 TryPlayOnce。
     std::atomic<int> lastPassSum{-1};
+
+    /// 最近一次 end_game 回包的 result（-1 = 未解析到）。0/4 表示结算被受理。
+    /// 870 用它判断「第 2 关满额结算包是否真的被服务端接受」——
+    /// 只有明确被受理才不再补发第 1 关收尾包，详见 TryPlayOnce。
+    std::atomic<int> lastEndResult{-1};
 
     /// 最近一次「成功开局」留下的校验种子（跨局保留，不随 TryPlayOnce 重置）。
     /// 仅 870 用于从「上一局未结束」的自锁状态中恢复：服务端回 result=3 时，
@@ -432,31 +442,38 @@ void ParseSweepInfo(const LatestActDesc& desc, LatestActState& state,
     const int first = ReadInt32LE(body, offset);
     switch (desc.id) {
         case LatestAct::ACT_FLOWER:
-            // 首字段即勋章数：> 0 表示有历史成绩可扫荡。
+            // 704 MainModel.as:157 `params.medal = readInt(); if (params.medal > 0)`：
+            // 首字段就是勋章数，> 0 才开扫荡窗口。
             state.sweepReady = (first > 0);
             break;
         case LatestAct::ACT_MOON_CAKE:
-            // result, medal, ...：medal > 0 表示有历史成绩可扫荡。
+            // 870 ActiveModel.as:174-176 `result = readInt(); medal = readInt();
+            // if (mbody.medal > 0)`：AS3 **只看 medal**，不看 result。
+            // 这里若额外要求 result == 0，服务端 result 非 0 时就会误判成「不能扫荡」，
+            // 于是每轮都退回走完整两关游戏（表现就是「后面几次速度没变快」）。
             if (offset + 4 > size) return;
             state.sweepReady = (ReadInt32LE(body, offset) > 0);
             break;
         case LatestAct::ACT_MAZE:
-            // result：!= 3 表示放行。
+            // 647 MazeModel.as:257-258 `if (params.result != 3)`：非 3 即放行。
             state.sweepReady = (first != 3);
             break;
         case LatestAct::ACT_TOUCH_STAR:
-            // AS3 的 TouchStar 不看 sweep_info 的 resultType，能否扫荡由
-            // historyBestScore > 0 决定（EnterPanel.buySweepBtnHandler）；走到这里
-            // 说明 ShouldAttemptSweep 已确认有成绩，故直接放行，避免误判退回走一局。
+            // 869 TouchStarModel.decodeSweepInfo 只读 resultType 就无条件填奖励列表派发；
+            // 能否扫荡由本地 historyBestScore > 0 决定（EnterPanel.buySweepBtnHandler），
+            // 走到这里说明 ShouldAttemptSweep 已确认有成绩，故直接放行。
             state.sweepReady = true;
             break;
         case LatestAct::ACT_EXPLORE:
+            // 749 ExploreModel.as:87-88 `if (params.result == 0)`。
+            state.sweepReady = (first == 0);
+            break;
         case LatestAct::ACT_FOOD:
-            // result == 0 表示放行。
+            // 697 ActiveModel.as:127-128 `if (responseData.result == 0)`。
             state.sweepReady = (first == 0);
             break;
         default:
-            state.sweepReady = (first != 3);
+            state.sweepReady = (first == 0);
             break;
     }
 }
@@ -477,11 +494,15 @@ void ParseSweepResult(const LatestActDesc& desc, LatestActState& state,
             state.sweepReady = (result == 0 || result == 4);
             break;
         case LatestAct::ACT_TOUCH_STAR:
-            // decodeSweep 首字段为 resultType，0 视为成功。
             state.sweepReady = (result == 0);
             break;
+        case LatestAct::ACT_MAZE:
+        case LatestAct::ACT_EXPLORE:
+        case LatestAct::ACT_FLOWER:
+        case LatestAct::ACT_FOOD:
         default:
-            // 647/749/704/697：result == 3 表示失败。
+            // 依据各活动 AS3 Model（MazeModel.as:155, ExploreModel.as:73, MainModel.as:284, ActiveModel.as:148）：
+            // 结果码 != 3 均为正常结算/扫荡成功。
             state.sweepReady = (result != 3);
             break;
     }
@@ -503,6 +524,7 @@ void ParseEndGame(const LatestActDesc& desc, LatestActState& state,
     }
 
     const int result = ReadInt32LE(body, offset);
+    state.lastEndResult = result;   // 记录真实 result：0/4 才算结算被受理
     if (result != 0 && result != 4) {
         return;   // 结算未被接受，passSum 无效
     }
@@ -544,8 +566,9 @@ std::vector<int32_t> BuildEndGameBody(const LatestActDesc& desc, LatestActState&
 
         case LatestAct::ACT_MOON_CAKE:
             // [end_game, passSum, endType, checkCode, score]
-            // endType = 4 表示通关（GameView.gameOver 中 score >= passScore 时置 4）。
-            return {0, 4, MoonCakeCheckCode(seed, state.checkCode2.load()), score};
+            // 第 1 关（passSum=0）吃满 5 个即通关（endType=4）。
+            // 注意：这里只负责第 1 关，第 2 关满额结算在 TryPlayOnce 里单独构造。
+            return {0, 4, MoonCakeCheckCode(seed, state.checkCode2.load()), kMoonCakeStage1Score};
 
         case LatestAct::ACT_FLOWER:
             // [end_game, score, checkCode]，此处用原始 checkCode（不做掩码）
@@ -619,6 +642,7 @@ bool TryPlayOnce(const LatestActDesc& desc, LatestActState& state) {
     state.checkCode2 = 0;
     state.lastStartResult = -1;
     state.lastPassSum = -1;
+    state.lastEndResult = -1;
 
     {
         PendingOpGuard guard(state, PendingOp::StartGame);
@@ -644,13 +668,13 @@ bool TryPlayOnce(const LatestActDesc& desc, LatestActState& state) {
     state.lastGameCheckCode2 = state.checkCode2.load();
 
     // 749 的结算分由服务端按 play_game(1) 次数累计（ExploreControl.getFlower），
-    // end_code 里的 num 必须等于该计数。先按目标花数（desc.targetScore=70）补齐过程包，每包间隔 150ms，不无延时连发。
+    // end_code 里的 num 必须等于该计数。按目标花数（desc.targetScore=50）补齐过程包，每包间隔 120ms，不无延时连发。
     if (desc.id == LatestAct::ACT_EXPLORE) {
         for (int i = 0; i < desc.targetScore; ++i) {
             if (!g_latestBatchRunning.load()) {
                 return false;
             }
-            if (i > 0) { std::this_thread::sleep_for(std::chrono::milliseconds(150)); }
+            if (i > 0) { std::this_thread::sleep_for(std::chrono::milliseconds(120)); }
             if (!g_latestBatchRunning.load() || !SendLatestPacketNoWait(desc.id, "play_game", {1})) {
                 return false;
             }
@@ -667,18 +691,87 @@ bool TryPlayOnce(const LatestActDesc& desc, LatestActState& state) {
         }
     }
 
-    // 870 的结算分两步：GameView.gameOver() 发第一次 end_game（endType 表示是否通关），
-    // 玩家点掉结算面板时 GameOverView.handlerClose 在 passSum == 0 的前提下再发一次
-    // end_game{passSum=0, endType=1, checkCode, score=0} 收尾。漏掉这一步，服务端会
-    // 停留在「本局未结束」，之后每次 start_game 都返回 result=3（在游戏中），
-    // 表现就是月饼大胃王永远打不完。
-    // passSum == 1 只可能来自「复活」（GameOverView.handlerNext），本流程从不复活，
-    // 因此除该情形外一律补发收尾包；即便首次 end_game 的回包超时（lastPassSum 仍为 -1）
-    // 也照样补发，否则会把会话留在未结束状态。
-    if (desc.id == LatestAct::ACT_MOON_CAKE && state.lastPassSum.load() != 1) {
-        SendLatestPacketNoWait(desc.id, "end_game",
-                              {0, 1, MoonCakeCheckCode(state.checkCode.load(),
-                                                       state.checkCode2.load()), 0});
+    // 870（月饼大胃王）专属两阶段：
+    //   第 1 关（passSum=0）：["end_game", 0, 4, checkCode, 5]      —— 上面已发
+    //   继续挑战（AS3 GameOverView.handlerNext -> GameView.handlerReviveBack）：
+    //       客户端只把本地 passSum 置 1，再发一次 ["start_game", ruleFlag]；
+    //       此时 ActivityData.checkCode/checkCode2 仍是第 1 关下发的值，
+    //       只有服务端在本次回包里重新下发才会被覆盖。
+    //       → 所以这里绝对不能先清空种子，也不能把 start_game 的回包结果
+    //         当成「能否进入第 2 关」的闸门：服务端对第 2 关 start_game 回
+    //         result=3（在游戏中）等非 0 值时，AS3 依然用原种子把第 2 关打完。
+    //   第 2 关（passSum=1）：["end_game", 1, 4, checkCode, 15]     —— 最高分满额奖励
+    //   第 2 关通关后 AS3 GameOverView.handlerClose 不再发包（它只在 passSum == 0
+    //   时补发收尾包），服务端以第 2 关结算包自身作为整局结束；多补一个收尾包
+    //   反而会被服务端当成「放弃本局」。
+    if (desc.id == LatestAct::ACT_MOON_CAKE) {
+        const int stage1Code = state.checkCode.load();
+        const int stage1Code2 = state.checkCode2.load();
+
+        bool stage2Sent = false;     // 第 2 关满额结算包是否已送出
+        int stage2Result = -1;       // 该包回包的 result（-1 = 未解析到/超时）
+
+        if (endSettled && stage1Code != 0) {
+            // ① 模拟 handlerReviveBack：再次 start_game 开启第 2 关（保留第 1 关种子）
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            state.lastStartResult = -1;
+            {
+                PendingOpGuard guard(state, PendingOp::StartGame);
+                if (SendLatestPacket(desc.id, "start_game", BuildStartGameBody(desc, state),
+                                     kActionTimeoutMs)) {
+                    WaitForResponse(state, kActionTimeoutMs + kWaitMarginMs);
+                }
+            }
+
+            // 服务端重新下发种子就采用，否则沿用第 1 关种子（同一会话内继续有效）。
+            int code = state.checkCode.load();
+            int code2 = state.checkCode2.load();
+            if (code == 0) {
+                code = stage1Code;
+                code2 = stage1Code2;
+                state.checkCode = code;
+                state.checkCode2 = code2;
+            }
+            state.lastGameCheckCode = code;
+            state.lastGameCheckCode2 = code2;
+
+            // ② 提交第 2 关满额通关结算（passSum=1, endType=4, checkCode, score=15）
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+            state.lastEndResult = -1;
+            {
+                PendingOpGuard guard(state, PendingOp::EndGame);
+                if (SendLatestPacket(desc.id, "end_game",
+                                     {1, 4, MoonCakeCheckCode(code, code2), kMoonCakeStage2Score},
+                                     kActionTimeoutMs)) {
+                    WaitForResponse(state, kActionTimeoutMs + kWaitMarginMs);
+                    stage2Sent = true;
+                    stage2Result = state.lastEndResult.load();
+                }
+            }
+        }
+
+        // ③ 收尾判断：只有「第 1 关结算没等到回包」「第 2 关包根本没送出」
+        //    或「第 2 关被服务端明确拒绝（result 非 0/4）」这三种情况，才按
+        //    AS3 GameOverView.handlerClose(passSum == 0) 补发第 1 关收尾包。
+        //    第 2 关已被受理（result 0/4）或回包超时无法判定时都不补发。
+        const bool stage2Accepted = stage2Sent && (stage2Result == 0 || stage2Result == 4);
+        const bool needCloseStage1 =
+            !endSettled || !stage2Sent || (stage2Result != -1 && !stage2Accepted);
+
+        if (needCloseStage1) {
+            PendingOpGuard guard(state, PendingOp::EndGame);
+            if (SendLatestPacket(desc.id, "end_game",
+                                 {0, 1, MoonCakeCheckCode(stage1Code, stage1Code2), 0},
+                                 kActionTimeoutMs)) {
+                WaitForResponse(state, kActionTimeoutMs + kWaitMarginMs);
+            }
+            if (endSettled && !stage2Accepted) {
+                Notify(desc.id, L"第 2 关未通过（开局 result=" +
+                                    std::to_wstring(state.lastStartResult.load()) +
+                                    L"，结算 result=" + std::to_wstring(stage2Result) +
+                                    L"），本轮只有第 1 关奖励");
+            }
+        }
     }
 
     if (!endSettled) {
@@ -735,8 +828,12 @@ void TryRecoverMoonCakeSession(LatestActState& state) {
     if (seed == 0) {
         return;   // 没有可用的历史种子，无法构造合法收尾包
     }
-    SendLatestPacketNoWait(LatestAct::ACT_MOON_CAKE, "end_game",
-                           {0, 1, MoonCakeCheckCode(seed, code2), 0});
+    PendingOpGuard guard(state, PendingOp::EndGame);
+    if (SendLatestPacket(LatestAct::ACT_MOON_CAKE, "end_game",
+                         {0, 1, MoonCakeCheckCode(seed, code2), 0},
+                         kActionTimeoutMs)) {
+        WaitForResponse(state, kActionTimeoutMs + kWaitMarginMs);
+    }
 }
 
 // 单活动循环执行：反复「扫荡 / 走一局」，直到次数耗尽、进入冷却或失败为止。
@@ -780,8 +877,21 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
         Notify(activityId, L"今日次数已用完");
         return;
     }
+
+    // 活动开始前若有微小冷却，循环倒计时等待归零
+    while (state.restTime.load() > 0 && g_latestBatchRunning.load()) {
+        const int cd = state.restTime.load();
+        if (cd > 60) {
+            Notify(activityId, L"冷却中（剩余 " + std::to_wstring(cd) + L" 秒），跳过");
+            return;
+        }
+        Notify(activityId, L"等待冷却（剩余 " + std::to_wstring(cd) + L" 秒）...");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        if (!RefreshOneActivity(desc, state)) {
+            break;
+        }
+    }
     if (state.restTime.load() > 0) {
-        Notify(activityId, L"冷却中，跳过");
         return;
     }
 
@@ -807,7 +917,6 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
 
             // 870 的自锁恢复：服务端回 result=3「在游戏中」，说明上一局的收尾
             // end_game 没送达。补发一次收尾包后重试开局，而不是直接放弃整个活动
-            // ——否则用户会看到「月饼大胃王无法完成」且当天再也进不去。
             if (!ok && desc.id == LatestAct::ACT_MOON_CAKE &&
                 state.lastStartResult.load() == 3) {
                 if (state.lastGameCheckCode.load() != 0) {
@@ -843,21 +952,44 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
             Notify(activityId, L"次数回查失败，停止该活动");
             break;
         }
-        const int after = state.playCount.load();
+        int after = state.playCount.load();
         if (after <= 0) {
             Notify(activityId, L"次数已用完");
             break;
         }
+
+        // 轮次间若进入冷却，倒计时等待至冷却归零后自动继续
+        while (state.restTime.load() > 0 && g_latestBatchRunning.load()) {
+            const int cd = state.restTime.load();
+            if (cd > 60) {
+                Notify(activityId, L"进入长冷却（剩余 " + std::to_wstring(cd) + L" 秒），停止该活动");
+                break;
+            }
+            Notify(activityId, L"等待冷却（剩余 " + std::to_wstring(cd) + L" 秒）...");
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            if (!RefreshOneActivity(desc, state)) {
+                break;
+            }
+        }
         if (state.restTime.load() > 0) {
-            Notify(activityId, L"进入冷却");
             break;
         }
+
+        after = state.playCount.load();
         if (after >= before) {
-            // 次数没有减少说明这一轮没被服务端接受，继续循环只会空转。
-            Notify(activityId, L"次数未减少，停止该活动");
-            break;
+            // 若服务端处理略有延迟，短暂等待 500ms 重查一次
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            RefreshOneActivity(desc, state);
+            after = state.playCount.load();
+            if (after >= before) {
+                Notify(activityId, L"次数未减少，停止该活动");
+                break;
+            }
         }
     }
+
+    // 活动退出时执行最终刷新，确保前端 UI 永远展示最新的权威次数
+    RefreshOneActivity(desc, state);
 
     if (round >= kMaxRoundsPerActivity) {
         Notify(activityId, L"达到单次执行上限，停止该活动");
