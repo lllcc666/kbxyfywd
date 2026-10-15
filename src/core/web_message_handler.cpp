@@ -491,7 +491,7 @@ void HandleLoadPacketListCommand() {
                 }
                 return false;
             },
-            L"封包列表已载入",
+            L"封包列表已载入（仅发送包）",
             L"载入封包列表失败");
     }
 }
