@@ -373,12 +373,14 @@ void HandleStartTaskZoneCommand() {
 
 void HandleQueryHuangchengWeijiTaskProgressCommand(const std::wstring& msg) {
     const DWORD taskId = GetJsonDWORDValue(msg, L"task_id", 2001000);
-    HandleBoolResultCommand(
-        [taskId]() {
-            return QueryTaskZoneUserTaskListProgress(taskId);
-        },
-        L"皇城危机：进度已刷新",
-        L"皇城危机：读取进度失败");
+    // 必须异步：这个 handler 跑在 WebView 消息线程上，而进度查询要等
+    // USER_TASK_LIST_BACK 回包；在该线程上阻塞会一起卡住回包处理，3 秒必然超时。
+    // 结果文案由工作线程自己回显，这里不预设成败。
+    if (!QueryTaskZoneUserTaskListProgressAsync(taskId)) {
+        SetHelperText(L"任务区：读取主线任务进度失败");
+    } else {
+        SetHelperText(L"任务区：正在读取主线任务进度...");
+    }
 }
 
 void HandleStartHuangchengWeijiTaskCommand(const std::wstring& msg) {

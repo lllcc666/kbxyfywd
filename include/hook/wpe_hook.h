@@ -238,6 +238,9 @@ VOID StopEightTrigramsTask();
 
 BOOL QueryTaskZoneUserTaskListProgress(uint32_t taskId);
 
+/// UI 线程安全的进度查询：内部开线程做等待，避免阻塞 UI/socket 线程。
+BOOL QueryTaskZoneUserTaskListProgressAsync(uint32_t taskId);
+
 BOOL StartHuangchengWeijiTaskAsync(const std::vector<uint32_t>& subtaskIds);
 
 VOID StopHuangchengWeijiTask();

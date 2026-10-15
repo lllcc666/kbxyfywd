@@ -115,13 +115,26 @@ def parse_taskprop(path):
 
 
 def parse_npc_maps(path):
-    """返回 {npcId: mapid}，用于挑出真正停在该子任务场景里的入口 NPC。"""
+    """返回 {npcId: {'mapid': int, 'istask': int, 'name': str}}。
+
+    istask 是 npc.xml 里的任务标记（Npc.as:186 用它给 NPC 加任务状态角标）。
+    子任务若在 taskprop 里找不到说话 NPC（如 2001002/2004002 全是自白与 alert），
+    就靠 mapid + istask 挑场景里的可点任务对象；name 用于和子任务名做匹配。
+    """
     text = read_text(path)
     maps = {}
     for m in re.finditer(r'<npc id="(\d+)"[^>]*>(.*?)</npc>', text, re.S):
-        mid = re.search(r'<mapid>(\d+)</mapid>', m.group(2))
-        if mid:
-            maps[int(m.group(1))] = int(mid.group(1))
+        body = m.group(2)
+        mid = re.search(r'<mapid>(\d+)</mapid>', body)
+        if not mid:
+            continue
+        it = re.search(r'<istask>(-?\d+)</istask>', body)
+        nm = re.search(r'<name>([^<]*)</name>', body)
+        maps[int(m.group(1))] = {
+            "mapid": int(mid.group(1)),
+            "istask": int(it.group(1)) if it else 0,
+            "name": nm.group(1) if nm else "",
+        }
     return maps
 
 
@@ -154,6 +167,12 @@ def main():
     # 子任务入口：优先挑「就停在该子任务场景里」的 NPC。
     # taskinfo 的 targets 与 taskprop 首个 <desc id> 不总是同一张地图（例如 2002003 目标是双叉岭
     # 2003，中间节点却在五指山 2004），只按 dialogId 取首个 NPC 会点不到人。
+    #
+    # taskprop 里所有 <desc id> 都是 -1/0（自己或选项）时根本取不到说话 NPC，例如
+    # 2001002「奇怪的声音」和 2004002「通过大裂口」。它们其实是**点场景对象**触发：
+    # 抓包实测 2001002 的入口是 CLICK_NPC(21101)（双叉岭的「大树」，npc.xml 里
+    # mapid=2003 istask=1）。这类子任务退回「该场景内 istask==1 且 id 最小的可点任务 NPC」，
+    # 并把猜测结果打印出来，需真机复核。
     by_sub = {}
     for node in all_nodes:
         by_sub.setdefault(node["subtaskId"], []).append(node)
@@ -167,20 +186,44 @@ def main():
                     break
         entry_npc = 0
         for n in nodes:
-            if n["npc"] != 0 and npc_maps.get(n["npc"]) == scene:
+            if n["npc"] != 0 and npc_maps.get(n["npc"], {}).get("mapid") == scene:
                 entry_npc = n["npc"]
                 break
-        if entry_npc == 0:
-            # 该场景里没有登记过的任务 NPC：退回首个带 NPC 的节点，并在生成日志里点名。
-            for n in nodes:
-                if n["npc"] != 0:
-                    entry_npc = n["npc"]
-                    print(
-                        f"警告: 子任务 {sub_id} 在场景 {scene} 找不到匹配 NPC，退回 {entry_npc}"
-                        f"（其地图为 {npc_maps.get(entry_npc, '?')}）",
-                        file=sys.stderr,
-                    )
-                    break
+        taskprop_npc = next((n["npc"] for n in nodes if n["npc"] != 0), 0)
+        if entry_npc == 0 and taskprop_npc == 0:
+            # taskprop 里一个说话 NPC 都没有：这类子任务是**点场景对象**触发。
+            # 抓包实测 2001002 的入口是 CLICK_NPC(21101)（双叉岭「大树」，场景 2003 内
+            # istask==1）。没有抓包可依的子任务按「NPC 名出现在子任务名里」优先
+            # （如「通过大裂口」→ 21704/21706「大裂口」），再退回 istask==1 中最小 id。
+            # 候选全部打印，最终仍需真机确认。
+            candidates = sorted(
+                npc_id for npc_id, meta in npc_maps.items()
+                if meta["mapid"] == scene and meta["istask"] == 1
+            )
+            if candidates:
+                sub_name = info.get(sub_id, {}).get("name", "")
+                named = [npc_id for npc_id in candidates
+                         if npc_maps[npc_id]["name"] and npc_maps[npc_id]["name"] in sub_name]
+                entry_npc = named[0] if named else candidates[0]
+                print(
+                    f"提示: 子任务 {sub_id}「{sub_name}」taskprop 无说话 NPC，"
+                    f"按场景交互取 {entry_npc}（场景 {scene} 候选 {candidates}，待真机确认）",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"警告: 子任务 {sub_id} 场景 {scene} 内没有 istask==1 的可点任务物，"
+                    f"entryNpc 保持 0",
+                    file=sys.stderr,
+                )
+        if entry_npc == 0 and taskprop_npc != 0:
+            # 有 NPC 但不在本场景：保持原有行为，退回首个带 NPC 的节点并点名。
+            entry_npc = taskprop_npc
+            print(
+                f"警告: 子任务 {sub_id} 在场景 {scene} 找不到匹配 NPC，退回 {entry_npc}"
+                f"（其地图为 {npc_maps.get(entry_npc, {}).get('mapid', '?')}）",
+                file=sys.stderr,
+            )
         subtask_entries[sub_id] = {
             "scene": scene,
             "entryNpc": entry_npc,

@@ -146,17 +146,33 @@ type==0 的完整链（行号依据）：
 
 `canInputOrNot:186` 要求被映射到的组状态 `== 2`（已完成），否则该组不可见、不可接。因此主线是**严格串行**：皇城危机(2001000) → 山崩地裂(2002000) → 龙战于野(2003000) → …。「魔晶战记一个都完不成」与「皇城危机第一关接不上」是同一个根因的两种表现，必须先修好 2001000。
 
-### 2.12 子任务没有入口 NPC
+### 2.12 子任务没有入口 NPC（真机抓包已定案）
 
-配方 `SUBTASKS` 里 `2001002`（奇怪的声音，场景 2003）与 `2004002`（通过大裂口，场景 2102）的 `entryNpc == 0`。
+配方 `SUBTASKS` 里 `2001002`（奇怪的声音，场景 2003）与 `2004002`（通过大裂口，场景 2102）的 `entryNpc` 原为 `0`。
 
-根因：`gen_story_recipe.py` 的 `parse_taskprop` 只从 `<desc id="N">` 里取**正数** NPC（`npcs = [x for x in npc_ids if x > 0]`）。这两个子任务的节点里 `desc` 的 id 全是 `-1`（自己）或 `0`（选项），没有说话 NPC：
+根因：`gen_story_recipe.py` 的 `parse_taskprop` 只从 `<desc id="N">` 里取**正数** NPC（`npcs = [x for x in npc_ids if x > 0]`）。这两个子任务的节点里 `desc` 的 id 全是 `-1`（自己）或 `0`（选项）：
 - `200100201`：`desc id` = `-1,0,-1,0`（flash + 自白，无 NPC）
-- `200400201`：`desc id` = `-1,0,-1,0`；`200400202` 是 `alert`（无 desc）
+- `200400201`：`desc id` = `-1,0,-1,0`；`200400202` 是 `alert`
 
-这两个子任务是**场景触发型**：进图后由场景 AI（`SpecialArea.sendMsg` `modules/view/person/SpecialArea.as:68`）派发 `MASTERISINSPECIALAREA` 自动开对话，不是点某个固定 NPC。native 现状（`entryNpc==0` 时跳过点击、直接等服务端推 dialogId）对这条路是**合理的**，不是必然失败。是否真的会推，需真机进图后在诊断回显里看有没有 `TASK_TALK_BACK`。
+**真机抓包（2026-10-15，客户端发包）已定案：2001002 是「点场景对象」触发，入口 NPC = `21101 大树`。** 抓包序列：
 
-**是否要额外补一次点击，属待确认**：若要补，依据是 `npc.xml` 的 `<istask>1</istask>`（`Npc.as:186` 用 `istask == 1` 标记可点任务 NPC），而不是猜某个 id。
+| 行 | 包 | 值 |
+| --- | --- | --- |
+| 1 | `ENTER_SCENE(1184313)` | params=**2003** |
+| 2–3 | `SCENE_PLAYER_LIST(1184317)` / `NPC_LIST(1184782)` | 进图后拉场景对象 |
+| 9 | `CLICK_NPC(1186048)` | params=**21101**，body=[0] |
+| 10 | `0x050006`（GreenSocket 心跳） | — |
+| 11–13 | `TASK_TALK(1184788)` | params=**21101**，body=[200100202]/[200100203]/[200100202] |
+| 15 | `ENTER_SCENE` | params=**2001**（长安城） |
+| 21–23 | `NPC_STATUS(1184771)` | params=21204/21210/21206（点后续任务 NPC） |
+| 24/29/30 | `TASK_TALK` | 21204→[200100301]、21202→[200100306]、21202→[200100302] |
+| 31–32 | `CLICK_NPC(21226)` + `TASK_TALK(21226,[329000101])` | — |
+
+要点：`TASK_TALK` 的 **params 是被点的 NPC id**，body 是该 NPC 的 node id；`21101 大树` 在 `data/npc.xml` 里 `mapid=2003`、`istask=1`，与抓包一致。
+
+回退规则（`gen_story_recipe.py`）：taskprop 完全没有说话 NPC 时，取「该子任务场景内 `istask==1` 且 NPC 名出现在子任务名里」的候选（`通过大裂口` → `21704 大裂口`），否则取该场景 `istask==1` 最小 id（`奇怪的声音` → `21101`）。候选全部打印，需真机复核。
+
+**注意**：`istask` 的语义是 `Npc.as:186` 用它给 NPC 加任务状态角标；真实点击判定是 `NPCWithOutScene.as:203` 的 `istask > 0` 且光标末位匹配。用 `istask==1` 选候选是本项目按抓包归纳的启发式，不是 AS3 的显式规则。
 
 ## 3. native 引擎的偏差
 
@@ -170,29 +186,48 @@ type==0 的完整链（行号依据）：
 | 4 | 配方 8 处 scene 与 entryNpc 的 `npc.xml mapid` 不一致 | 生成器改用 `mapid` 校验；降到 4 处，剩余打印警告 |
 | **5** | **`NPCTASKLIST type==0` 的 `tasklist` 完全没解析**：`StoryTaskOnNpcTaskListResponse` 只读 body[0] 当 dialogId 就回 `TASK_TALK`，而 AS3 在 type==0 时用 `tasklist[i].dialogId`（见 2.9） | **已修**：完整解析两种 type；type==0 用列表条目 dialogId（优先本子任务、其次同组），type==1 只入接取队列 |
 | **6** | **`canReceive` 未参与判断**：AS3 只在 `canReceive==1` 时发 `ACCEPT_TASK` | **已修**：读 `type==1` 后的 `canReceive`，不为 1 则清空接取队列 |
-| 7 | 配方有 2 个子任务 `entryNpc==0`（2001002 / 2004002），native 跳过点击 | 研判为**场景触发型**，现状路径合理，见 2.12；待真机确认 |
+| 7 | 配方有 2 个子任务 `entryNpc==0`（2001002 / 2004002），native 跳过点击 | **已修**：真机抓包确认 2001002 入口是点 `CLICK_NPC(21101 大树)`；生成器加场景交互回退，见 2.12 |
 
 配方生成：`scripts/gen_story_recipe.py` → `include/activities/story_task_recipe.h`（365 节点 / 57 子任务 / 11 组）。
 `Node::acceptFlag` 与 `pick_accept_flag()` 已成死字段，已删。
 
-### 3.1 本轮落地（`src/hook/wpe_hook.cpp` `StoryTaskOnNpcTaskListResponse`，编译通过）
+### 3.1 本轮落地（编译通过）
+
+**A. `StoryTaskOnNpcTaskListResponse`（`wpe_hook.cpp`）**
 
 1. 完整解析两种 `type`：
-   - `type==0`：读 `taskCount` 条 `[dialogId, state]`（`state` 按 AS3 只透传、不过滤），优先挑 `dialogId/100 == 当前子任务`；退一步取同组（`/1000` 相同）中 **dialogId 最小**的那条（AS3 列表按 dialogId 升序）；都取不到才回退 body 首个 int。
-   - `type==1`：读 `taskCount` 个子任务号，再读 `canReceive`；不为 1 就清空接取队列（不发 `ACCEPT_TASK`）。为 1 时只保留 `== 当前子任务` 的条目，匹配不到就一条都不接（避免把同一 NPC 的其它任务一起接下来）。
+   - `type==0`：读 `taskCount` 条 `[dialogId, state]`（`state` 按 AS3 只透传、不过滤），优先挑 `dialogId/100 == 当前子任务`；退一步取同组（`/1000` 相同）中 **dialogId 最小**的那条；都取不到才回退 body 首个 int。
+   - `type==1`：读 `taskCount` 个子任务号，再读 `canReceive`；不为 1 就清空接取队列（不发 `ACCEPT_TASK`）。为 1 时只保留 `== 当前子任务` 的条目，匹配不到就一条都不接。
    - 无 `type` 字段 / `taskCount<=0`：沿用 body 首个 int 作默认对白。
-2. `pendingAcceptSubtaskIds` 改为按 `type==1` 回包整体替换，避免上一个 NPC 的残留。
-3. 诊断回显扩展为打印 `type / count / canReceive / 采用dialogId / headerDialogId / bodyInts[]`，真机一眼可判分支。
+2. `pendingAcceptSubtaskIds` 改为按 `type==1` 回包整体替换。
+3. 诊断回显打印 `type / count / canReceive / 采用dialogId / headerDialogId / bodyInts[]`。
 
-只读 review 结论（子代理，未改码）：越界检查、atomic 读取、`Take` 与写锁的配合**均无问题**；`taskcount==-1` 时不漏读，但 AS3 的 `specialType` 语义未保留（主线普通流程无影响）。已按 review 收敛两处：`type==0` 回退由"组内首条"改为"组内 dialogId 最小"，`type==1` 无匹配时不再保留整表。
+**B. 「刷新进度」总是失败（`wpe_hook.cpp` + `web_message_handler.cpp`）**
+
+原 `HandleQueryHuangchengWeijiTaskProgressCommand` 直接在 WebView 消息线程上调用同步版 `QueryTaskZoneUserTaskListProgress`，后者要等 `USER_TASK_LIST_BACK` 最多 3 秒；该线程同时负责回包处理，于是必然超时判失败（「完成所选」走 worker 线程，所以正常）。新增 `QueryTaskZoneUserTaskListProgressAsync`：内部开线程做等待，并用 `g_taskZoneProgressQueryBusy` CAS 去重，避免连点刷新时两路查询互相清缓存、按错误的 `taskId` 过滤回包。
+
+**C. 「停止要点两次」（`wpe_hook.cpp`）**
+
+`UpdateStoryTaskUi` 增加 `effectiveRunning = running && g_storyTaskRunning.load()`，任何迟到的 `running=true` 更新都不能把面板/停止按钮复活；`StoryTaskThreadProc` 在 `RunStorySubtask` 失败后若已停止/会话已切换则 `break`；`StopStoryTask` 改为先增会话号再清运行标记，消掉「运行标记已清、会话号未变」的收尾文案竞态。
+
+**D. 配方入口 NPC（`gen_story_recipe.py`）**
+
+`parse_npc_maps` 返回值扩为 `{npc_id: {mapid, istask, name}}`；子任务入口三级回退：精确 `mapid` 匹配 → 若 taskprop 完全无说话 NPC 则在该场景 `istask==1` 里先按「NPC 名出现在子任务名中」选（`通过大裂口`→`21704 大裂口`），否则取最小 id（`奇怪的声音`→`21101`）→ 否则退回首个带 NPC 节点并告警。原 4 处场景错配（2001005/2004004/2011001/2011002）行为不变。
+
+只读 review 结论（子代理，未改码）：越界检查、atomic 读取、`Take` 与写锁配合、`CreateThread` 参数生命周期、匿名命名空间/作用域**均无问题**。已按 review 收敛三处：刷新查询加 CAS 去重、`StopStoryTask` 调整自增顺序、`2004002` 改用名称匹配。仍待真机验证的既有弱点：`StopStoryTask` 后 worker 最长约 1–2 秒才退（`SendPacket` 重试的 500ms `Sleep` 不可中断），期间 UI 已显示「已停止」；`CancelWait` 是全局取消，会波及其它活动流程。
 
 ## 4. 验证方式
 
-改完后必须真机抓一份 2001001 的 `1315858` body，逐字节对照 `TaskParse.as:498` 的读取顺序，确认：
+已用真机抓包（2026-10-15）确认的部分：
+- 2001002 的入口是 `CLICK_NPC(21101)`，`TASK_TALK` 的 params = 被点 NPC id、body = node id（见 2.12 的抓包表）。
+
+仍需抓包确认的部分：一份 2001001 的 `1315858`（NPCTASKLIST_BACK）body，逐字节对照 `TaskParse.as:498` 的读取顺序：
 
 - `type` 到底是 0 还是 1（决定走 2.9 还是 2.10）
 - `type==1` 时 `canReceive` 与 `taskId` 的值
 - `type==0` 时 `tasklist` 每项的 `dialogId / state`
+
+注意抓包要抓**客户端收包**：当前面板「保存封包」导出的是客户端发包含序列（含 `0x050006` 心跳），不含服务端回包，无法用于上述三项。
 
 已排除的方向：
 - 场景进不去（2001001 场景 1003，NPC 11001 阳光机长 `mapid=1003`，匹配）

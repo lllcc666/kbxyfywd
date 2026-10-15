@@ -11278,6 +11278,52 @@ BOOL QueryTaskZoneUserTaskListProgress(uint32_t taskId) {
     return TRUE;
 }
 
+// UI 线程不能直接做阻塞等待：游戏与本界面在同一进程、同一 UI 线程上跑，
+// 在 UI 线程里阻塞会连 socket 回包处理一起卡住，3 秒内必然拿不到
+// USER_TASK_LIST_BACK，于是「刷新进度」总是报失败；而「完成所选」是开 worker
+// 线程查询的，所以在 UI 线程外做等待就正常。这里把刷新也挪到独立线程。
+struct TaskZoneProgressQueryArgs {
+    uint32_t taskId;
+};
+
+// 进度查询去重：查询共用 g_taskZoneProgressTaskId 单槽和同一份缓存，
+// 并发两路会互相清缓存、按错误的 taskId 过滤回包。连点「刷新」只跑一路。
+static std::atomic<bool> g_taskZoneProgressQueryBusy{false};
+
+static DWORD WINAPI TaskZoneProgressQueryThreadProc(LPVOID lpParam) {
+    std::unique_ptr<TaskZoneProgressQueryArgs> args(
+        static_cast<TaskZoneProgressQueryArgs*>(lpParam));
+    const uint32_t taskId = args->taskId;
+    if (QueryTaskZoneUserTaskListProgress(taskId)) {
+        UIBridge::Instance().UpdateHelperText(L"任务区：主线任务进度已刷新");
+    } else {
+        UIBridge::Instance().UpdateHelperText(L"任务区：读取主线任务进度失败");
+    }
+    g_taskZoneProgressQueryBusy.store(false);
+    return 0;
+}
+
+BOOL QueryTaskZoneUserTaskListProgressAsync(uint32_t taskId) {
+    if (taskId == 0) {
+        return FALSE;
+    }
+    // 已有刷新在跑：忽略本次点击，避免两路查询互相干扰。
+    bool expected = false;
+    if (!g_taskZoneProgressQueryBusy.compare_exchange_strong(expected, true)) {
+        UIBridge::Instance().UpdateHelperText(L"任务区：进度正在刷新中...");
+        return TRUE;
+    }
+    TaskZoneProgressQueryArgs* args = new TaskZoneProgressQueryArgs{taskId};
+    HANDLE hThread = CreateThread(nullptr, 0, TaskZoneProgressQueryThreadProc, args, 0, nullptr);
+    if (!hThread) {
+        delete args;
+        g_taskZoneProgressQueryBusy.store(false);
+        return FALSE;
+    }
+    CloseHandle(hThread);
+    return TRUE;
+}
+
 // 进图是全局响应事件，这里不用 ResponseWaiter，避免被其他自动流程抢走。
 static bool WaitForEightTrigramsMapEnter(DWORD timeoutMs) {
     const DWORD startTick = GetTickCount();
@@ -12014,10 +12060,13 @@ static void ResetStoryTaskState() {
 }
 
 static void UpdateStoryTaskUi(const std::wstring& text, bool running) {
+    // 停止后运行标记已清，任何迟到的 running=true 更新都不能把面板/停止按钮
+    // 复活（否则用户得点两次才能真正结束）。
+    const bool effectiveRunning = running && g_storyTaskRunning.load();
     UIBridge::Instance().UpdateHelperText(text);
     std::wstring script = L"if(window.updateHuangchengWeijiStatus) { window.updateHuangchengWeijiStatus('" +
                           UIBridge::EscapeJsonString(text) + L"', " +
-                          (running ? L"true" : L"false") + L"); }";
+                          (effectiveRunning ? L"true" : L"false") + L"); }";
     PostScriptToUI(script);
 }
 
@@ -12310,6 +12359,11 @@ static DWORD WINAPI StoryTaskThreadProc(LPVOID lpParam) {
 
         g_storyTaskCurrentSubtask.store(subtask.subtaskId);
         if (!RunStorySubtask(sessionId, subtask)) {
+            // 用户已停止或会话已切换：直接退出。否则下面的失败提示会把 UI 刷回
+            // 「运行中」，停止按钮重新变可用，用户得再点一次才能真正结束。
+            if (!g_storyTaskRunning.load() || g_storyTaskSession.load() != sessionId) {
+                break;
+            }
             if (IsStorySubtaskFinishedInCache(subtask.subtaskId)) {
                 continue;
             }
@@ -12385,9 +12439,11 @@ VOID StopStoryTask() {
         UpdateStoryTaskUi(L"任务区：已停止", false);
         return;
     }
+    // 先切会话号再清运行标记：否则 worker 可能在「运行标记已清、会话号未变」的
+    // 窗口里按会话号匹配成功，走到收尾分支把状态写成「流程已执行完毕」。
+    g_storyTaskSession.fetch_add(1);
     g_storyTaskRunning = false;
     g_storyTaskMapEntered = false;
-    g_storyTaskSession.fetch_add(1);
     ResponseWaiter::CancelWait();
     UpdateStoryTaskUi(L"任务区：已停止", false);
 }
