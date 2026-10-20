@@ -114,6 +114,33 @@ constexpr uint32_t TOWER_BATTLE_START = 1184788;
 constexpr uint32_t BATTLE_END_SEND = 1186323;
 constexpr uint32_t CLICK_NPC = 1186048;
 
+// NPC 状态上报（AS3 MsgDoc.OP_CLIENT_NPC_STATUS，back=1315843）。
+// 客户端每加载一个 NPC 精灵都会上报一次（Npc.as:186 派发 REQUESTNPCSTATE），
+// 服务端据此推进当前任务。params=npcId，body 为空。
+constexpr uint32_t NPC_STATUS_SEND = 1184771;
+constexpr uint32_t NPC_STATUS_BACK = 1315843;
+
+// 场景 NPC 列表（AS3 MsgDoc.OP_CLIENT_NPC_LIST，back=1315854）。
+// 抓包证实：每次进入新场景，客户端先发 NPC_LIST(params=0, 空 body)，
+// 服务端回 body=[count, npcId...]，客户端再对列表里每个 NPC 发 NPC_STATUS。
+// 任务推进依赖的 NPC 常是服务端动态生成的任务 NPC（如 21319 不在 npc.xml 里），
+// 只能从这条回包里拿到 id，不能靠本地配方猜。
+constexpr uint32_t NPC_LIST_SEND = 1184782;
+constexpr uint32_t NPC_LIST_BACK = 1315854;
+
+// 场景动作（AS3 MsgDoc.OP_CLIENT_SEND_ACTION）。
+// 用法（MapControl.onAction:231）：params=1, body=[userId, actionId, destX, destY, flag, destId]。
+// 主线里的「用【粒子光线】射击【封印】」就是这条：actionId 来自服务端下发的法术列表
+// （GETMAGICINDEX_BACK），坐标是目标对象在场景里的位置。
+constexpr uint32_t SEND_ACTION_SEND = 1184784;
+constexpr uint32_t SEND_ACTION_BACK = 1316124;
+
+// 已学法术列表（AS3 MsgDoc.OP_CLIENT_GETMAGICINDEX，back=1316125）。
+// 回包 body = magicCount 组 [id, type, state, num]，params=magicCount。
+// 主线射击类节点只能从这里取 actionId，本地配置里没有映射。
+constexpr uint32_t GET_MAGIC_INDEX_SEND = 1184797;
+constexpr uint32_t GET_MAGIC_INDEX_BACK = 1316125;
+
 constexpr uint32_t BATTLE_MD5_CHECK = 1317264;
 constexpr uint32_t BATTLE_MD5_SEND = 1186193;
 constexpr uint32_t BATTLE_MD5_FAIL = 1317266;

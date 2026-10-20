@@ -43,5 +43,15 @@ void StoryTaskOnDialogResponse(const GamePacket& packet);
 /// NPCTASKLIST_BACK(1315858) 回包（点击 NPC 后的对话入口）。
 void StoryTaskOnNpcTaskListResponse(const GamePacket& packet);
 
+/// NPC_LIST_BACK(1315854) 回包：进图后服务端下发的场景 NPC 列表。
+/// 任务推进依赖的 NPC 常是服务端动态生成的任务对象（抓包里 21319 不在 npc.xml），
+/// 只能从这条回包取到 id，再对其发 NPC_STATUS。
+void StoryTaskOnNpcListResponse(const GamePacket& packet);
+
+/// GET_MAGIC_INDEX_BACK(1316125) 回包：已学法术列表。
+/// 主线「用【粒子光线】射击【封印】」类节点要发 SEND_ACTION，actionId 只能从
+/// 这里下发的法术 id 取（本地数据没有 id 映射）。
+void StoryTaskOnMagicIndexResponse(const GamePacket& packet);
+
 /// TASK_FINISHED_BACK(1315847) 回包（子任务完成通知）。
 void StoryTaskOnTaskFinishedResponse(const GamePacket& packet);
