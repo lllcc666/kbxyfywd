@@ -39,43 +39,9 @@ void UIBridge::UpdateHelperText(const std::wstring& text) {
     ExecuteJS(script);
 }
 
-void UIBridge::UpdateProgress(int current, int total, const std::wstring& prefix) {
-    std::wstring script;
-    if (prefix.empty()) {
-        script = L"if(window.updateProgress) { window.updateProgress(" + 
-                  std::to_wstring(current) + L", " + std::to_wstring(total) + L"); }";
-    } else {
-        script = L"if(window.updateProgress) { window.updateProgress(" + 
-                  std::to_wstring(current) + L", " + std::to_wstring(total) + L", '" + 
-                  EscapeJsonString(prefix) + L"'); }";
-    }
-    ExecuteJS(script);
-}
-
-void UIBridge::NotifyTaskComplete(const std::wstring& taskName, bool success, const std::wstring& message) {
-    std::wstring script = L"if(window.onTaskComplete) { window.onTaskComplete('" + 
-                          EscapeJsonString(taskName) + L"', " + 
-                          (success ? L"true" : L"false") + L", '" +
-                          EscapeJsonString(message) + L"'); }";
-    ExecuteJS(script);
-}
-
-void UIBridge::ShowDialog(const std::wstring& type, const std::wstring& message) {
-    std::wstring script = L"if(window.showDialog) { window.showDialog('" + 
-                          EscapeJsonString(type) + L"', '" + 
-                          EscapeJsonString(message) + L"'); }";
-    ExecuteJS(script);
-}
-
 void UIBridge::UpdatePacketCount(DWORD count) {
     std::wstring script = L"if(window.updatePacketCount) { window.updatePacketCount(" + 
                           std::to_wstring(count) + L"); }";
-    ExecuteJS(script);
-}
-
-void UIBridge::UpdateMuteButtonState(bool muted) {
-    std::wstring script = L"if(window.updateMuteButtonState) { window.updateMuteButtonState(" + 
-                          std::wstring(muted ? L"true" : L"false") + L"); }";
     ExecuteJS(script);
 }
 

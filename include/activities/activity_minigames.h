@@ -263,7 +263,6 @@ constexpr int ACTIVITY_ID = 900;
 constexpr int OP_QUERY = 1;
 constexpr int OP_PICKUP = 2;
 constexpr int OP_CONFIRM = 4;
-constexpr int MAX_BOX_COUNT = 10;
 }  // namespace HeavenFurui
 
 BOOL SendHeavenFuruiPacket(int opType, const std::vector<int32_t>& bodyValues = {});

@@ -69,6 +69,5 @@ private:
 // 双台谷自动战斗状态唯一 owner。
 extern ShuangTaiAutoBattle g_shuangtaiAuto;
 
-uint32_t GetLastSpiritId();
 uint32_t GetHighestPowerSkillId(uint32_t spiritId);
 

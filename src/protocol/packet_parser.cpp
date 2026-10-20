@@ -2377,7 +2377,6 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         if (!reader.ReadU32(win)) return;
         if (g_battleSixAuto.IsInBattle()) {
             g_battleSixSettlementKnown = true;
-            g_battleSixSettlementWin = (win & 0x80000000u) != 0;
             g_battleSixSettlementFlags = win;
         }
         int goodsCount = 0;
@@ -2779,28 +2778,4 @@ ZlibCompressFunc GetZlibCompress() {
 
 ZlibCompress2Func GetZlibCompress2() {
     return g_compress2;
-}
-
-ZlibInflateInitFunc GetZlibInflateInit() {
-    return g_inflateInit;
-}
-
-ZlibInflateFunc GetZlibInflate() {
-    return g_inflate;
-}
-
-ZlibInflateEndFunc GetZlibInflateEnd() {
-    return g_inflateEnd;
-}
-
-ZlibDeflateInitFunc GetZlibDeflateInit() {
-    return g_deflateInit;
-}
-
-ZlibDeflateFunc GetZlibDeflate() {
-    return g_deflate;
-}
-
-ZlibDeflateEndFunc GetZlibDeflateEnd() {
-    return g_deflateEnd;
 }

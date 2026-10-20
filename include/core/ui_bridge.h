@@ -47,39 +47,10 @@ public:
     void UpdateHelperText(const std::wstring& text);
 
     /**
-     * @brief 更新进度显示
-     * @param current 当前进度
-     * @param total 总数
-     * @param prefix 前缀文本（可选）
-     */
-    void UpdateProgress(int current, int total, const std::wstring& prefix = L"");
-
-    /**
-     * @brief 通知任务完成
-     * @param taskName 任务名称
-     * @param success 是否成功
-     * @param message 额外消息（可选）
-     */
-    void NotifyTaskComplete(const std::wstring& taskName, bool success, const std::wstring& message = L"");
-
-    /**
-     * @brief 显示对话框
-     * @param type 对话框类型（info, warning, error）
-     * @param message 消息内容
-     */
-    void ShowDialog(const std::wstring& type, const std::wstring& message);
-
-    /**
      * @brief 更新封包计数
      * @param count 封包数量
      */
     void UpdatePacketCount(DWORD count);
-
-    /**
-     * @brief 更新静音按钮状态
-     * @param muted 是否静音
-     */
-    void UpdateMuteButtonState(bool muted);
 
     // ================================
     // 通用 JavaScript 执行方法
@@ -112,24 +83,3 @@ private:
 
     HWND m_hwnd = nullptr;  ///< 主窗口句柄
 };
-
-// ================================
-// 便捷宏定义（可选使用）
-// ================================
-
-/**
- * @brief 快速更新辅助文本
- * 使用示例：UI_UPDATE_TEXT(L"正在执行任务...")
- */
-#define UI_UPDATE_TEXT(text) UIBridge::Instance().UpdateHelperText(text)
-
-/**
- * @brief 快速更新进度
- * 使用示例：UI_UPDATE_PROGRESS(5, 10)
- */
-#define UI_UPDATE_PROGRESS(current, total) UIBridge::Instance().UpdateProgress(current, total)
-
-/**
- * @brief 快速通知任务完成
- */
-#define UI_TASK_COMPLETE(name, success) UIBridge::Instance().NotifyTaskComplete(name, success)

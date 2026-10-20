@@ -8,13 +8,9 @@
 
 namespace SpiritCollect {
     constexpr uint32_t PRESURES_SEND = 1187124;
-    constexpr uint32_t PRESURES_BACK = 1330484;
     constexpr uint32_t SEND_SPIRIT_SEND = 1187129;
-    constexpr uint32_t SEND_SPIRIT_BACK = 1330489;
     constexpr uint32_t PLAYER_INFO_SEND = 1187585;
-    constexpr uint32_t PLAYER_INFO_BACK = 1318657;
     constexpr uint32_t COLLECT_SEND = 1185429;
-    constexpr uint32_t COLLECT_BACK = 1316501;
     constexpr int ACT_ID = 754;
 }
 
@@ -38,7 +34,6 @@ struct SpiritCollectState {
     std::vector<SpiritInfo> spiritList;
     int dailyOutLimit = 0;
     int weeklyOutLimit = 0;
-    SpiritInfo selectedSpirit;
     int selectedFriendId = 0;
 
     void Reset() {

@@ -24,40 +24,6 @@ struct ActivityState {
     }
 };
 
-struct StrawberryState : ActivityState {
-    std::atomic<int> ruleFlag{0};
-    std::atomic<int> redBerryCount{0};
-    std::atomic<bool> useSweep{false};
-    std::atomic<int> awardType{0};
-    std::vector<int> awardArr;
-    std::vector<int> toolArr;
-
-    void Reset() override {
-        ActivityState::Reset();
-        ruleFlag = 0;
-        redBerryCount = 0;
-        useSweep = false;
-        awardType = 0;
-        awardArr.clear();
-        toolArr.clear();
-    }
-};
-
-struct TrialState : ActivityState {
-    std::atomic<int> gameCount{0};
-    std::atomic<int> awardNum{0};
-    std::atomic<bool> complete{false};
-    std::atomic<bool> waitingResponse{false};
-
-    void Reset() override {
-        ActivityState::Reset();
-        gameCount = 0;
-        awardNum = 0;
-        complete = false;
-        waitingResponse = false;
-    }
-};
-
 struct Act778State : ActivityState {
     std::atomic<int> bestScore{0};
     std::atomic<bool> useSweep{false};
@@ -660,8 +626,6 @@ class ActivityStateManager {
 public:
     static ActivityStateManager& Instance();
 
-    StrawberryState& GetStrawberryState();
-    TrialState& GetTrialState();
     Act778State& GetAct778State();
     Act685State& GetAct685State();
     Act666State& GetAct666State();
@@ -675,7 +639,6 @@ public:
     Act805State& GetAct805State();
     Act631State& GetAct631State();
     HorseCompetitionState& GetHorseCompetitionState();
-    void ResetAll();
 
 private:
     ActivityStateManager() = default;
@@ -683,8 +646,6 @@ private:
     ActivityStateManager(const ActivityStateManager&) = delete;
     ActivityStateManager& operator=(const ActivityStateManager&) = delete;
 
-    StrawberryState m_strawberryState;
-    TrialState m_trialState;
     Act778State m_act778State;
     Act685State m_act685State;
     Act666State m_act666State;

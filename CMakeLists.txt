@@ -5,14 +5,14 @@ project(WebView2Demo CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 妞ゅ湱娲伴惄顔肩秿缂佹挻鐎?
+# 项目目录结构
 set(SCRIPTS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/scripts)
 set(RESOURCES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/resources)
 set(EMBEDDED_DIR ${CMAKE_CURRENT_SOURCE_DIR}/embedded)
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-# 濞ｈ濮為崣顖涘⒔鐞涘本鏋冩禒璁圭礄Win32 缁愭褰涙惔鏃傛暏缁嬪绨敍?
+# 添加可执行文件（Win32 窗口应用程序）
 add_executable(WebView2Demo WIN32
     ${SRC_DIR}/app/demo.cpp
     ${SRC_DIR}/app/app_host.cpp
@@ -27,7 +27,7 @@ add_executable(WebView2Demo WIN32
     ${SRC_DIR}/core/web_message_handler.cpp
 )
 
-# 鐠佸墽鐤嗙紓鏍槯閸ｃ劋濞囬悽鈺慣F-8缂傛牜鐖?
+# 设置编译器使用 UTF-8 编码
 if(MSVC)
     target_compile_options(WebView2Demo PRIVATE /utf-8)
     # /W4：警告等级提升到 Level4，用于拦截未使用变量/参数、收窄转换、
@@ -35,12 +35,12 @@ if(MSVC)
     target_compile_options(WebView2Demo PRIVATE /W4)
 endif()
 
-# 鐠佸墽鐤?vcpkg 鐠侯垰绶?
+# 设置 vcpkg 路径（本机绝对路径，换机器须修改）
 set(VCPKG_ROOT "d:/AItrace/CE/.trae/vcpkg-master")
 set(VCPKG_INCLUDE_DIR "${VCPKG_ROOT}/installed/x64-windows/include")
 set(VCPKG_LIB_DIR "${VCPKG_ROOT}/installed/x64-windows/lib")
 
-# 閸栧懎鎯?WebView2 婢跺瓨鏋冩禒璺烘嫲瀹撳苯鍙嗗蹇旀殶閹诡喚娲拌ぐ?
+# 包含 WebView2 头文件和嵌入数据目录
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(${VCPKG_INCLUDE_DIR})
 include_directories(${EMBEDDED_DIR})
@@ -50,7 +50,7 @@ include_directories(${INCLUDE_DIR}/hook)
 include_directories(${INCLUDE_DIR}/internal)
 include_directories(${INCLUDE_DIR}/protocol)
 
-# 闁剧偓甯撮崗鏈电铂韫囧懓顩︽惔?
+# 链接其他必要库
 target_link_libraries(WebView2Demo PRIVATE
     ComCtl32.lib
     Comdlg32.lib
@@ -73,16 +73,16 @@ target_link_libraries(WebView2Demo PRIVATE
     "${VCPKG_LIB_DIR}/zlib.lib"
 )
 
-# 濞ｈ濮炵挧鍕爱閺傚洣娆?- 鐠佸墽鐤嗗锝団€橀惃鍕紣娴ｆ粎娲拌ぐ?
+# 添加资源文件并声明 app.ico 依赖
 set_source_files_properties(${RESOURCES_DIR}/app.rc PROPERTIES 
     OBJECT_DEPENDS "${RESOURCES_DIR}/app.ico"
 )
 target_sources(WebView2Demo PRIVATE ${RESOURCES_DIR}/app.rc)
 
-# 娑撻缚绁┃鎰椽鐠囨垵娅掑ǎ璇插閸栧懎鎯堥惄顔肩秿
+# 为资源编译器添加包含目录
 set_property(SOURCE ${RESOURCES_DIR}/app.rc PROPERTY COMPILE_FLAGS "/I\"${RESOURCES_DIR}\"")
 
-# 濞ｈ濮為懛顏勭暰娑斿鎳℃禒銈忕窗鐏忓摛ebView2Loader.dll鏉烆剚宕叉稉绡?+婢跺瓨鏋冩禒?
+# 添加自定义命令：把 WebView2Loader.dll 转换为头文件
 add_custom_command(
     OUTPUT ${EMBEDDED_DIR}/webview2loader_data.h
     COMMAND python3 ${SCRIPTS_DIR}/embed_dll.py
@@ -92,7 +92,7 @@ add_custom_command(
     COMMENT "Embedding WebView2Loader.dll into header file..."
 )
 
-# 濞ｈ濮為懛顏勭暰娑斿鎳℃禒銈忕窗鐏忓敇i.html鏉烆剚宕叉稉绡?+婢跺瓨鏋冩禒?
+# 添加自定义命令：把 ui.html 转换为头文件
 add_custom_command(
     OUTPUT ${EMBEDDED_DIR}/ui_html.h
     COMMAND python3 ${SCRIPTS_DIR}/embed_html.py
@@ -102,7 +102,7 @@ add_custom_command(
     COMMENT "Embedding UI.html into header file..."
 )
 
-# 濞ｈ濮為懛顏勭暰娑斿鎳℃禒銈忕窗鐏忓敒lib1.dll鏉烆剚宕叉稉绡?+婢跺瓨鏋冩禒?
+# 添加自定义命令：把 zlib1.dll 转换为头文件
 add_custom_command(
     OUTPUT ${EMBEDDED_DIR}/zlib_data.h
     COMMAND python3 ${SCRIPTS_DIR}/embed_dll.py
@@ -112,19 +112,19 @@ add_custom_command(
     COMMENT "Embedding zlib1.dll into header file..."
 )
 
-# 鐏忓棛鏁撻幋鎰畱婢跺瓨鏋冩禒鑸靛潑閸旂姴鍩屽┃鎰瀮娴犺泛鍨悰?
+# 将生成的头文件加入源文件列表
 target_sources(WebView2Demo PRIVATE
     ${EMBEDDED_DIR}/webview2loader_data.h
     ${EMBEDDED_DIR}/ui_html.h
     ${EMBEDDED_DIR}/zlib_data.h
 )
 
-# 鐠佸墽鐤嗘潏鎾冲毉閻╊喖缍?
+# 设置输出目录
 set_target_properties(WebView2Demo PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
-# Release 浣跨敤鏍囧噯浼樺寲锛岄伩鍏嶈繃搴︽縺杩涚殑浣撶Н鍘嬬缉褰卞搷鍏煎鎬?
+# Release 配置：体积优先的编译与链接选项（/O1 /GL /GF /Gy /Gw 与 /LTCG）
 if(MSVC)
     # Release 侧更偏向体积压缩，减少可执行文件和装载后的常驻体积。
     target_compile_options(WebView2Demo PRIVATE

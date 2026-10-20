@@ -117,8 +117,6 @@ public:
     const std::vector<BattleSixLineupEntry>& GetLineup() const { return m_lineup; }
     int GetCurrentSpiritIndex() const { return m_currentSpiritIndex; }
     int GetEnemySid() const { return m_enemySid; }
-    int GetEnemyUniqueId() const { return m_enemyUniqueId; }
-    int GetMyUniqueId() const { return m_myUniqueId; }
     void SetMyUniqueId(int id) { m_myUniqueId = id; }
     void SetEnemySid(int id) { m_enemySid = id; }
     void SetEnemyUniqueId(int id) { m_enemyUniqueId = id; }
@@ -134,7 +132,6 @@ extern std::atomic<unsigned long long> g_battleSixBattleSession;
 extern std::atomic<unsigned long long> g_battleSixRoundToken;
 
 extern std::atomic<bool> g_battleSixSettlementKnown;
-extern std::atomic<bool> g_battleSixSettlementWin;
 BOOL SendBattleSixCombatInfoPacket();
 BOOL SendBattleSixMatchPacket();
 extern std::atomic<uint32_t> g_battleSixSettlementFlags;

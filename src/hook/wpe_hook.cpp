@@ -463,9 +463,6 @@ std::atomic<bool> g_autoGoHome{false};   ///< 自动回家（玄塔）
 std::atomic<int32_t> g_battleCounter{0};  ///< 战斗counter（用于战斗校验）
 std::atomic<bool> g_battleStarted{false};  ///< 是否已进入战斗
 
-// MD5 验证自动回复 owner：索引仅用于该自动回复流程。
-std::atomic<int> g_md5CheckIndex{0};  ///< MD5验证自动回复索引（-1=禁用，0-3=有效，99=测试）
-
 // 一键采集 owner：完成标志、自动模式和流程状态统一由这一组维护。
 std::atomic<bool> g_collectFinished{false};  ///< 采集完成标志
 std::atomic<bool> g_collectAutoMode{false};  ///< 一键采集模式
@@ -564,7 +561,6 @@ std::atomic<unsigned long long> g_battleSixRoundToken{0};
 std::atomic<unsigned long long> g_battleSixRoundResultToken{0};
 std::atomic<unsigned long long> g_battleSixPlayOverToken{0};
 std::atomic<bool> g_battleSixSettlementKnown{false};
-std::atomic<bool> g_battleSixSettlementWin{false};
 std::atomic<uint32_t> g_battleSixSettlementFlags{0};
 
 unsigned long long AdvanceBattleSixFlowStage(int stage) {
@@ -698,10 +694,8 @@ void ArmBattleSixFlowWatchdog(
     }
 }
 
-// 登录 key 捕获 owner：原始 key 字符串和捕获标记统一由这里维护。
+// 登录 key 捕获 owner：原始 key 字符串由这里维护。
 std::wstring g_loginKey;                     ///< 整个封包的十六进制字符串（大写）
-// 登录 key 捕获 owner：仅记录当前是否已捕获登录 key。
-std::atomic<bool> g_loginKeyCaptured{false}; ///< 是否已捕获登录 key
 
 namespace {
 
@@ -4394,45 +4388,6 @@ static bool WaitForAct757Response() {
     return received;
 }
 
-[[maybe_unused]] static std::vector<std::pair<int, int>> BuildAct757RewardList(
-    int medal,
-    int exp,
-    int coin,
-    const std::vector<std::pair<int, int>>& rewards) {
-    std::vector<std::pair<int, int>> awardList;
-    std::vector<std::pair<int, int>> tempList;
-    int xiuwei = 0;
-
-    awardList.emplace_back(0, medal);
-    awardList.emplace_back(202, exp);
-    awardList.emplace_back(201, coin);
-
-    for (const auto& reward : rewards) {
-        const int id = reward.first;
-        const int num = reward.second;
-        if (num <= 0) {
-            break;
-        }
-        switch (id) {
-            case 208:
-            case 209:
-            case 210:
-            case 211:
-            case 212:
-            case 213:
-                xiuwei += num;
-                break;
-            default:
-                tempList.emplace_back(id, num);
-                break;
-        }
-    }
-
-    awardList.emplace_back(203, xiuwei);
-    awardList.insert(awardList.end(), tempList.begin(), tempList.end());
-    return awardList;
-}
-
 DWORD WINAPI Act757ThreadProc(LPVOID lpParam) {
     const bool useSweep = lpParam ? *static_cast<bool*>(lpParam) : false;
     delete static_cast<bool*>(lpParam);
@@ -7518,13 +7473,6 @@ void ResponseWaiter::EndWait() {
     LeaveCriticalSection(&s_cs);
 }
 
-uint64_t ResponseWaiter::GetCurrentSerial() {
-    EnterCriticalSection(&s_cs);
-    const uint64_t serial = s_responseSerial;
-    LeaveCriticalSection(&s_cs);
-    return serial;
-}
-
 bool ResponseWaiter::WaitForResponse(
     uint32_t expectedOpcode,
     DWORD timeoutMs,
@@ -7930,32 +7878,6 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     ActivityStateManager& ActivityStateManager::Instance() {
         static ActivityStateManager instance;
         return instance;
-    }
-
-    StrawberryState& ActivityStateManager::GetStrawberryState() {
-        return m_strawberryState;
-    }
-
-    TrialState& ActivityStateManager::GetTrialState() {
-        return m_trialState;
-    }
-
-    void ActivityStateManager::ResetAll() {
-        m_strawberryState.Reset();
-        m_trialState.Reset();
-        m_act778State.Reset();
-        m_act685State.Reset();
-        m_act666State.Reset();
-        m_act757State.Reset();
-        m_act822State.Reset();
-        m_act826State.Reset();
-        m_act827State.Reset();
-        m_act641State.Reset();
-        m_act684State.Reset();
-        m_act717State.Reset();
-        m_act805State.Reset();
-        m_act631State.Reset();
-        m_horseCompetitionState.Reset();
     }
 
     Act778State& ActivityStateManager::GetAct778State() {
@@ -9302,7 +9224,7 @@ BOOL SendBuyDice5Packet() {
 // Opcode: 1184313, Params: 16006
 BOOL SendEnterTowerMapPacket() {
     auto packet = PacketBuilder()
-        .SetOpcode(1184313)
+        .SetOpcode(Opcode::ENTER_SCENE_SEND)
         .SetParams(16006)
         .Build();
     return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
@@ -9344,7 +9266,7 @@ BOOL SendTowerResultPacket() {
 // Opcode: 1184313, Params: 1002
 BOOL SendReenterTowerMapPacket() {
     auto packet = PacketBuilder()
-        .SetOpcode(1184313)
+        .SetOpcode(Opcode::ENTER_SCENE_SEND)
         .SetParams(1002)
         .Build();
     return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
@@ -9743,7 +9665,7 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
 // 响应 Opcode: 1315395 = OP_CLIENT_REQ_ENTER_SCENE.back
 BOOL SendEnterScenePacket(int mapId, uint32_t expectedOpcode, DWORD timeoutMs) {
     auto packet = PacketBuilder()
-        .SetOpcode(1184313)
+        .SetOpcode(Opcode::ENTER_SCENE_SEND)
         .SetParams(static_cast<uint32_t>(mapId))
         .Build();
 
@@ -10363,72 +10285,6 @@ bool ProcessHijack(bool bSend, const BYTE* pData, DWORD* pdwSize, std::vector<BY
     }
     
     return false;
-}
-
-// ============================================================================
-// 保存和载入封包功能
-// ============================================================================
-
-BOOL SavePacketsToFile(const std::string& filePath) {
-    std::ofstream file(filePath);
-    if (!file.is_open()) {
-        return FALSE;
-    }
-    
-    CriticalSectionLock lock(g_packetListCS.Get());
-    
-    for (const auto& packet : g_PacketList) {
-        if (packet.bSend) {  // 只保存发送包
-            std::string hexStr = HexToString(packet.pData, packet.dwSize);
-            file << hexStr << std::endl;
-        }
-    }
-    
-    file.close();
-    return TRUE;
-}
-
-int LoadPacketsFromFile(const std::string& filePath) {
-    std::ifstream file(filePath);
-    if (!file.is_open()) {
-        return -1;
-    }
-    
-    std::string line;
-    int count = 0;
-    
-    while (std::getline(file, line)) {
-        // 去除空白字符
-        line.erase(0, line.find_first_not_of(" \t\r\n"));
-        line.erase(line.find_last_not_of(" \t\r\n") + 1);
-        
-        // 跳过空行
-        if (line.empty()) continue;
-        
-        // 转换为字节数组
-        std::vector<BYTE> data = StringToHex(line);
-        if (!data.empty()) {
-            // 创建封包并添加到列表
-            PACKET packet;
-            packet.dwSize = (DWORD)data.size();
-            packet.bSend = true;  // 默认为发送包
-            packet.pData = new BYTE[data.size()];
-            memcpy(packet.pData, data.data(), data.size());
-            packet.dwTime = GetTickCount();
-            
-            CriticalSectionLock lock(g_packetListCS.Get());
-            g_PacketList.push_back(packet);
-            
-            count++;
-        }
-    }
-    
-    file.close();
-    
-    // 同步到UI
-    SyncPacketsToUI();
-    
-    return count;
 }
 
 // ============================================================================
@@ -13830,13 +13686,6 @@ static const CollectItemData COLLECT_ITEMS[] = {
 
 static const int COLLECT_ITEM_COUNT = sizeof(COLLECT_ITEMS) / sizeof(COLLECT_ITEMS[0]);
 
-/** 辅助函数：格式化十六进制数为字符串 */
-[[maybe_unused]] static std::wstring fmt_hex(uint32_t value) {
-    wchar_t buf[16];
-    swprintf_s(buf, L"%04X", value);
-    return std::wstring(buf);
-}
-
 /** 采集单个物品 */
 static BOOL CollectSingleItem(const CollectItemData& item) {
     if (item.maxCount == 0) {
@@ -13846,7 +13695,7 @@ static BOOL CollectSingleItem(const CollectItemData& item) {
 
     // 1. 跳转地图封包: Opcode 1184313, Params=mapId
     auto mapPacket = PacketBuilder()
-        .SetOpcode(1184313)
+        .SetOpcode(Opcode::ENTER_SCENE_SEND)
         .SetParams(static_cast<uint32_t>(item.mapId))
         .Build();
 
@@ -14865,7 +14714,6 @@ void BattleSixAutoBattle::StartBattle() {
     g_battleSixPostSettlementEndSent = false;
     g_battleSixSettlementKnown = false;
     g_battleSixSettlementFlags = 0;
-    g_battleSixSettlementWin = false;
     g_battleSixSwitchTargetId = -1;
     g_battleSixSwitchRetryCount = 0;
     UIBridge::Instance().UpdateHelperText(L"战斗开始");
@@ -14882,7 +14730,6 @@ void BattleSixAutoBattle::EndBattle() {
     m_enemyActiveIndex = -1;
     g_battleSixSettlementKnown = false;
     g_battleSixSettlementFlags = 0;
-    g_battleSixSettlementWin = false;
     m_myUniqueId = 0;
     g_battleSixBattleSession.fetch_add(1);
     g_battleSixSwitchTargetId = -1;
@@ -16230,23 +16077,6 @@ void StopDungeonJump() {
     g_dungeonJumpState.Reset();
 }
 
-void ProcessDungeonJumpResponse(const GamePacket& packet) {
-    (void)packet;
-    // 处理副本跳层相关响应
-    // 注意：使用ResponseWaiter自动处理响应，此函数保留用于未来扩展
-    if (!g_dungeonJumpState.isRunning) {
-        return;
-    }
-    
-    // ResponseWaiter会自动处理以下返回opcode：
-    // - 1317252 (JUMP_LAYER_BACK)
-    // - 1315074 (ENTER_SCENE_BACK)
-    // - 1315086 (QUERY_DUNGEON_BACK)
-    // - 1315854 (PREPARE_BATTLE_BACK)
-    // - 1324097 (ACTIVITY_BACK)
-    // - 1315843 (COMPLETE_JUMP_BACK)
-}
-
 // ============================================================================
 // 双台谷刷级功能实现 - 异步状态机模式
 // ============================================================================
@@ -16259,13 +16089,6 @@ extern MonsterData g_monsterData;
 extern std::unordered_map<int, int> g_skillPowers;
 
 // ========== 工具函数 ==========
-
-uint32_t GetLastSpiritId() {
-    if (g_monsterData.monsters.empty()) {
-        return 0;
-    }
-    return g_monsterData.monsters.back().id;
-}
 
 uint32_t GetHighestPowerSkillId(uint32_t spiritId) {
     const MonsterItem* monster = nullptr;

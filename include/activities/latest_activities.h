@@ -37,7 +37,6 @@ constexpr int ACT_MOON_CAKE = 870;   ///< 月饼大胃王
 constexpr int ACT_FLOWER = 704;      ///< 夺回花束行动
 constexpr int ACT_FOOD = 697;        ///< 美食大作战
 
-constexpr int ACTIVITY_COUNT = 6;
 }  // namespace LatestAct
 
 /// 该活动是否由本模块负责（供次数查询/UI 通道判断）。
@@ -54,13 +53,6 @@ void EndLatestActivityProbe(uint32_t activityId);
 
 /// 单个活动的剩余次数；< 0 表示未知/未获取。
 int GetLatestActivityPlayCount(uint32_t activityId);
-
-/// 发送 open_ui 查询封包（会等待响应）。
-BOOL SendLatestActivityOpenUIPacket(uint32_t activityId);
-
-/// 启动一键执行线程（自动判定扫荡或走一局，只做主流程）。
-/// 单活动入口：等价于只传一个 ID 的批量版本。
-BOOL StartOneKeyLatestActivityPacket(uint32_t activityId);
 
 /// 批量一键执行：单线程顺序处理，每个活动循环到次数耗尽（或冷却/失败）为止，
 /// 每轮结束自动把剩余次数回填前端，无需手动刷新。

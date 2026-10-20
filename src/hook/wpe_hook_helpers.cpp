@@ -196,7 +196,6 @@ BOOL ExtractLoginKeyFromPacket(const BYTE* pData, DWORD len) {
     }
 
     g_loginKey = Utf8ToWide(hexPacket);
-    g_loginKeyCaptured.store(true);
     return TRUE;
 }
 

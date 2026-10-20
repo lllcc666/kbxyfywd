@@ -28,7 +28,6 @@ public:
         bool preRegistered = false
     );
 
-    static uint64_t GetCurrentSerial();
     static void NotifyResponse(uint32_t opcode, uint32_t params);
     static void CancelWait();
 

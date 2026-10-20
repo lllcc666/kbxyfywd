@@ -1036,22 +1036,6 @@ int GetLatestActivityPlayCount(uint32_t activityId) {
     return state ? state->playCount.load() : -1;
 }
 
-BOOL SendLatestActivityOpenUIPacket(uint32_t activityId) {
-    const LatestActDesc* desc = FindDesc(activityId);
-    LatestActState* state = StateOf(activityId);
-    if (!desc || !state) {
-        return FALSE;
-    }
-    state->pendingOp = static_cast<uint32_t>(PendingOp::OpenUi);
-    state->waitingResponse = true;
-    const BOOL sent = SendLatestPacket(activityId, desc->openUiOp);
-    if (!sent) {
-        state->pendingOp = static_cast<uint32_t>(PendingOp::None);
-        state->waitingResponse = false;
-    }
-    return sent;
-}
-
 /// 把回包的 operation 串映射成本模块的等待类型；None 表示本模块不认识的操作。
 PendingOp PendingOpOf(const LatestActDesc& desc, const std::string& operation) {
     if (operation == desc.openUiOp) {
@@ -1126,10 +1110,6 @@ void ProcessLatestActivityResponse(const GamePacket& packet) {
 
     // 解析完成后才放行等待方，避免调用方读到上一轮的旧值（checkCode/sweepReady）。
     state->waitingResponse = false;
-}
-
-BOOL StartOneKeyLatestActivityPacket(uint32_t activityId) {
-    return StartOneKeyLatestActivitiesPacket(std::vector<uint32_t>{activityId});
 }
 
 // 批量一键执行：单线程顺序处理，逐活动循环到次数耗尽为止。

@@ -1,7 +1,5 @@
 #pragma once
 
-#define KB_PACKET_PROTOCOL_SHARED 1
-
 #include <cstddef>
 #include <cstdint>
 
@@ -11,7 +9,6 @@ constexpr uint16_t MAGIC_NORMAL = 0x5344;
 constexpr uint16_t MAGIC_COMPRESSED = 0x5343;
 
 constexpr size_t HEADER_SIZE = 12;
-constexpr size_t MIN_PACKET_SIZE = HEADER_SIZE;
 
 }  // namespace PacketProtocol
 

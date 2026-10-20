@@ -38,19 +38,9 @@ namespace WpeHook {
 constexpr wchar_t APP_VERSION_W[] = L"1.16";
 constexpr wchar_t APP_WINDOW_TITLE_W[] = L"卡布西游浮影微端 V1.16";
 
-constexpr int DANCE_MAP_ID = 1028;
-
 constexpr int DANCE_MAX_DAILY_COUNT = 3;
 
 constexpr int DEEP_DIG_DEFAULT_COUNT = 2;
-
-constexpr int TRIAL_CHECK_CODE_COEFF_NORMAL = 56;
-
-constexpr int TRIAL_CHECK_CODE_COEFF_STORM = 72;
-
-constexpr DWORD TIMEOUT_SHORT = 100;
-
-constexpr DWORD TIMEOUT_NORMAL = 300;
 
 constexpr DWORD TIMEOUT_RESPONSE = 3000;
 
@@ -59,14 +49,6 @@ constexpr DWORD TIMEOUT_SEND = 5000;
 constexpr DWORD TIMEOUT_RETRY_INTERVAL = 500;
 
 }
-
-#define WM_EXECUTE_JS           AppMessage::kExecuteJs
-
-#define WM_DECOMPOSE_COMPLETE   AppMessage::kDecomposeComplete
-
-#define WM_DECOMPOSE_HEX_PACKET AppMessage::kDecomposeHexPacket
-
-#define WM_DAILY_TASK_COMPLETE  AppMessage::kDailyTaskComplete
 
 BOOL InitializeHooks();
 
@@ -188,29 +170,9 @@ BOOL SendStormTrialPacket();
 
 BOOL SendStormEndPacket(int exitStatus, int brand, int checkCode);
 
-namespace TowerOpcode {
-
-    constexpr uint32_t BUY_DICE_SEND = 1185569;
-
-    constexpr uint32_t CLAIM_DICE = 393216;
-
-    constexpr uint32_t ENTER_SCENE_SEND = 1184313;
-
-    constexpr uint32_t START_BATTLE = 1184788;
-
-    constexpr uint32_t EXIT_SCENE = 4370;
-
-    constexpr uint32_t ACTIVITY_QINGYANG = 1184833;
-
-}
-
-constexpr int TOWER_MAP_ID = 16006;
-
 BOOL SendPutToSpiritStorePacket(int param1, int param2);
 
 BOOL SendFabaoPacket(int type, uint32_t userId);
-
-BOOL SendClaimFreeDicePacket();
 
 BOOL SendTowerCheckInfoPacket();
 
@@ -267,8 +229,6 @@ extern std::atomic<int32_t> g_battleCounter;
 
 extern std::atomic<bool> g_battleStarted;
 
-extern std::atomic<int> g_md5CheckIndex;
-
 extern std::atomic<bool> g_collectFinished;
 
 extern std::atomic<bool> g_collectAutoMode;
@@ -319,10 +279,6 @@ VOID SetHijackEnabled(bool enable);
 
 bool ProcessHijack(bool bSend, const BYTE* pData, DWORD* pdwSize, std::vector<BYTE>* pModifiedData);
 
-BOOL SavePacketsToFile(const std::string& filePath);
-
-int LoadPacketsFromFile(const std::string& filePath);
-
 DWORD SendAllPackets(DWORD intervalMs = 100, DWORD loopCount = 1,
 
                      PacketProgressCallback progressCallback = nullptr);
@@ -371,10 +327,6 @@ BOOL SendUsePropsPacket(uint32_t itemId, uint32_t spiritId = 0,
 
                         uint32_t param1 = 1, uint32_t param2 = 0, uint32_t param3 = 0);
 
-void ProcessBuyGoodsResponse(const GamePacket& packet);
-
-void ProcessUsePropsResponse(const GamePacket& packet);
-
 std::wstring GetItemName(uint32_t itemId);
 
 uint32_t GetItemPrice(uint32_t itemId);
@@ -382,8 +334,6 @@ uint32_t GetItemPrice(uint32_t itemId);
 uint32_t GetItemPosition(uint32_t itemId);
 
 extern std::wstring g_loginKey;
-
-extern std::atomic<bool> g_loginKeyCaptured;
 
 BOOL ExtractLoginKeyFromPacket(const BYTE* pData, DWORD len);
 
