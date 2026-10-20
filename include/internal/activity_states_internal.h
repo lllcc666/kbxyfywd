@@ -534,7 +534,6 @@ struct HorseMemberInfo {
 
 struct HorseCompetitionState : ActivityState {
     static constexpr int ROUTE_DISTANCE = 1500;
-    static constexpr int SYNC_INTERVAL = 60;
 
     std::atomic<bool> inRoom{false};
     std::atomic<bool> isGaming{false};
@@ -543,6 +542,17 @@ struct HorseCompetitionState : ActivityState {
     std::atomic<bool> receivedEndGame{false};
     std::atomic<bool> localFinished{false};
     std::atomic<bool> abnormalRoundEnd{false};
+    // 房间已失效：收到自己的 EXIT_ROOM 回包，或服务器把 ROOM_STATUS 推成 FREE
+    // （AS3 HorseModel.as:192-195 收到 FREE 会派发 HORSE_SHOW_CLOSE_BTN，即房间已关闭）。
+    // 用于确认退房成功、以及让等待循环提前结束，不必死等超时。
+    std::atomic<bool> roomGone{false};
+    // 本工具正在等服务器开局。迟到的 START_GAME（上一局超时退房后才补到的）
+    // 必须被拒绝，否则会起一个「幽灵局」往已经不存在的房间继续发 PLAY_GAME，
+    // 而外层白等满整个结算预算。
+    std::atomic<bool> awaitingStart{false};
+    // 已发出 EXIT_ROOM、正在等确认。只有这个窗口内的退房回包才算数——
+    // 上一局迟到的回包否则会把下一局的等待当场打断。
+    std::atomic<bool> awaitingExit{false};
     std::atomic<int> phase{HORSE_PHASE_IDLE};
 
     std::atomic<int> cnt{0};
@@ -552,7 +562,9 @@ struct HorseCompetitionState : ActivityState {
     std::atomic<int> exchangeNum{0};
     std::atomic<bool> uiInfoReceived{false};
 
-    int roomId = 0;
+    // roomId 会被收包线程（ApplyHorseRoomStateFromJson）和一键工作线程
+    // （ResetHorseRoundState）同时读写，必须是 atomic，否则是数据竞争（UB）。
+    std::atomic<int> roomId{0};
     std::atomic<int> roomStatus{HORSE_ROOM_FREE};
     double updateTime = 0.0;
     double startTime = 0.0;
@@ -572,7 +584,6 @@ struct HorseCompetitionState : ActivityState {
     std::string lastState = "RUN";
     std::atomic<bool> canControl{true};
     std::atomic<bool> isDie{false};
-    int syncCount = 0;
     std::vector<int> items;
 
     std::atomic<bool> useTempMount{true};
@@ -588,6 +599,9 @@ struct HorseCompetitionState : ActivityState {
         receivedEndGame = false;
         localFinished = false;
         abnormalRoundEnd = false;
+        roomGone = false;
+        awaitingStart = false;
+        awaitingExit = false;
         phase = HORSE_PHASE_IDLE;
         cnt = 0;
         isRide = 0;
@@ -616,7 +630,6 @@ struct HorseCompetitionState : ActivityState {
         lastState = "RUN";
         canControl = true;
         isDie = false;
-        syncCount = 0;
         items.clear();
     }
 };
