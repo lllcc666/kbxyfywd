@@ -4,6 +4,38 @@
 #include <unordered_map>
 
 #include "wpe_hook.h"
+#include "utils.h"
+
+// 跨模块共享的封包/劫持/玄塔/跳舞状态（定义在各活动模块，hook 核心要用）。
+extern std::vector<PACKET> g_PacketList;
+extern CriticalSectionScope g_packetListCS;
+extern std::vector<HijackRule> g_HijackRules;
+extern CriticalSectionScope g_hijackRulesCS;
+extern volatile bool g_bStopAutoSend;
+extern bool g_blockOpcodeSend;
+extern bool g_bHijackEnabled;
+extern EXECUTE_SCRIPT_FUNC g_ExecuteScriptFunc;
+extern CRITICAL_SECTION g_towerCS;
+extern bool g_towerMapEntered;
+
+// 玄塔临界区的建立与销毁（hook 初始化/清理调用）。
+void InitializeTowerState();
+void CleanupTowerState();
+
+// 跳舞进图标记：hook 核心的 ENTER_SCENE_BACK 回包里置位。
+void SetDanceMapEntered(bool entered);
+
+// 深层挖宝状态：日常任务收尾要发结束包，故跨模块可见。
+struct DeepDigState {
+    int sessionId = 0;           ///< 会话ID
+    int remainingCount = 0;      ///< 剩余次数
+    int targetCount = 0;         ///< 目标执行次数
+    int completedCount = 0;      ///< 已完成次数
+    bool waitingResponse = false;///< 等待开始响应
+    bool waitingQuery = false;   ///< 等待查询响应
+    bool autoMode = false;       ///< 自动循环模式
+};
+extern DeepDigState g_deepDigState;
 
 using ResponseHandler = void (*)(const GamePacket&);
 

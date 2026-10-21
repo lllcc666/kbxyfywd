@@ -31,6 +31,15 @@ add_executable(WebView2Demo WIN32
     ${SRC_DIR}/hook/activity_counts.cpp
     ${SRC_DIR}/hook/battle.cpp
     ${SRC_DIR}/hook/collect.cpp
+    ${SRC_DIR}/hook/dungeon_deepdig.cpp
+    ${SRC_DIR}/hook/bag_items.cpp
+    ${SRC_DIR}/hook/daily_activity.cpp
+    ${SRC_DIR}/hook/md5_check.cpp
+    ${SRC_DIR}/hook/trial.cpp
+    ${SRC_DIR}/hook/tower.cpp
+    ${SRC_DIR}/hook/dance.cpp
+    ${SRC_DIR}/hook/hijack.cpp
+    ${SRC_DIR}/hook/packet_store.cpp
     ${SRC_DIR}/core/utils.cpp
     ${SRC_DIR}/core/managed_thread.cpp
     ${SRC_DIR}/protocol/packet_parser.cpp
