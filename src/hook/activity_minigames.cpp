@@ -53,44 +53,6 @@ static std::atomic<bool> g_act782WaitingResponse{false};
 static std::atomic<bool> g_act782UseSweep{false};
 static std::atomic<bool> g_act782SweepAvailable{false};
 
-// 果宝救援状态 (Act757)
-static std::atomic<int> g_act757PlayCount{0};
-static std::atomic<int> g_act757RestTime{0};
-static std::atomic<int> g_act757TotalBadgeNum{0};
-static std::atomic<int> g_act757BuyCnt{0};
-static std::atomic<int> g_act757PassCount{0};
-static std::atomic<int> g_act757IsPop{0};
-static std::atomic<int> g_act757HistoryBestScore{0};
-static std::atomic<int> g_act757LastScore{0};
-static std::atomic<int> g_act757PassFlag{0};
-static std::atomic<int> g_act757CatchId{0};
-static std::atomic<int> g_act757CheckCode{0};
-static std::atomic<int> g_act757StartResult{-1};
-static std::atomic<int> g_act757EndResult{-1};
-static std::atomic<int> g_act757SweepResult{-1};
-static std::atomic<bool> g_act757WaitingResponse{false};
-static std::atomic<bool> g_act757UseSweep{false};
-static std::atomic<bool> g_act757SweepAvailable{false};
-
-// 光辉穿梭大考验状态 (Act822)
-static std::atomic<int> g_act822PlayCount{0};
-static std::atomic<int> g_act822RestTime{0};
-static std::atomic<int> g_act822TotalBadgeNum{0};
-static std::atomic<int> g_act822BuyCnt{0};
-static std::atomic<int> g_act822PassCount{0};
-static std::atomic<int> g_act822IsPop{0};
-static std::atomic<int> g_act822HistoryBestScore{0};
-static std::atomic<int> g_act822LastScore{0};
-static std::atomic<int> g_act822PassFlag{0};
-static std::atomic<int> g_act822CatchId{0};
-static std::atomic<int> g_act822CheckCode{0};
-static std::atomic<int> g_act822StartResult{-1};
-static std::atomic<int> g_act822EndResult{-1};
-static std::atomic<int> g_act822SweepResult{-1};
-static std::atomic<bool> g_act822WaitingResponse{false};
-static std::atomic<bool> g_act822UseSweep{false};
-static std::atomic<bool> g_act822SweepAvailable{false};
-
 // 逆流的试炼状态 (Act804)
 static std::atomic<int> g_act804PlayCount{0};
 static std::atomic<int> g_act804RestTime{0};
@@ -137,170 +99,27 @@ bool ShouldAutoSweep(int bestScore, int flowScore) {
     return bestScore >= flowScore;
 }
 
-
-
-
-
-
-
-
-
-
-
 // ============ 天之骄子的特训功能实现 (Act666) ============
-
-
-
-
-
-
-
-
-
-
 
 // ============ 光辉穿梭大考验功能实现 (Act822) ============
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ============ 圣石之战功能实现 (Act826) ============
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ============ 齐心协力大挑战功能实现 (Act827) ============
 
-
-
-
-
-
-
-
-
-
-
-
-
 // ============ 清除煞气功能实现 (Act641) ============
-
-
-
-
-
-
-
-
-
-
 
 // ============ 疾速特训功能实现 (Act810) ============
 
-static std::atomic<int> g_act810PlayCount{0};
-static std::atomic<int> g_act810RestTime{0};
-static std::atomic<int> g_act810MedalCount{0};
-static std::atomic<int> g_act810RuleFlag{1};
-static std::atomic<int> g_act810CheckCode{0};
-static std::atomic<int> g_act810StartResult{0};
-static std::atomic<int> g_act810RewardMedalCount{0};
-static std::atomic<int> g_act810RewardExp{0};
-static std::atomic<int> g_act810RewardCoin{0};
-static std::atomic<bool> g_act810WaitingResponse{false};
-static std::atomic<bool> g_act810UseSweep{false};
-static std::atomic<bool> g_act810SweepAvailable{false};
-
-
-
-
-
-
-
-
-
-
 // ============ 土幻的曙光功能实现 (Act684) ============
-
-
-
-
-
-
-
-
-
-
 
 // ============ 驱赶毒蚊功能实现 (Act717) ============
 
-
-
-
-
-
-
-
-
-
-
 // ============ 守护梦境功能实现 (Act805) ============
-
-
-
-
-
-
-
-
-
-
-
 
 // ============ 果宝救援功能实现 (Act757) ============
 
-
-
-
-
-
-
-
-
-
-
-
-
 // ============ 妖力考验功能实现 (Act631) ============
-
-
-
-
-
-
-
-
-
-
-
 
 // Act808 剩余次数：活动次数查询模块要读它，因此提到文件作用域。
 static std::atomic<int> g_act808PlayCount{0};
@@ -582,7 +401,6 @@ static std::atomic<int> g_act808PlayCount{0};
         UIBridge::Instance().UpdateHelperText(L"欢乐跷跷板：完成");
         return 0;
     }
-
 
     void ProcessAct808Response(const GamePacket& packet) {
         size_t offset = 0;
@@ -870,7 +688,6 @@ static std::atomic<int> g_act808PlayCount{0};
         return 0;
     }
 
-
     void ProcessAct782Response(const GamePacket& packet) {
         size_t offset = 0;
         std::string operation;
@@ -960,8 +777,6 @@ static std::atomic<int> g_act808PlayCount{0};
             }
         }
     }
-
-    
 
     // ============ 逆流的试炼功能实现 (Act804) ============
 
@@ -1153,7 +968,6 @@ static std::atomic<int> g_act808PlayCount{0};
 
         return 0;
     }
-
 
     void ProcessAct804Response(const GamePacket& packet) {
         size_t offset = 0;
@@ -1525,7 +1339,6 @@ static std::atomic<int> g_act808PlayCount{0};
         return 0;
     }
 
-
     void ProcessAct811Response(const GamePacket& packet) {
         size_t offset = 0;
         std::string operation;
@@ -1770,7 +1583,6 @@ static std::atomic<int> g_act808PlayCount{0};
         return 0;
     }
     
-    
     void ProcessAct778Response(const GamePacket& packet) {
         size_t offset = 0;
         std::string operation;
@@ -1843,7 +1655,6 @@ static std::atomic<int> g_act808PlayCount{0};
     }
     
       // anonymous namespace
-
 
 int GetAct808PlayCount() {
     return g_act808PlayCount.load();
@@ -2247,9 +2058,3 @@ int GetAct808PlayCount() {
         }
     }
     
-
-
-
-
-
-
