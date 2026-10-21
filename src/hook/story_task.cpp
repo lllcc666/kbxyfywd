@@ -364,7 +364,7 @@ static void ReportStorySceneNpcStatus(unsigned long long sessionId, uint32_t sce
     const bool gotList = RequestStorySceneNpcList(sessionId, 2000) &&
                          TakeStorySceneNpcList(sessionId, 1500, npcIds);
     if (gotList && !npcIds.empty()) {
-        UpdateTaskZoneUi(L"任务区：上报场景 NPC 状态（" +
+        UpdateStoryTaskUi(L"主线任务：上报场景 NPC 状态（" +
                              std::to_wstring(npcIds.size()) + L" 个）", true);
         for (uint32_t npcId : npcIds) {
             if (!g_storyTaskRunning.load() || g_storyTaskSession.load() != sessionId) {
@@ -378,7 +378,7 @@ static void ReportStorySceneNpcStatus(unsigned long long sessionId, uint32_t sce
     const uint32_t stageNpc =
         FindStoryStageNpc(g_storyTaskCurrentSubtask.load(), sceneId);
     if (stageNpc != 0) {
-        UpdateTaskZoneUi(L"任务区：向 " + std::to_wstring(stageNpc) + L" 报到", true);
+        UpdateStoryTaskUi(L"主线任务：向 " + std::to_wstring(stageNpc) + L" 报到", true);
         SendStoryNpcStatusPacket(stageNpc);
     }
 }
@@ -403,11 +403,11 @@ static bool SwitchStoryScene(unsigned long long sessionId, uint32_t sceneId) {
     if (mapName.empty()) {
         mapName = std::to_wstring(sceneId);
     }
-    UpdateStoryTaskUi(L"任务区：切换到 " + mapName, true);
+    UpdateStoryTaskUi(L"主线任务：切换到 " + mapName, true);
     g_storyTaskMapEntered = false;
     if (!SendEnterScenePacket(static_cast<int>(sceneId)) ||
         !WaitForStoryMapEnter(sessionId, 8000)) {
-        UpdateTaskZoneUi(L"任务区：切换场景失败 " + mapName, false);
+        UpdateStoryTaskUi(L"主线任务：切换场景失败 " + mapName, false);
         return false;
     }
     g_storyTaskCurrentScene.store(sceneId);
@@ -498,12 +498,12 @@ static bool ShootStoryAlertTarget(unsigned long long sessionId,
     }
     const uint32_t magic = ResolveStoryMagic(sessionId, node.shootSpecial);
     if (magic == 0) {
-        UpdateTaskZoneUi(L"任务区：取不到法术，射击节点 " + std::to_wstring(node.dialogId) +
+        UpdateStoryTaskUi(L"主线任务：取不到法术，射击节点 " + std::to_wstring(node.dialogId) +
                              L" 跳过",
                          false);
         return false;
     }
-    UpdateTaskZoneUi(L"任务区：施放法术 " + std::to_wstring(magic) + L" 于 " +
+    UpdateStoryTaskUi(L"主线任务：施放法术 " + std::to_wstring(magic) + L" 于 " +
                          std::to_wstring(node.shootX) + L"," +
                          std::to_wstring(node.shootY),
                      true);
@@ -512,7 +512,7 @@ static bool ShootStoryAlertTarget(unsigned long long sessionId,
         return true;
     }
     if (npcId != 0) {
-        UpdateTaskZoneUi(L"任务区：施法后补点 " + std::to_wstring(npcId), true);
+        UpdateStoryTaskUi(L"主线任务：施法后补点 " + std::to_wstring(npcId), true);
         SendTaskZoneClickPacket(npcId, false);
         Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
     }
@@ -562,7 +562,7 @@ static bool RunStoryAlertTargets(unsigned long long sessionId, uint32_t dialogId
                 return true;
             }
         }
-        UpdateTaskZoneUi(L"任务区：点击提示对象 " + std::to_wstring(target.npc), true);
+        UpdateStoryTaskUi(L"主线任务：点击提示对象 " + std::to_wstring(target.npc), true);
         if (!SendTaskZoneClickPacket(target.npc, false)) {
             continue;
         }
@@ -596,12 +596,12 @@ static bool FollowStoryAlertNpc(unsigned long long sessionId,
         }
     }
     if (node.alertNpc == 0) {
-        UpdateTaskZoneUi(L"任务区：提示节点 " + std::to_wstring(node.dialogId), true);
+        UpdateStoryTaskUi(L"主线任务：提示节点 " + std::to_wstring(node.dialogId), true);
         return true;
     }
-    UpdateTaskZoneUi(L"任务区：点击提示对象 " + std::to_wstring(node.alertNpc), true);
+    UpdateStoryTaskUi(L"主线任务：点击提示对象 " + std::to_wstring(node.alertNpc), true);
     if (!SendTaskZoneClickPacket(node.alertNpc, false)) {
-        UpdateTaskZoneUi(L"任务区：点击提示对象失败", false);
+        UpdateStoryTaskUi(L"主线任务：点击提示对象失败", false);
         return false;
     }
     return true;
@@ -682,7 +682,7 @@ static void SendStoryBattleUserOpPacket() {
     }
 
     if (skillId == 0) {
-        UpdateTaskZoneUi(L"任务区：战斗里取不到可用技能，等下一回合重试", false);
+        UpdateStoryTaskUi(L"主线任务：战斗里取不到可用技能，等下一回合重试", false);
         return;
     }
 
@@ -781,7 +781,7 @@ void HandleStoryBattlePacket(const GamePacket& packet) {
             const uint32_t dialogId = g_storyBattleDialogId.exchange(0);
             const uint32_t npcId = g_storyBattleNpcId.exchange(0);
             g_storyBattleArmTick.store(0);
-            UpdateTaskZoneUi(L"任务区：剧情战斗结束，继续任务流程", true);
+            UpdateStoryTaskUi(L"主线任务：剧情战斗结束，继续任务流程", true);
             FinishStoryBattle(g_storyTaskSession.load(), dialogId, npcId);
             break;
         }
@@ -808,7 +808,7 @@ static bool ReplyStoryDialogNode(unsigned long long sessionId, uint32_t dialogId
 
     // 配方表里没有的节点（例如临时/动态节点）：当作普通对白回应，保持流程前进。
     if (node == nullptr) {
-        UpdateTaskZoneUi(L"任务区：回应未登记对白 " + std::to_wstring(dialogId), true);
+        UpdateStoryTaskUi(L"主线任务：回应未登记对白 " + std::to_wstring(dialogId), true);
         return SendTaskZoneTalkPacket(npcId, dialogId) != FALSE;
     }
 
@@ -817,7 +817,7 @@ static bool ReplyStoryDialogNode(unsigned long long sessionId, uint32_t dialogId
             // 同一个战斗节点被重复回应（重复点击把它又排队了一次）时只开一次战，
             // 否则会连开两场，第二场没有节点可收尾。
             if (g_storyBattleActive.load() && g_storyBattleDialogId.load() == dialogId) {
-                UpdateTaskZoneUi(L"任务区：战斗已在进行，忽略重复的战斗节点 " +
+                UpdateStoryTaskUi(L"主线任务：战斗已在进行，忽略重复的战斗节点 " +
                                      std::to_wstring(dialogId),
                                  true);
                 return true;
@@ -831,7 +831,7 @@ static bool ReplyStoryDialogNode(unsigned long long sessionId, uint32_t dialogId
             g_storyBattleDialogId.store(dialogId);
             g_storyBattleNpcId.store(npcId);
             g_storyBattleArmTick.store(GetTickCount());
-            UpdateTaskZoneUi(L"任务区：发起任务战斗 " + std::to_wstring(node->battleId), true);
+            UpdateStoryTaskUi(L"主线任务：发起任务战斗 " + std::to_wstring(node->battleId), true);
             return SendBattlePacket(sid) != FALSE;
         }
         default:
@@ -894,7 +894,7 @@ static bool ReplyOnePendingStoryDialog(unsigned long long sessionId, DWORD waitM
     if (!TakeStoryPendingDialog(sessionId, dialogId, npcId, waitMs, &forceReply)) {
         return false;
     }
-    UpdateTaskZoneUi(L"任务区：前置动作推进对话 " + std::to_wstring(dialogId), true);
+    UpdateStoryTaskUi(L"主线任务：前置动作推进对话 " + std::to_wstring(dialogId), true);
     ReplyStoryDialogNode(sessionId, dialogId, npcId, forceReply);
     Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
     return true;
@@ -943,20 +943,20 @@ static bool RunStoryPreActions(unsigned long long sessionId, uint32_t subtaskId,
             }
             if (magic == 0) {
                 // 拿不到法术列表就退化为点击，至少保留一次触发机会。
-                UpdateTaskZoneUi(L"任务区：射击目标 " + std::to_wstring(action.npc) +
+                UpdateStoryTaskUi(L"主线任务：射击目标 " + std::to_wstring(action.npc) +
                                      L"（未取到法术，改点击）",
                                  true);
                 if (!SendTaskZoneClickPacket(action.npc, false)) {
                     return false;
                 }
             } else {
-                UpdateTaskZoneUi(L"任务区：施法射击 " + std::to_wstring(action.npc) +
+                UpdateStoryTaskUi(L"主线任务：施法射击 " + std::to_wstring(action.npc) +
                                      L"（法术 " + std::to_wstring(magic) + L"）",
                                  true);
                 SendStoryActionPacket(magic, action.x, action.y, action.npc);
             }
         } else {
-            UpdateTaskZoneUi(L"任务区：点击任务对象 " + std::to_wstring(action.npc), true);
+            UpdateStoryTaskUi(L"主线任务：点击任务对象 " + std::to_wstring(action.npc), true);
             if (!SendTaskZoneClickPacket(action.npc, false)) {
                 return false;
             }
@@ -985,14 +985,14 @@ static bool RunStorySubtask(unsigned long long sessionId, const StoryTaskRecipe:
     if (mapName.empty()) {
         mapName = std::to_wstring(subtask.scene);
     }
-    UpdateStoryTaskUi(L"任务区：进入 " + mapName + L" 执行子任务 " +
+    UpdateStoryTaskUi(L"主线任务：进入 " + mapName + L" 执行子任务 " +
                           std::to_wstring(subtask.subtaskId), true);
 
     if (subtask.scene != 0 && g_storyTaskCurrentScene.load() != subtask.scene) {
         g_storyTaskMapEntered = false;
         if (!SendEnterScenePacket(static_cast<int>(subtask.scene)) ||
             !WaitForStoryMapEnter(sessionId, 8000)) {
-            UpdateStoryTaskUi(L"任务区：进入场景失败 " + mapName, false);
+            UpdateStoryTaskUi(L"主线任务：进入场景失败 " + mapName, false);
             return false;
         }
         g_storyTaskCurrentScene.store(subtask.scene);
@@ -1027,7 +1027,7 @@ static bool RunStorySubtask(unsigned long long sessionId, const StoryTaskRecipe:
             }
             const uint32_t npcId = entryCandidates[i];
             if (!SendTaskZoneClickPacket(npcId, false)) {
-                UpdateTaskZoneUi(L"任务区：点击入口 NPC 失败", false);
+                UpdateStoryTaskUi(L"主线任务：点击入口 NPC 失败", false);
                 return false;
             }
             clickedNpc = npcId;
@@ -1050,9 +1050,9 @@ static bool RunStorySubtask(unsigned long long sessionId, const StoryTaskRecipe:
                     Sleep(100);
                     continue;
                 }
-                UpdateStoryTaskUi(L"任务区：接受子任务 " + std::to_wstring(acceptId), true);
+                UpdateStoryTaskUi(L"主线任务：接受子任务 " + std::to_wstring(acceptId), true);
                 if (!SendStoryAcceptTaskPacket(acceptId)) {
-                    UpdateTaskZoneUi(L"任务区：接任务发包失败", false);
+                    UpdateStoryTaskUi(L"主线任务：接任务发包失败", false);
                     return false;
                 }
                 Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
@@ -1064,7 +1064,7 @@ static bool RunStorySubtask(unsigned long long sessionId, const StoryTaskRecipe:
             }
             if (responded) {
                 if (i > 0) {
-                    UpdateTaskZoneUi(L"任务区：入口对象 " + std::to_wstring(npcId) +
+                    UpdateStoryTaskUi(L"主线任务：入口对象 " + std::to_wstring(npcId) +
                                        L" 有回应（第 " + std::to_wstring(i + 1) + L" 个候选）",
                                    true);
                 }
@@ -1073,12 +1073,12 @@ static bool RunStorySubtask(unsigned long long sessionId, const StoryTaskRecipe:
             if (accepted) {
                 break;
             }
-            UpdateTaskZoneUi(L"任务区：入口对象 " + std::to_wstring(npcId) +
+            UpdateStoryTaskUi(L"主线任务：入口对象 " + std::to_wstring(npcId) +
                                L" 无回应，试下一个",
                            true);
         }
         if (clickedNpc == 0) {
-            UpdateTaskZoneUi(L"任务区：没有可尝试的入口对象", false);
+            UpdateStoryTaskUi(L"主线任务：没有可尝试的入口对象", false);
         }
     }
 
@@ -1102,7 +1102,7 @@ static bool RunStorySubtask(unsigned long long sessionId, const StoryTaskRecipe:
         const bool battleRunning =
             g_storyBattleActive.load() && elapsedMs < subtaskTimeoutMs * 3;
         if (elapsedMs >= subtaskTimeoutMs && !battleRunning) {
-            UpdateTaskZoneUi(L"任务区：子任务超时 " + std::to_wstring(subtask.subtaskId), false);
+            UpdateStoryTaskUi(L"主线任务：子任务超时 " + std::to_wstring(subtask.subtaskId), false);
             return IsStorySubtaskFinishedInCache(subtask.subtaskId);
         }
 
@@ -1123,14 +1123,14 @@ static bool RunStorySubtask(unsigned long long sessionId, const StoryTaskRecipe:
             // 服务端就静默，玩家再点一次虎魔王才拿到 704。所以先补点再判定结束。
             if (retryClickCount < 2 && lastTalkNpc != 0) {
                 ++retryClickCount;
-                UpdateTaskZoneUi(L"任务区：没有新对白，补点 " +
+                UpdateStoryTaskUi(L"主线任务：没有新对白，补点 " +
                                      std::to_wstring(lastTalkNpc),
                                  true);
                 SendTaskZoneClickPacket(lastTalkNpc, false);
                 Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
                 continue;
             }
-            UpdateTaskZoneUi(L"任务区：对话流结束 " + std::to_wstring(subtask.subtaskId), true);
+            UpdateStoryTaskUi(L"主线任务：对话流结束 " + std::to_wstring(subtask.subtaskId), true);
             return false;
         }
 
@@ -1140,7 +1140,7 @@ static bool RunStorySubtask(unsigned long long sessionId, const StoryTaskRecipe:
         retryClickCount = 0;
         if (!ReplyStoryDialogNode(sessionId, dialogId, npcId == 0 ? subtask.entryNpc : npcId,
                                   forceReply)) {
-            UpdateTaskZoneUi(L"任务区：回应对话失败 " + std::to_wstring(dialogId), false);
+            UpdateStoryTaskUi(L"主线任务：回应对话失败 " + std::to_wstring(dialogId), false);
             return false;
         }
     }
@@ -1158,7 +1158,7 @@ static DWORD WINAPI StoryTaskThreadProc(LPVOID lpParam) {
     g_storyTaskMapEntered = false;
     g_storyTaskCurrentScene.store(0);
 
-    UpdateStoryTaskUi(L"任务区：读取主线任务进度...", true);
+    UpdateStoryTaskUi(L"主线任务：读取主线任务进度...", true);
     // 进度按任务组查询（USER_TASK_LIST 一次只回一个组的已接/已完成列表），
     // 配方表覆盖多个任务组时逐个查并累积到本地完成集合。
     {
@@ -1234,7 +1234,7 @@ static DWORD WINAPI StoryTaskThreadProc(LPVOID lpParam) {
                 continue;
             }
             // 单步失败：记录后继续下一个，避免整条链断在一个非阻塞子任务上。
-            UpdateStoryTaskUi(L"任务区：子任务未确认完成 " + std::to_wstring(subtask.subtaskId), true);
+            UpdateStoryTaskUi(L"主线任务：子任务未确认完成 " + std::to_wstring(subtask.subtaskId), true);
             flowFailed = true;
             continue;
         }
@@ -1252,28 +1252,28 @@ static DWORD WINAPI StoryTaskThreadProc(LPVOID lpParam) {
     }
 
     if (flowCompleted) {
-        UpdateStoryTaskUi(L"任务区：主线任务流程已执行完毕", false);
+        UpdateStoryTaskUi(L"主线任务：主线任务流程已执行完毕", false);
     } else if (stillRunning) {
-        UpdateStoryTaskUi(L"任务区：主线任务流程结束（部分子任务未确认完成）", false);
+        UpdateStoryTaskUi(L"主线任务：主线任务流程结束（部分子任务未确认完成）", false);
     } else {
-        UpdateStoryTaskUi(L"任务区：已停止", false);
+        UpdateStoryTaskUi(L"主线任务：已停止", false);
     }
     return 0;
 }
 
 BOOL StartStoryTaskAsync(const std::vector<uint32_t>& subtaskIds) {
     if (g_storyTaskRunning.load() || g_taskZoneRunning.load()) {
-        UpdateStoryTaskUi(L"任务区：已有任务区流程在运行", true);
+        UpdateStoryTaskUi(L"主线任务：已有任务区流程在运行", true);
         return FALSE;
     }
 
     if (g_battleSixAuto.IsInBattle() || g_battleSixAuto.IsAutoMatching() || g_shuangtaiAuto.IsRunning()) {
-        UpdateStoryTaskUi(L"任务区：请先停止其他自动战斗", false);
+        UpdateStoryTaskUi(L"主线任务：请先停止其他自动战斗", false);
         return FALSE;
     }
 
     if (g_LastGameSocket == 0 || g_userId.load() == 0) {
-        UpdateStoryTaskUi(L"任务区：请先进入游戏", false);
+        UpdateStoryTaskUi(L"主线任务：请先进入游戏", false);
         return FALSE;
     }
 
@@ -1296,13 +1296,13 @@ BOOL StartStoryTaskAsync(const std::vector<uint32_t>& subtaskIds) {
 
     delete taskData;
     g_storyTaskRunning = false;
-    UpdateStoryTaskUi(L"任务区：启动失败", false);
+    UpdateStoryTaskUi(L"主线任务：启动失败", false);
     return FALSE;
 }
 
 VOID StopStoryTask() {
     if (!g_storyTaskRunning.load()) {
-        UpdateStoryTaskUi(L"任务区：已停止", false);
+        UpdateStoryTaskUi(L"主线任务：已停止", false);
         return;
     }
     // 先切会话号再清运行标记：否则 worker 可能在「运行标记已清、会话号未变」的
@@ -1317,7 +1317,7 @@ VOID StopStoryTask() {
     g_storyBattleNpcId.store(0);
     g_storyBattleArmTick.store(0);
     ResponseWaiter::CancelWait();
-    UpdateStoryTaskUi(L"任务区：已停止", false);
+    UpdateStoryTaskUi(L"主线任务：已停止", false);
 }
 
 void StoryTaskOnDialogResponse(const GamePacket& packet) {
@@ -1558,7 +1558,7 @@ void StoryTaskOnNpcTaskListResponse(const GamePacket& packet) {
     // 诊断回显：把服务端真实下发的字段打到状态栏，便于对照 AS3 TaskParse.onReqNPCTaskList
     // 逐字段核对（该回包布局在真机上仍未验证，见 docs/task-automation-mainline-dialog-contract.md §4）。
     {
-        std::wstring dump = L"任务区：NPCTASKLIST npc=" + std::to_wstring(npcId) +
+        std::wstring dump = L"主线任务：NPCTASKLIST npc=" + std::to_wstring(npcId) +
                             L" type=" + std::to_wstring(listType) +
                             L" count=" + std::to_wstring(taskCount) +
                             L" canReceive=" + (canReceive ? L"1" : L"0") +
@@ -1572,7 +1572,7 @@ void StoryTaskOnNpcTaskListResponse(const GamePacket& packet) {
             dump += std::to_wstring(ReadInt32LE(packet.body.data(), i));
         }
         dump += L"]";
-        UpdateTaskZoneUi(dump, true);
+        UpdateStoryTaskUi(dump, true);
     }
 
     {

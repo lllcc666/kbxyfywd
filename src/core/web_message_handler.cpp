@@ -377,9 +377,9 @@ void HandleQueryHuangchengWeijiTaskProgressCommand(const std::wstring& msg) {
     // USER_TASK_LIST_BACK 回包；在该线程上阻塞会一起卡住回包处理，3 秒必然超时。
     // 结果文案由工作线程自己回显，这里不预设成败。
     if (!QueryTaskZoneUserTaskListProgressAsync(taskId)) {
-        SetHelperText(L"任务区：读取主线任务进度失败");
+        SetHelperText(L"主线任务：读取进度失败");
     } else {
-        SetHelperText(L"任务区：正在读取主线任务进度...");
+        SetHelperText(L"主线任务：正在读取进度...");
     }
 }
 

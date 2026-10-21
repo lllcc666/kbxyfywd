@@ -17,6 +17,7 @@
 #include "packet_parser.h"
 #include "packet_protocol.h"
 #include "shuangtai_internal.h"
+#include "story_task_internal.h"
 #include "story_task_recipe.h"
 #include "task_zone_internal.h"
 #include "ui_bridge.h"
@@ -1312,6 +1313,12 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
 BOOL StartEightTrigramsTaskAsync() {
     if (g_taskZoneRunning.load()) {
         UpdateTaskZoneUi(L"任务区：八卦灵盘已在运行中", true);
+        return FALSE;
+    }
+
+    // 主线任务与八卦灵盘都靠同一角色推进，互斥避免两条流程抢同一个客户端状态。
+    if (g_storyTaskRunning.load()) {
+        UpdateTaskZoneUi(L"任务区：主线任务正在运行，请先停止", false);
         return FALSE;
     }
 
