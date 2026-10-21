@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(WebView2Demo CXX)
+# 必须声明 C 语言：third_party/zlib 是 C 源文件，只声明 CXX 时 CMake 不会编译 .c，
+# 那些符号就会在链接时退化到 vcpkg 的 zlib.lib 导入库，等于重新依赖 zlib1.dll。
+project(WebView2Demo C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -70,6 +72,20 @@ if(MSVC)
     # 全仓库没有 dynamic_cast/typeid，关掉 RTTI 省掉 type_info 与类名字符串。
     target_compile_options(WebView2Demo PRIVATE /GR-)
     target_include_directories(WebView2Demo PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib)
+
+    # 第三方 zlib 源码在 /W4 下会刷一堆无关告警（C4244/C4127），单独降到 /W0。
+    set_source_files_properties(
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/adler32.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/crc32.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/zutil.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/inflate.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/inftrees.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/inffast.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/uncompr.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/compress.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/deflate.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/trees.c
+        PROPERTIES COMPILE_OPTIONS "/W0")
 endif()
 
 # 设置 vcpkg 路径（本机绝对路径，换机器须修改）
@@ -107,7 +123,6 @@ target_link_libraries(WebView2Demo PRIVATE
     wininet.lib
     winmm.lib
     "${VCPKG_LIB_DIR}/MemoryModule.lib"
-    "${VCPKG_LIB_DIR}/zlib.lib"
 )
 
 # 添加资源文件并声明 app.ico 依赖
@@ -139,25 +154,21 @@ add_custom_command(
     COMMENT "Embedding UI.html into header file..."
 )
 
-# 添加自定义命令：把 zlib1.dll 转换为头文件
-add_custom_command(
-    OUTPUT ${EMBEDDED_DIR}/zlib_data.h
-    COMMAND python3 ${SCRIPTS_DIR}/embed_dll.py
-    "${VCPKG_ROOT}/installed/x64-windows/bin/zlib1.dll"
-    ${EMBEDDED_DIR}/zlib_data.h
-    DEPENDS "${VCPKG_ROOT}/installed/x64-windows/bin/zlib1.dll"
-    COMMENT "Embedding zlib1.dll into header file..."
-)
-
 # 将生成的头文件加入源文件列表
 target_sources(WebView2Demo PRIVATE
     ${EMBEDDED_DIR}/webview2loader_data.h
     ${EMBEDDED_DIR}/ui_html.h
-    ${EMBEDDED_DIR}/zlib_data.h
 )
 
 # 设置输出目录
 set_target_properties(WebView2Demo PROPERTIES
+    # VS 的 vcpkg 集成会给每个工程的链接命令行追加 "…\installedd-windows\lib\*.lib"
+    # 并把依赖 DLL 拷到输出目录。那条通配会把 zlib.lib（zlib1.dll 的导入库）也链接进来，
+    # 于是 exe 明明自己编了 zlib 源码，却仍然依赖 zlib1.dll；同时把 MemModule 之外的东西也带进来。
+    # 我们只按完整路径显式链接 MemoryModule.lib，头文件也用自己的，所以这里整体关掉。
+    VS_GLOBAL_VcpkgEnabled "false"
+    VS_GLOBAL_VcpkgAutoLink "false"
+    VS_GLOBAL_VcpkgApplocalDeps "false"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
