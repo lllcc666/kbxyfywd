@@ -49,6 +49,14 @@ venv/
 swf_cache/
 *.swf
 
+# 本地资料与生成物——只在本机保留，不入库
+data/
+docs/
+.agents/
+常用提示词存档.txt
+resources/未命名图片*.ico
+embedded/zlib_data.h
+
 # 临时文件和缓存
 backups/
 .zcodeignore
