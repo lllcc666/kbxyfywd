@@ -58,7 +58,7 @@ void ResetBattleSixFlowState() {
 
 void ScheduleBattleSixRecoveryViaCombatInfo(DWORD delayMs) {
     DWORD* pDelay = new DWORD(delayMs);
-    HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID param) -> DWORD {
+    HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID param) -> DWORD {
         std::unique_ptr<DWORD> delay(static_cast<DWORD*>(param));
         Sleep(*delay);
         if (!g_battleSixAuto.IsAutoMatching() || g_battleSixAuto.IsInBattle()) {
@@ -133,7 +133,7 @@ void ArmBattleSixFlowWatchdog(
     };
 
     auto* context = new BattleSixWatchdogContext{timeoutMs, stage, token, cancelBeforeRecovery, timeoutText};
-    HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID param) -> DWORD {
+    HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID param) -> DWORD {
         std::unique_ptr<BattleSixWatchdogContext> context(static_cast<BattleSixWatchdogContext*>(param));
         Sleep(context->timeoutMs);
 
@@ -369,7 +369,7 @@ BOOL BattleSixAutoBattle::OnBattleRoundStart() {
         skill.skillId,
         targetId
     };
-    HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
+    HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
         std::unique_ptr<SkillThreadData> data(static_cast<SkillThreadData*>(lpParam));
         Sleep(600);
         if (g_battleSixBattleSession.load() != data->battleSession ||
@@ -556,7 +556,7 @@ BOOL BattleSixAutoBattle::AutoSwitchSpirit() {
     g_battleSixSwitchTargetId = spiritUniqueId;
     g_battleSixSwitchRetryCount = 0;
 
-    HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
+    HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
         auto* data = static_cast<SwitchThreadData*>(lpParam);
         Sleep(300);
         if (g_battleSixBattleSession.load() != data->battleSession || !g_battleSixAuto.IsInBattle()) {
@@ -729,7 +729,7 @@ static void StartBattleSixMatchRetryLoop(unsigned long long token) {
     };
 
     auto* context = new MatchRetryContext{token};
-    HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID param) -> DWORD {
+    HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID param) -> DWORD {
         std::unique_ptr<MatchRetryContext> context(static_cast<MatchRetryContext*>(param));
         while (true) {
             Sleep(1000);
@@ -904,7 +904,7 @@ void ProcessBattleSixMatchResponse(const GamePacket& packet) {
 
     struct ReqStartThreadData { unsigned long long token; };
     auto* reqStartData = new ReqStartThreadData{token};
-    HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
+    HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
         std::unique_ptr<ReqStartThreadData> data(static_cast<ReqStartThreadData*>(lpParam));
         Sleep(2000);
         if (g_battleSixAuto.IsAutoMatching() && !g_battleSixAuto.IsInBattle() &&
@@ -1043,7 +1043,7 @@ void ProcessBattleSixCombatInfoResponse(const GamePacket& packet) {
         !g_battleSixAuto.IsInBattle() &&
         g_battleSixFlowStage.load() == BATTLESIX_FLOW_IDLE &&
         !g_battleSixMatching.load()) {
-        HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID) -> DWORD {
+        HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID) -> DWORD {
             Sleep(1000);
             if (!g_battleSixAuto.IsAutoMatching() || g_battleSixAuto.IsInBattle()) return 0;
             if (g_battleSixFlowStage.load() != BATTLESIX_FLOW_IDLE || g_battleSixMatching.load()) return 0;
@@ -1074,7 +1074,7 @@ void ProcessBattleSixBattleRoundResultResponse(const GamePacket& packet) {
     BattlePlayOverThreadData* threadData =
         new BattlePlayOverThreadData{battleSession, roundToken, playOverToken};
 
-    HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
+    HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
         std::unique_ptr<BattlePlayOverThreadData> data(
             static_cast<BattlePlayOverThreadData*>(lpParam));
         Sleep(1200);
@@ -1176,7 +1176,7 @@ void ProcessBattleSixBattleEndResponse(const GamePacket& packet) {
                 unsigned long long battleSession;
             };
             NextMatchThreadData* threadData = new NextMatchThreadData{battleSession};
-            HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
+            HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
                 std::unique_ptr<NextMatchThreadData> data(static_cast<NextMatchThreadData*>(lpParam));
                 Sleep(2000);  // 等待2秒
                 if (g_battleSixBattleSession.load() == data->battleSession &&

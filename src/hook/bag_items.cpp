@@ -313,7 +313,7 @@ BOOL SendDecomposeLingyuPacket(const std::wstring& jsonArray) {
     taskData->hwnd = g_hWnd;
 
     // 创建新线程处理分解任务，避免阻塞主线程
-    HANDLE hThread = CreateThread(NULL, 0, DecomposeThreadProc, taskData, 0, NULL);
+    HANDLE hThread = CreateManagedThread(NULL, 0, DecomposeThreadProc, taskData, 0, NULL);
     if (hThread) {
         CloseHandle(hThread);
         return TRUE;

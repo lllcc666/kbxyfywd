@@ -57,4 +57,9 @@ public:
 
     // 可选：指定线程名字后再 Start，便于日志区分。
     static size_t ActiveCount();
+
+    // 收养一条不是通过 Start() 创建的线程（历史 CreateThread 调用点）。
+    // 这里复制一份句柄登记，JoinAll 时等它退出；调用方自己的句柄照旧 CloseHandle，
+    // 两边互不影响。rawHandle 无效或复制失败返回 false。
+    static bool AdoptThreadHandle(HANDLE rawHandle, DWORD threadId, const wchar_t* name);
 };

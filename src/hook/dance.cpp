@@ -351,7 +351,7 @@ static BOOL SendDanceContestOnce() {
 
     // 5. 如果状态变为2（游戏中），启动跳舞线程并等待完成
     if (g_danceState.gameState == 2) {
-        HANDLE hThread = CreateThread(NULL, 0, DanceContestThreadProc, NULL, 0, NULL);
+        HANDLE hThread = CreateManagedThread(NULL, 0, DanceContestThreadProc, NULL, 0, NULL);
         if (hThread) {
             const DWORD waitResult = WaitForSingleObject(hThread, 30000);
             CloseHandle(hThread);

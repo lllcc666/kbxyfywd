@@ -298,7 +298,7 @@ BOOL StartOneKeyDungeonJumpPacket(int targetLayer) {
     g_dungeonJumpState.targetLayer = targetLayer;
     
     // 创建异步线程执行跳层流程
-    HANDLE hThread = CreateThread(nullptr, 0, DungeonJumpThreadProc, nullptr, 0, nullptr);
+    HANDLE hThread = CreateManagedThread(nullptr, 0, DungeonJumpThreadProc, nullptr, 0, nullptr);
     if (!hThread) {
         g_dungeonJumpState.Reset();
         return FALSE;

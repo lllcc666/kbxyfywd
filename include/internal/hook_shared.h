@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "managed_thread.h"
 #include "packet_types.h"
 #include "wpe_hook.h"
 
@@ -61,3 +62,24 @@ extern std::atomic<SOCKET> g_LastGameSocket;
 /// @param name 线程名（日志/排查用），可为 nullptr
 /// @param body Win32 线程体，参数由 param 传入，所有权仍归 body 自己处理
 bool StartManagedThreadOnce(const wchar_t* name, LPTHREAD_START_ROUTINE body, LPVOID param);
+
+/// CreateThread 的替身：把原句柄照旧交回调用方，同时复制一份登记到
+/// ManagedThread。退出流程 JoinAll 会等它跑完，不会出现"钩子已卸载、线程还在发包"。
+/// 签名与 CreateThread 完全一致，调用点只需替换函数名。
+inline HANDLE CreateManagedThread(LPSECURITY_ATTRIBUTES threadAttributes,
+                                  SIZE_T stackSize,
+                                  LPTHREAD_START_ROUTINE startAddress,
+                                  LPVOID parameter,
+                                  DWORD creationFlags,
+                                  LPDWORD threadId) {
+    DWORD tid = 0;
+    HANDLE hThread = CreateThread(threadAttributes, stackSize, startAddress, parameter,
+                                  creationFlags, &tid);
+    if (hThread != nullptr) {
+        ManagedThread::AdoptThreadHandle(hThread, tid, L"raw");
+        if (threadId != nullptr) {
+            *threadId = tid;
+        }
+    }
+    return hThread;
+}

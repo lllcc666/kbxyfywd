@@ -754,7 +754,7 @@ BOOL QueryTaskZoneUserTaskListProgressAsync(uint32_t taskId) {
         return TRUE;
     }
     TaskZoneProgressQueryArgs* args = new TaskZoneProgressQueryArgs{taskId};
-    HANDLE hThread = CreateThread(nullptr, 0, TaskZoneProgressQueryThreadProc, args, 0, nullptr);
+    HANDLE hThread = CreateManagedThread(nullptr, 0, TaskZoneProgressQueryThreadProc, args, 0, nullptr);
     if (!hThread) {
         delete args;
         g_taskZoneProgressQueryBusy.store(false);
@@ -1339,7 +1339,7 @@ BOOL StartEightTrigramsTaskAsync() {
     EightTrigramsTaskData* taskData = new EightTrigramsTaskData();
     taskData->sessionId = sessionId;
 
-    HANDLE hThread = CreateThread(nullptr, 0, EightTrigramsTaskThreadProc, taskData, 0, nullptr);
+    HANDLE hThread = CreateManagedThread(nullptr, 0, EightTrigramsTaskThreadProc, taskData, 0, nullptr);
     if (hThread) {
         CloseHandle(hThread);
         return TRUE;

@@ -708,7 +708,7 @@ struct StoryBattleFinishData {
 static void FinishStoryBattle(unsigned long long sessionId, uint32_t dialogId,
                               uint32_t npcId) {
     auto* data = new StoryBattleFinishData{sessionId, dialogId, npcId};
-    HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
+    HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
         std::unique_ptr<StoryBattleFinishData> d(
             static_cast<StoryBattleFinishData*>(lpParam));
         Sleep(500);
@@ -1288,7 +1288,7 @@ BOOL StartStoryTaskAsync(const std::vector<uint32_t>& subtaskIds) {
 
     EightTrigramsTaskData* taskData = new EightTrigramsTaskData();
     taskData->sessionId = sessionId;
-    HANDLE hThread = CreateThread(nullptr, 0, StoryTaskThreadProc, taskData, 0, nullptr);
+    HANDLE hThread = CreateManagedThread(nullptr, 0, StoryTaskThreadProc, taskData, 0, nullptr);
     if (hThread) {
         CloseHandle(hThread);
         return TRUE;

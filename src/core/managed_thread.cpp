@@ -18,6 +18,24 @@ std::mutex g_registryMutex;
 std::vector<std::shared_ptr<ThreadState>> g_registry;
 thread_local ThreadState* t_currentThread = nullptr;
 
+// ============================================================================
+// 收养来的裸线程（历史 CreateThread 调用点）
+// ============================================================================
+//
+// 这些线程不是 std::thread，拿不到 join，只能靠句柄等候。这里保存一份复制来的
+// 句柄，调用方 CloseHandle 自己那份不影响等待。
+namespace {
+
+struct RawThreadState {
+    HANDLE handle{nullptr};
+    std::wstring name;
+};
+
+std::mutex g_rawMutex;
+std::vector<std::shared_ptr<RawThreadState>> g_rawThreads;
+
+}  // namespace
+
 // 清掉已经结束的条目。必须在持锁状态下调用。
 // 已结束但还没 join 的条目也要在这里 join 掉再删，否则线程句柄会一直挂着。
 void PruneFinishedLocked() {
@@ -107,6 +125,27 @@ void ManagedThread::RequestStopAll() {
     }
 }
 
+bool ManagedThread::AdoptThreadHandle(HANDLE rawHandle, DWORD threadId, const wchar_t* name) {
+    (void)threadId;
+    if (rawHandle == nullptr) {
+        return false;
+    }
+
+    HANDLE duplicate = nullptr;
+    if (!DuplicateHandle(GetCurrentProcess(), rawHandle, GetCurrentProcess(), &duplicate,
+                         0, FALSE, DUPLICATE_SAME_ACCESS)) {
+        return false;
+    }
+
+    auto state = std::make_shared<RawThreadState>();
+    state->handle = duplicate;
+    state->name = (name != nullptr) ? name : L"raw";
+
+    std::lock_guard<std::mutex> lock(g_rawMutex);
+    g_rawThreads.push_back(std::move(state));
+    return true;
+}
+
 size_t ManagedThread::JoinAll(DWORD timeoutMs) {
     std::vector<std::shared_ptr<ThreadState>> snapshot;
     {
@@ -134,7 +173,42 @@ size_t ManagedThread::JoinAll(DWORD timeoutMs) {
         }
     }
 
-    size_t stillRunning = 0;
+    // 收养的裸线程：等它跑完再关句柄；到点没结束就计进"仍未退出"。
+    std::vector<std::shared_ptr<RawThreadState>> rawSnapshot;
+    {
+        std::lock_guard<std::mutex> lock(g_rawMutex);
+        rawSnapshot = g_rawThreads;
+    }
+    size_t rawStillRunning = 0;
+    for (auto& raw : rawSnapshot) {
+        const ULONGLONG deadline = GetTickCount64() + timeoutMs;
+        bool finished = false;
+        while (GetTickCount64() < deadline) {
+            if (WaitForSingleObject(raw->handle, 20) == WAIT_OBJECT_0) {
+                finished = true;
+                break;
+            }
+        }
+        if (!finished && WaitForSingleObject(raw->handle, 0) == WAIT_OBJECT_0) {
+            finished = true;
+        }
+
+        if (!finished) {
+            ++rawStillRunning;
+            continue;
+        }
+        std::lock_guard<std::mutex> lock(g_rawMutex);
+        for (auto it = g_rawThreads.begin(); it != g_rawThreads.end(); ++it) {
+            if (*it == raw) {
+                CloseHandle(raw->handle);
+                raw->handle = nullptr;
+                g_rawThreads.erase(it);
+                break;
+            }
+        }
+    }
+
+    size_t stillRunning = rawStillRunning;
     {
         std::lock_guard<std::mutex> lock(g_registryMutex);
         for (auto& state : g_registry) {

@@ -239,7 +239,7 @@ void ShuangTaiAutoBattle::SendInitPacket() {
     struct DelayedData { ShuangTaiAutoBattle* self; };
     DelayedData* data = new DelayedData{this};
     
-    HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
+    HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
         auto* d = static_cast<DelayedData*>(lpParam);
         Sleep(300);
         if (d->self->IsRunning()) {
@@ -269,7 +269,7 @@ void ShuangTaiAutoBattle::SendJumpLayerPacket() {
     struct DelayedData { ShuangTaiAutoBattle* self; };
     DelayedData* data = new DelayedData{this};
     
-    HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
+    HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
         auto* d = static_cast<DelayedData*>(lpParam);
         Sleep(300);
         if (d->self->IsRunning()) {
@@ -434,7 +434,7 @@ void ShuangTaiAutoBattle::OnBattleRoundStartResponse() {
             int action;
         };
         DelayedData* data = new DelayedData{self, action};
-        HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
+        HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
             auto* d = static_cast<DelayedData*>(lpParam);
             Sleep(300);
             if (d->self->IsRunning() && !d->self->m_roundActionPending.load()) {
@@ -525,7 +525,7 @@ void ShuangTaiAutoBattle::OnBattleEndResponse(const GamePacket& packet) {
     struct DelayedData { ShuangTaiAutoBattle* self; };
     DelayedData* data = new DelayedData{this};
     
-    HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
+    HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
         auto* d = static_cast<DelayedData*>(lpParam);
         Sleep(300);
         if (d->self->IsRunning()) {
