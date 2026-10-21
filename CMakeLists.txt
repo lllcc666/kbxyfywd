@@ -16,6 +16,7 @@ set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_executable(WebView2Demo WIN32
     ${SRC_DIR}/app/demo.cpp
     ${SRC_DIR}/app/app_host.cpp
+    ${SRC_DIR}/hook/response_waiter.cpp
     ${SRC_DIR}/hook/wpe_hook.cpp
     ${SRC_DIR}/hook/horse_competition.cpp
     ${SRC_DIR}/hook/latest_activities.cpp
