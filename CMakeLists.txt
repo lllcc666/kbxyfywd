@@ -20,7 +20,15 @@ add_executable(WebView2Demo WIN32
     ${SRC_DIR}/hook/horse_competition.cpp
     ${SRC_DIR}/hook/latest_activities.cpp
     ${SRC_DIR}/hook/wpe_hook_helpers.cpp
+    ${SRC_DIR}/hook/hook_shared.cpp
+    ${SRC_DIR}/hook/dungeon_jump.cpp
+    ${SRC_DIR}/hook/battle_six.cpp
+    ${SRC_DIR}/hook/spirit_collect.cpp
+    ${SRC_DIR}/hook/shuangtai.cpp
+    ${SRC_DIR}/hook/story_task.cpp
+    ${SRC_DIR}/hook/eight_trigrams.cpp
     ${SRC_DIR}/core/utils.cpp
+    ${SRC_DIR}/core/managed_thread.cpp
     ${SRC_DIR}/protocol/packet_parser.cpp
     ${SRC_DIR}/protocol/packet_builder.cpp
     ${SRC_DIR}/core/ui_bridge.cpp

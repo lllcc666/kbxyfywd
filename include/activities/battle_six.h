@@ -154,3 +154,36 @@ void ProcessBattleSixFinishFirstSpiritResponse(const GamePacket& packet);
 
 BOOL StartOneKeyBattleSixPacket(int matchCount = 1);
 BOOL CancelBattleSixMatch();
+
+// ---------------------------------------------------------------------------
+// 万妖盛会流程机制（实现在 src/hook/battle_six.cpp）
+//
+// 阶段与 token 用来让"迟到线程"和"迟到的回包"自行作废：每次推进阶段 token+1，
+// 旧的看门狗/恢复线程拿到 token 不匹配就直接退出，不必再靠 Sleep 猜时序。
+// 主线任务的战斗收尾复用 SendNormalBattleEndPacket / SendBattleReadyPacket /
+// SendBattlePlayOverPacket 三个通用战斗封包，因此它们也是外部链接。
+// ---------------------------------------------------------------------------
+enum BattleSixFlowStage {
+    BATTLESIX_FLOW_IDLE = 0,
+    BATTLESIX_FLOW_MATCHING = 1,
+    BATTLESIX_FLOW_WAITING_BATTLE_START = 2,
+    BATTLESIX_FLOW_PREPARING_COMBAT = 3
+};
+
+extern std::atomic<int> g_battleSixFlowStage;
+extern std::atomic<unsigned long long> g_battleSixFlowToken;
+extern std::atomic<bool> g_battleSixPostSettlementEndSent;
+extern std::atomic<bool> g_battleSixReadySupplementSent;
+extern std::atomic<unsigned long long> g_battleSixRoundResultToken;
+extern std::atomic<unsigned long long> g_battleSixPlayOverToken;
+
+unsigned long long AdvanceBattleSixFlowStage(int stage);
+void ResetBattleSixFlowState();
+void ScheduleBattleSixRecoveryViaCombatInfo(DWORD delayMs);
+void ArmBattleSixFlowWatchdog(DWORD timeoutMs, int stage, unsigned long long token,
+                              bool cancelBeforeRecovery, const wchar_t* timeoutText);
+
+// 通用战斗封包（万妖盛会与主线任务共用）。
+BOOL SendBattleReadyPacket();
+BOOL SendBattlePlayOverPacket();
+BOOL SendNormalBattleEndPacket();
