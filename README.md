@@ -1,210 +1,232 @@
 # 卡布西游浮影微端
 
-[![Version](https://img.shields.io/badge/version-1.12-blue.svg)](https://github.com/lllcc666/kbxyfywd)
+[![Version](https://img.shields.io/badge/version-1.16-blue.svg)](https://github.com/lllcc666/kbxyfywd)
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey.svg)](https://github.com/lllcc666/kbxyfywd)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-基于 WebView2 的 Windows 游戏辅助桌面程序，使用 Win32 C++17、ATL/WebBrowser、MinHook 和嵌入式资源实现。
+基于 WebView2 的 Windows 游戏辅助桌面程序：Win32 C++17 外壳 + 嵌入式 WebView2 界面 + MinHook 封包拦截 + 各活动自动化模块。产物是**单文件 exe**，不依赖外置 zlib / 内存模块 DLL。
 
 ## 项目特点
 
-- 使用 WebView2 承载工具界面，前端资源来自 `resources/ui.html`
-- 使用 ATL `CAxWindow` + `IWebBrowser2` 承载游戏页面
-- 提供网络封包拦截、协议解析、活动自动化、数据桥接等能力
-- 构建时将 HTML、WebView2Loader、zlib 等资源嵌入到可执行文件中
-- 以 Windows x64 + MSVC + CMake 为主要开发环境
+- 界面用 WebView2 承载，前端源码是 `resources/ui.html`，构建时嵌入成 `embedded/ui_html.h`
+- 游戏页面用 ATL `CAxWindow` + `IWebBrowser2` 承载
+- 封包拦截（MinHook）、协议解析、活动自动化、C++ ↔ JS 数据桥接
+- zlib 1.3.1 以源码形式编入（`third_party/zlib`），不再链接 `zlib1.dll`
+- 自动化流程统一走受管线程：可取消、退出时可控回收
 
 ## 技术栈
 
 | 组件 | 说明 |
 |------|------|
-| 语言 | C++17 |
+| 语言 | C++17（`/utf-8`，MSVC /W4 无告警） |
 | 桌面框架 | Win32 API |
 | UI | WebView2 + HTML/CSS/JavaScript |
 | 游戏承载 | ATL / WebBrowser |
 | Hook | MinHook |
-| 压缩/加载 | zlib / MemoryModule |
-| 构建 | CMake 3.16+ |
-| 依赖管理 | vcpkg |
+| 压缩/加载 | zlib 1.3.1（源码静态编入）/ MemoryModule |
+| 构建 | CMake 3.16+，Visual Studio 2022 生成器 |
+| 依赖管理 | vcpkg（仅 MemoryModule 与 WebView2Loader） |
 
 ## 环境要求
 
 - Windows 10/11 x64
-- Visual Studio 2019 或 2022
+- Visual Studio 2022（MSVC v143）
 - CMake 3.16 及以上
-- Python 3，且可通过 `python3` 命令调用
-- vcpkg
+- Python 3，且可通过 `python3` 命令调用（构建期生成 `embedded/*.h`）
+- vcpkg（提供 `MemoryModule.lib` 与 `WebView2Loader.dll`）
 
-## 构建方式
-
-仓库根目录下的 `CMakeLists.txt` 当前硬编码了：
+`CMakeLists.txt` 里 `VCPKG_ROOT` 默认硬编码为：
 
 ```text
 d:/AItrace/CE/.trae/vcpkg-master
 ```
 
-如果你的本地环境路径不同，需要先调整该路径或修改 CMake 配置。
+本地路径不同时先改这一处。
 
-### 生成工程
+## 构建方式
 
 ```powershell
 cmake -S . -B build_new -G "Visual Studio 17 2022" -A x64
+cmake --build build_new --config Release --target WebView2Demo
 ```
 
-### 编译 Release
+产物：`build_new/bin/Release/WebView2Demo.exe`
 
-```powershell
-cmake --build build_new --config Release
-```
-
-### 运行程序
-
-```powershell
-.\build_new\bin\Release\WebView2Demo.exe
-```
+Release 是体积优先配置：`/O1` + `/GL` + `/LTCG` + `/GF` + `/Gy` + `/Gw`、函数级链接、COMDAT 折叠、引用优化；运行时库为 `/MD`（目标机需 VC++ 运行库）。成品可再自行加壳（如 UPX）。
 
 ## 目录结构
 
 ```text
 kbwebui/
 ├─ src/
-│  ├─ app/                  # 程序入口与主窗口初始化
-│  ├─ core/                 # 桥接、工具函数、消息处理、数据拦截
-│  ├─ hook/                 # Hook 主逻辑与自动化实现
-│  └─ protocol/             # 协议解析与封包构建实现
+│  ├─ app/                  # 程序入口、主窗口、WebView2 初始化
+│  ├─ core/                 # 桥接、工具、消息分派、数据拦截、受管线程
+│  ├─ hook/                 # Hook 内核 + 各活动自动化模块（一活动一文件）
+│  └─ protocol/             # 封包解析与构造
 ├─ include/
-│  ├─ activities/           # 各活动/功能模块声明
-│  ├─ core/                 # core 层头文件
+│  ├─ activities/           # 各活动对外接口声明
+│  ├─ core/                 # core 层头文件（含 bounded_reader / managed_thread）
 │  ├─ hook/                 # hook 层公开头文件
-│  ├─ internal/             # 内部状态机、等待器、私有结构
-│  └─ protocol/             # 协议相关类型与声明
-├─ resources/               # UI、图标、RC 资源
-├─ embedded/                # 嵌入式头文件与嵌入资源
-├─ data/                    # 本地 XML 数据缓存
-├─ scripts/                 # Python 脚本工具
-├─ swf_cache/               # 下载缓存，不作为源码
-├─ build_new/               # 本地构建输出目录
+│  ├─ internal/             # 内部状态结构、响应分发、模块间共享状态
+│  └─ protocol/             # 协议类型、Opcode 常量
+├─ resources/               # ui.html、app.rc、app.ico
+├─ embedded/                # 嵌入资源头文件
+├─ third_party/zlib/        # zlib 1.3.1 源码（静态编入）
+├─ scripts/                 # Python 生成/抓取脚本
 ├─ CMakeLists.txt
-├─ README.md
-└─ AGENTS.md
+└─ README.md
 ```
 
-## 核心文件说明
+以下目录/文件属**本机资料，不入库**（已在 `.gitignore` 中）：
 
-- `src/app/demo.cpp`
-  - 程序入口、窗口生命周期、WebView2 初始化、全局 UI 流程
-- `src/hook/wpe_hook.cpp`
-  - Hook 生命周期、数据包拦截、响应分发、自动化主逻辑
-- `src/hook/wpe_hook_helpers.cpp`
-  - Hook 层辅助实现
-- `src/protocol/packet_parser.cpp`
-  - 协议解析、Opcode/Params 相关处理、解压逻辑
-- `src/protocol/packet_builder.cpp`
-  - 封包构造辅助
-- `src/core/ui_bridge.cpp`
-  - C++ 到前端 JavaScript 的桥接
-- `src/core/web_message_handler.cpp`
-  - 前端消息到原生逻辑的入口
-- `src/core/data_interceptor.cpp`
-  - HTTP/资源响应拦截与修改
-- `include/activities/*.h`
-  - 活动声明、状态访问接口、自动化入口函数
-- `include/internal/*.h`
-  - 内部状态结构、等待器、状态机
+```text
+data/            # 从游戏 data.zip 导出的 XML，仅供 scripts 生成代码
+docs/            # 逆向分析笔记
+.agents/         # 本地技能库
+swf_cache/       # 下载的 SWF 与反编译输出
+backups/         # 改动前的原文件备份
+build_new/       # 构建输出
+```
+
+## 代码结构
+
+### `src/app/`
+
+- `demo.cpp` — 程序入口、窗口生命周期、WebView2 初始化、退出顺序（先停受管线程再拆钩子）
+- `app_host.cpp` — 窗口宿主与消息处理
+
+### `src/core/`
+
+- `web_message_handler.cpp` — 前端消息 → 原生逻辑的唯一入口（动作分派）
+- `ui_bridge.cpp` — C++ → JS 桥接（`ExecuteScript`、进度横幅、列表同步）
+- `managed_thread.cpp` — 受管线程：统一登记、可取消睡眠、退出时 join / 回收
+- `data_interceptor.cpp` — HTTP / 资源响应拦截
+- `utils.cpp` — 字符串、数值、十六进制等基础工具
+
+### `src/protocol/`
+
+- `packet_parser.cpp` — 封包解析、Opcode/Params 识别、zlib 解压、data.zip 解析、战斗数据
+- `packet_builder.cpp` — 封包构造
+
+### `src/hook/`（一活动一模块）
+
+| 文件 | 职责 |
+|------|------|
+| `wpe_hook.cpp` | Hook 生命周期、收发封包、响应分发（`ResponseDispatcher`）、活动封包与次数查询入口 |
+| `wpe_hook_helpers.cpp` | 登录 / 会话等辅助 Hook |
+| `response_waiter.cpp` | 同步等待回包（opcode + params 精确匹配、可取消） |
+| `hook_shared.cpp` | 模块间共享原语：发包、通知、奖励表构建 |
+| `horse_competition.cpp` | 自动坐骑大赛 |
+| `latest_activities.cpp` | 最新活动通用流程（查询 / 开始 / 扫荡 / 领取） |
+| `activity_minigames.cpp` | 各期小游戏自动化实现 |
+| `activity_counts.cpp` | 活动剩余次数查询与回填 |
+| `story_task.cpp` | 主线任务（含战斗收尾、配方表驱动） |
+| `eight_trigrams.cpp` | 任务区 / 八卦灵盘 |
+| `battle_six.cpp` | 战斗六人本（战斗流程阶段机 + 看门狗） |
+| `battle.cpp` | 通用战斗发包 |
+| `shuangtai.cpp` | 双台自动战斗 |
+| `spirit_collect.cpp` | 精灵采集 |
+| `dungeon_jump.cpp` / `dungeon_deepdig.cpp` | 跳图 / 地宫挖宝 |
+| `tower.cpp` | 玄塔 |
+| `trial.cpp` | 试炼 |
+| `dance.cpp` | 跳舞小游戏 |
+| `daily_activity.cpp` | 日常 / 周常 / 家族 / 回血 |
+| `collect.cpp` | 一键采集 |
+| `bag_items.cpp` | 灵玉、背包查询与分解、道具使用 |
+| `md5_check.cpp` | 图片 MD5 校验路径 |
+| `packet_store.cpp` | 封包列表存取、自动发包的数据层 |
+| `hijack.cpp` | 封包劫持规则 |
+
+### `include/internal/`
+
+- `wpe_hook_internal.h` — `ResponseDispatcher`、`ResponseWaiter`、跨模块共享全局与口径
+- `hook_shared.h` — 发包 / 通知 / 奖励表等共享原语声明
+- `activity_states_internal.h` — `ActivityStateManager` 与各活动状态结构
+- `task_zone_internal.h` / `story_task_internal.h` / `shuangtai_internal.h` — 模块内部共享状态
 
 ## 资源与生成文件
 
 ### 源资源
 
-- `resources/ui.html`
-- `resources/app.rc`
-- `resources/app.ico`
+- `resources/ui.html`、`resources/app.rc`、`resources/app.ico`
 
-### 构建生成
+### 构建生成（勿手改）
 
-以下文件由构建过程生成，不建议手工编辑：
+- `embedded/ui_html.h`（来自 `resources/ui.html`）
+- `embedded/webview2loader_data.h`（来自 vcpkg 的 `WebView2Loader.dll`）
 
-- `embedded/ui_html.h`
-- `embedded/webview2loader_data.h`
-- `embedded/zlib_data.h`
+### 仓库内手工维护的嵌入头
 
-### 仓库内维护的嵌入头文件
-
-以下文件位于 `embedded/`，但不是当前 CMake 自定义命令生成的：
-
-- `embedded/minhook_data.h`
-- `embedded/speed_x64_data.h`
-- `embedded/minizip_helper.h`
+- `embedded/minhook_data.h`、`embedded/speed_x64_data.h`、`embedded/minizip_helper.h`
 
 ## Python 脚本
 
-- `scripts/embed_html.py`
-  - 将 `resources/ui.html` 转成嵌入头文件
-- `scripts/embed_dll.py`
-  - 将 DLL 转成嵌入头文件
-- `scripts/download_swf.py`
-  - 下载活动 SWF 到本地缓存目录
-- `scripts/fetch_activities.py`
-  - 获取活动数据/缓存辅助脚本
+| 脚本 | 用途 |
+|------|------|
+| `embed_html.py` | `ui.html` → 嵌入头文件 |
+| `embed_dll.py` | DLL → 嵌入头文件 |
+| `download_swf.py` | 下载活动 SWF 到 `swf_cache/` |
+| `fetch_activities.py` / `fetch_taskprop.py` | 抓取活动配置 / 任务属性 |
+| `gen_story_recipe.py` | 由 `data/taskinfo.xml` 生成主线节点配方（输出 `include/activities/story_task_recipe.h`） |
 
 ## 协议说明
 
-当前项目中的基础封包格式为：
+基础封包格式：
 
 ```text
 Magic(2) + Length(2) + Opcode(4) + Params(4) + Body
 ```
 
-- 普通包 Magic: `0x5344`
-- 压缩包 Magic: `0x5343`
-- 协议数值按小端处理
+- 普通包 Magic：`0x5344`
+- 压缩包 Magic：`0x5343`
+- 整数值小端
 
-## 开发建议
+活动回包按 `(opcode, params)` 精确注册到 `ResponseDispatcher`：先查精确表，再退 opcode 级表。需要同步等结果的流程用 `ResponseWaiter`（200ms 分片、可被停止打断）。
 
-### 添加新活动功能
+## 开发约定
 
-通常按下面顺序扩展：
+### 新增一个活动
 
-1. 在协议层补充所需常量、Opcode、数据结构
-2. 在 `include/activities/` 中增加活动声明
-3. 在 `include/internal/` 中补充内部状态结构（如果需要）
-4. 在 `src/hook/wpe_hook.cpp` 中实现发送、响应处理和自动化流程
-5. 在 `src/core/web_message_handler.cpp` 或 `src/app/demo.cpp` 中接入 UI 入口
+1. `include/protocol/packet_protocol.h` 补 Opcode / 参数常量，不在业务代码里写魔数
+2. `include/activities/<活动>.h` 加对外接口，`include/internal/activity_states_internal.h` 加状态结构
+3. `src/hook/<活动>.cpp` 实现流程，并在 `src/hook/wpe_hook.cpp` 里 `registerParams(...)` 注册回包处理器
+4. `src/core/web_message_handler.cpp` 接入前端动作，`resources/ui.html` 加界面
+5. **新增 `.cpp` / `.h` 必须同步登记到 `CMakeLists.txt`**（源文件是显式列表，不是通配）
+6. 头文件以 `include/` 各子目录为搜索根，`#include` 用短名（如 `"managed_thread.h"`），不要写 `"core/managed_thread.h"`
+
+### 线程与退出
+
+- 后台流程统一用 `ManagedThread::Start(...)`（或 `CreateManagedThread`），睡眠用 `ManagedThread::SleepCancellable(...)`
+- 循环体每轮检查 `ManagedThread::StopRequested()`
+- 退出顺序：`RequestStopAll()` → `JoinAll()` → 再拆 Hook；顺序反过来会踩已释放的资源
+
+### 解析封包
+
+- 读信封字段用 `BoundedReader`（`include/core/bounded_reader.h`），越界只置失败位，不做越界读
+- 跨线程共享的活动状态用 `std::atomic` 或模块内互斥锁；`std::wstring` / `std::vector` 字段必须同锁访问
 
 ### 修改前端
 
-- 优先修改 `resources/ui.html`
-- 通过重新构建生成新的 `embedded/ui_html.h`
-- 不要直接手改 `embedded/ui_html.h`
-
-### 修改构建配置
-
-- 入口文件与实现文件现在统一从 `src/` 目录编译
-- 公共头文件按 `include/` 子目录分类
-- 如果新增源文件，需要同步更新 `CMakeLists.txt`
+- 只改 `resources/ui.html`，重新构建会自动重新生成 `embedded/ui_html.h`
+- 从 C++ 注入 JS 时字符串走 `EscapeJsonString`，拼进单引号字面量要一并转义单引号
 
 ## 验证方式
 
-当前仓库没有配置自动化测试框架，常用验证方式为：
+仓库没有自动化测试，常用验证：
 
-- 重新编译：`cmake --build build_new --config Release`
-- 启动程序：`.\build_new\bin\Release\WebView2Demo.exe`
-- 检查 UI 是否正常加载
-- 检查相关活动功能、Hook 流程和响应处理是否仍然正常
+```powershell
+cmake --build build_new --config Release --target WebView2Demo
+.\build_new\bin\Release\WebView2Demo.exe
+```
+
+检查点：界面正常加载 → Hook 生效（能抓到封包）→ 目标活动流程能跑完一轮 → 退出程序不残留进程。
 
 ## 常见问题
 
-### 构建时找不到 vcpkg 依赖
-
-检查 `CMakeLists.txt` 中的 `VCPKG_ROOT` 是否与你的本地路径一致。
-
-### 修改了前端但程序里没有生效
-
-确认是否重新执行了构建，让 `resources/ui.html` 重新生成到 `embedded/ui_html.h`。
-
-### 新增了源码文件但编译没有包含
-
-确认文件已经放到正确目录，并已同步加入 `CMakeLists.txt`。
+- **找不到 vcpkg 依赖**：核对 `CMakeLists.txt` 里的 `VCPKG_ROOT`。
+- **前端改了不生效**：需重新构建，让 `resources/ui.html` 重新生成 `embedded/ui_html.h`。
+- **新增源码没被编译**：确认已加入 `CMakeLists.txt` 的源文件列表。
+- **exe 体积**：主体是嵌入资源（UI 与两个 DLL 的十六进制数组），代码侧已压到 `/O1 /GL /LTCG`；要更小请在外层加壳。
 
 ## 许可证
 
