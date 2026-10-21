@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <mutex>
+#include <random>
 #include <string>
 #include <thread>
 #include <vector>
@@ -28,30 +29,72 @@ HorseProgressCallback g_horseProgressCallback = nullptr;
 // std::thread 的 join/赋值不是线程安全的，两线程并发操作同一对象是 UB，故统一加锁。
 std::mutex g_horseGameThreadMutex;
 
-// 单局目标时长（秒）。AS3 里 distance 的推进完全由天然速度决定：
-//   RUN   每帧 (base_speed + 15) / 60
-//   ACCRUN 每帧 (base_speed + 15 + base_intimate / 5) / 60
-// 而 HorseGameView 把 base_speed 显示成「+X%」（HorseGameView.as:127），即它是
-// 百分比而不是绝对速度。按真实坐骑 base_speed 10~30 计算，天然跑完 1500 需要
-// 1500 / (base_speed + 15) ≈ 33~60 秒，这就是原先一局压不到 30 秒的根因。
-// 因此这里给出一个「报告距离」的时间下限：把每帧步长抬到 1500 / (本值 * 60)，
-// 天然速度更快时仍用天然速度，只有更慢时才由本值兜底。
+// 一键流程的独占标记：StartOneKey 的「检查 isRunning + Reset + 置位」必须是原子的，
+// 否则连点两次会起两份流程（UI 每次点击都新开一个 detached 线程），互相 Reset 状态、
+// 互相 StopHorseCompetitionGame 掐掉对方的比赛线程。
+std::mutex g_horseRunMutex;
+
+// 保护 HorseCompetitionState 里带堆分配的字段（myInfo 含 std::wstring、
+// itemDistances / otherMembers 是 std::vector）。收包分发线程整体赋值它们的同时，
+// 一键线程 ResetHorseRoundState 清空、比赛线程拷贝，都是同对象的并发访问 = UB
+// （可能堆损坏）。锁只罩字段读写，不跨发包、不跨 UI 回调。
+std::mutex g_horseInfoMutex;
+
+// ---- 坐骑大赛的速度模型（严格对齐 AS3）----
+// AS3 HorsePlayer.as:401-402 每帧推进：
+//   RUN     (base_speed + 15) / 60
+//   ACCRUN  (base_speed + 15 + base_intimate / 5) / 60
+// HorseGameView.as:127 把 base_speed 显示成「+X%」，即它是百分比而非绝对速度；
+// 按真实坐骑 base_speed 10~30 计算，只靠巡航跑完 1500 米要 33~60 秒。
+// 同文件 232/245：RUN 每帧 hp += 0.84、ACCRUN 每帧 hp -= 3.33，折算每秒是回血 50.4、
+// 耗血 199.8，即稳态冲刺占比 d = 0.84/(0.84+3.33) ≈ 20.1%，任何真实坐骑的平均速度
+// 上限 ≈ v_run + 0.201·(v_acc − v_run)，合法完赛时间约 29~60 秒（坐骑越好越快）。
+//
+// 要点：坐骑速度「是什么就是什么」。base_speed / base_intimate / base_power 全靠
+// 服务器在 JOIN_GAME 广播里下发（MemberInfo.as:96-102 就是解析这条包），本模块一个
+// 字节都不改，也不为了凑时长整体抬速：进比赛时拿到多少速度，就按这个速度把这只
+// 坐骑跑成它自己的最好成绩。
+// 属性一定在开局前到手：流程上本工具要等 state.inRoom（由 JOIN_GAME 回包置真）才发
+// READY，服务器也要房间里人齐才推 START_GAME，所以 START_GAME 必定晚于那条回包。
+// 万一真拿不到（不该发生），就中止本局重来，绝不编造一个服务器没下发过的速度。
+//
+// 于是能优化的只有「怎么骑」，三件事：
+//   1. 决策层（冲刺时机）：只看自己的血条——血够就冲、见底才收油（AS3 里 hp 归零
+//      本来就只是收油，不是死亡）。亲密为 0 时 accSpeed == speed，冲刺只掉血不
+//      加速，直接不冲。道具窗口（撞道具会掉血/减速）要提前收油。
+//   2. 速度层：严格按 AS3 两条公式逐帧积分，不加任何系数、不补距离、不看任何
+//      外部时间线。平均速度上限天生就是 v_run + 0.201·(v_acc − v_run)。
+//   3. 人味层：逐帧 ±1.5% 抖动 + 偶发 0.4~0.8 秒掉速；冲刺的按压时长与收油后的
+//      反应间隔都带随机，血条锯齿不是节拍器。
+//
+// 为什么「冲多深」不影响总时长：回血 0.84/帧、耗血 3.33/帧都与速度无关，稳态
+// 冲刺占比恒为 20.1%，所以「深冲一段 + 长回血」与「浅冲多次」总行程相同；差别
+// 只在开局那波满血冲刺能不能一次用满。因此「有血就冲」就是这只坐骑的最快跑法，
+// 而不是靠改速度去凑某个秒数。
 constexpr double kHorseTargetFps = 60.0;
-// 32 秒：每帧 0.781 米，折合天然 base_speed ≈ 31.9，正好落在真实坐骑的
-// 天然速度区间（10~30 → 33~60 秒）上沿，看起来就是「一匹好坐骑」跑出来的成绩。
-// 之前设 26 秒（每帧 0.96 米，折合 base_speed≈42.7）明显快过所有真实坐骑，
-// 服务器拿到的 PLAY_GAME 序列比同房间其他人快一截，太扎眼。
-constexpr double kHorseTargetFinishSeconds = 32.0;
-// 每帧应推进的最小距离（按目标时长均摊），与天然速度取大者。
-constexpr double kHorseMinFrameStep =
-    HorseCompetitionState::ROUTE_DISTANCE / (kHorseTargetFinishSeconds * kHorseTargetFps);
-// 单个 tick 最多补的行程：约 0.7 秒。防止长时间卡顿后距离"瞬移"。
-constexpr double kMaxCatchUpPerTick = 40.0;
+// 看门狗与等待上限都按「这只坐骑自己的理论时长」推导（见 StartHorseCompetitionGame），
+// 这里只有余量，不再出现任何「目标秒数」。
+constexpr double kHorseWatchdogFactor = 1.8;      // 理论时长 × 1.8 还没冲线＝卡死
+constexpr double kHorseWatchdogFloorSeconds = 60.0;  // 再快的坐骑也至少给 60 秒
 
 void NotifyHorseProgress(const std::wstring& msg) {
     if (g_horseProgressCallback) {
         g_horseProgressCallback(msg);
     }
+}
+
+// 拟人化使用的随机源。thread_local：StartHorseCompetitionGame 跑在收包分发线程、
+// 抖动跑在比赛线程，共用一个 mt19937 就是数据竞争。
+std::mt19937& HorseRng() {
+    thread_local std::mt19937 rng(static_cast<uint32_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count()));
+    return rng;
+}
+
+// [lo, hi] 均匀分布。
+double HorseRand(double lo, double hi) {
+    std::uniform_real_distribution<double> dist(lo, hi);
+    return dist(HorseRng());
 }
 
 namespace HorseCmd {
@@ -135,16 +178,22 @@ bool ReadHorseJsonPayload(const GamePacket& packet, size_t& offset, std::string&
 }
 
 void SetHorsePhase(HorseCompetitionState& state, HorseCompetitionPhase phase) {
-    state.phase = phase;
     // JOINING_ROOM 刻意不算「已在房间」：这一步只是发出 JOIN_GAME 请求，服务器还没
     // 确认。若在这里就把 inRoom 置真，主循环的入房等待会立刻
     // 返回，READY 会在真正入房之前就发出去（服务器直接丢弃），接着只能等满 20 秒
     // 开局超时。inRoom 只由 JOIN_GAME / ROOM_INFO 的回包置真（本文件 508/558 行）。
+    //
+    // 写入顺序：先写派生标志，最后写 phase。这些字段是各自独立的 atomic，整组没有
+    // 原子性；若先写 phase 再写 inRoom，收包线程/一键线程恰好读到「phase 已经是
+    // JOINING_ROOM、inRoom 还是上一轮的 true」，入房等待会瞬时"成功"，READY 发往
+    // 已经不存在的房间。phase 最后写，中间态就只会是「phase 还是旧的、inRoom 已是
+    // 新的」，对每个调用点都是安全方向（等待条件不会提前成立）。
     state.inRoom = (phase == HORSE_PHASE_WAITING_START ||
                     phase == HORSE_PHASE_GAMING || phase == HORSE_PHASE_SETTLING);
     state.isGaming = (phase == HORSE_PHASE_GAMING);
     state.isSettling = (phase == HORSE_PHASE_SETTLING);
     state.isFinished = (phase == HORSE_PHASE_FINISHED);
+    state.phase = phase;
 }
 
 void ResetHorseRoundState(HorseCompetitionState& state) {
@@ -163,6 +212,8 @@ void ResetHorseRoundState(HorseCompetitionState& state) {
     state.resDayPoint = 0;
     state.isRide = 0;
     state.uiInfoReceived = false;
+    state.uiInfoPending = false;
+    state.raceAborted = false;
     // 新的一局尚未进入任何房间，房间状态必须回到 FREE，否则上一局的
     // READY/SETTLE 会残留下来，让 HandleHorseRoomStatusResponse 的
     // 「活跃状态 -> FREE」判定失去参照。
@@ -171,7 +222,15 @@ void ResetHorseRoundState(HorseCompetitionState& state) {
     // 很可能就是这一局的房号，拿它当判据会把新房间的回包全部误杀。
     // 「上一局的迟到包」改由 START_GAME 的 members 自检挡（HorseStartGameHasSelf）。
     state.roomId = 0;
-    state.myInfo.Reset();
+    {
+        // myInfo 里有 std::wstring、itemDistances 是 vector：清空它们的同时收包线程
+        // 可能在写同一个字段，那是 UB（可能堆损坏），必须与解析侧共用一把锁。
+        std::lock_guard<std::mutex> lock(g_horseInfoMutex);
+        state.myInfo.Reset();
+        // 每轮清空道具落点：某一轮的包没带 items 时，上一局的位置不能残留下来
+        // 继续驱动跳跃与提前收油。
+        state.itemDistances.clear();
+    }
 }
 
 enum class HorseWaitOutcome { Signalled, TimedOut, Stopped };
@@ -226,14 +285,25 @@ void HorseGameMainLoop() {
 
     // 开局快照道具距离：与 AS3「本轮 itemList 固定」一致；同时避免与响应分发
     // 线程重写 state.itemDistances 产生并发访问（vector 重分配会导致迭代器失效）。
-    const std::vector<int> itemDistances = state.itemDistances;
+    // 拷贝本身也必须加锁：分发线程是整体赋值（重分配），无锁拷贝同样是 UB。
+    std::vector<int> itemDistances;
+    {
+        std::lock_guard<std::mutex> lock(g_horseInfoMutex);
+        itemDistances = state.itemDistances;
+    }
 
-    int accHoldFrames = 0;
     int accCooldownFrames = 0;
+    int accHoldFrames = 0;
     int jumpHoldFrames = 0;
     int jumpCooldownFrames = kJumpCooldownFrames;
     size_t nextItemIndex = 0;
     double nextSyncSeconds = 1.0;
+    int stumbleFrames = 0;
+    bool firstSprintDone = false;
+    // 本局距离只在本线程累加，再把结果 store 进 state.distance（atomic）供外层读：
+    // 直接对 state.distance 做 += 是「读-改-写」，与一键线程的读并发会丢更新，
+    // 而且裸 double 读写本身是数据竞争。
+    double raceDistance = 0.0;
 
     auto lastTick = std::chrono::steady_clock::now();
     const auto gameStart = lastTick;
@@ -249,17 +319,10 @@ void HorseGameMainLoop() {
             accumulator = frameDuration;
         }
 
-        // 墙钟目标距离：以真实经过时间推 1500 米斜坡，而不是以模拟帧数。
-        // 帧计数会被 kMaxStepsPerTick 截断、被 sleep 粒度拖慢，一旦落后就永远
-        // 追不回来，一局会被拉长到 40 秒以上；墙钟不会。这是「压到目标秒数内」
-        // 真正可靠的那一半保障（另一半是 StartHorseCompetitionGame 里的
-        // kHorseMinFrameStep 兜底）。
+        // 只有墙钟计时（发同步包、看门狗用），不再有任何「配速线」：
+        // 跑多快完全由这只坐骑的属性与血条决定。
         const double elapsedSeconds =
             std::chrono::duration<double>(now - gameStart).count();
-        const double wallClockDistance = (std::min)(
-            static_cast<double>(HorseCompetitionState::ROUTE_DISTANCE),
-            static_cast<double>(HorseCompetitionState::ROUTE_DISTANCE) *
-                (elapsedSeconds / kHorseTargetFinishSeconds));
 
         int steps = 0;
         while (accumulator >= frameDuration && steps < kMaxStepsPerTick
@@ -267,8 +330,6 @@ void HorseGameMainLoop() {
             accumulator -= frameDuration;
             ++steps;
 
-            // distanceGap 用墙钟目标算：决定何时按加速，与帧率无关。
-            const double distanceGap = wallClockDistance - state.distance;
 
             if (state.canControl) {
                 if (accCooldownFrames > 0) {
@@ -293,7 +354,7 @@ void HorseGameMainLoop() {
                     bool suppressAccForItem = false;
                     if (nextItemIndex < itemDistances.size()) {
                         const int nextItemDistance = itemDistances[nextItemIndex];
-                        const double distanceToItem = static_cast<double>(nextItemDistance) - state.distance;
+                        const double distanceToItem = static_cast<double>(nextItemDistance) - raceDistance;
                         if (distanceToItem < -40.0) {
                             ++nextItemIndex;
                         } else {
@@ -302,19 +363,37 @@ void HorseGameMainLoop() {
                         }
                     }
 
+                    // 冲刺时机只看自己的血条——这是把这只坐骑发挥到极限的唯一杠杆：
+                    // 血够就冲（亲密 > 0 时冲刺永远正收益），一直按到血见底才收油
+                    // （AS3 里 hp 归零只是收油、不是死亡），回上去再冲。撞道具会
+                    // 掉血/减速，所以道具窗口内提前收油。按压时长与收油后的反应
+                    // 间隔都带随机，血条锯齿不像节拍器。
+                    const bool sprintUseful = state.accSpeed > state.speed + 1e-6;
                     if (state.state == "ACCRUN") {
                         --accHoldFrames;
-                        if (accHoldFrames <= 0 || state.hp <= state.maxHp * 0.34 || suppressAccForItem || distanceGap < -6.0) {
+                        if (accHoldFrames <= 0 || state.hp <= state.maxHp * 0.10
+                            || suppressAccForItem || !sprintUseful) {
                             state.state = "RUN";
-                            accCooldownFrames = 18;
+                            // 人肉反应：血见底到松手，0.15~0.45 秒。
+                            accCooldownFrames = 9 + static_cast<int>(HorseRand(0.0, 18.0));
                         }
                     } else {
                         state.state = "RUN";
-                        const bool canAccNow = accCooldownFrames <= 0 && state.hp >= state.maxHp * 0.5;
-                        if (canAccNow && !suppressAccForItem && distanceGap > 7.5) {
+                        const bool canAccNow = accCooldownFrames <= 0
+                                               && state.hp >= state.maxHp * 0.85
+                                               && sprintUseful;
+                        if (canAccNow && !suppressAccForItem) {
                             state.lastState = "RUN";
                             state.state = "ACCRUN";
-                            accHoldFrames = (distanceGap > 16.0) ? 36 : 18;
+                            if (!firstSprintDone) {
+                                // 开局满血：一口气按到血见底。同样的血早冲早到，
+                                // 这一波用不用得满直接决定这只坐骑的最快成绩。
+                                accHoldFrames = 600;
+                                firstSprintDone = true;
+                            } else {
+                                // 之后每次按 0.5~1.5 秒：按够时长或血低了都会松手。
+                                accHoldFrames = 30 + static_cast<int>(HorseRand(0.0, 60.0));
+                            }
                         }
                     }
 
@@ -348,37 +427,58 @@ void HorseGameMainLoop() {
                     }
                 }
 
-                state.distance += distanceDelta;
+                // 人味：逐帧 ±1.5% 抖动 + 偶发掉速（真人手滑/走神，约每秒 7% 概率掉
+                // 0.4~0.8 秒）。只抖位移，不动 hp 与状态机，血量锯齿仍然自洽。
+                if (stumbleFrames == 0 && HorseRand(0.0, 1.0) < 0.0012) {
+                    stumbleFrames = 24 + static_cast<int>(HorseRand(0.0, 24.0));
+                }
+                double humanFactor = HorseRand(0.985, 1.015);
+                if (stumbleFrames > 0) {
+                    --stumbleFrames;
+                    humanFactor *= 0.88;
+                }
+                raceDistance += distanceDelta * humanFactor;
 
                 if (state.hp > state.maxHp) {
                     state.hp = state.maxHp;
                 }
                 if (state.hp <= 0) {
+                    // 与 AS3 hp setter 一致（HorsePlayer.as:175-191）：hp 归零只是收油，
+                    // 不是死亡（死亡由撞白石头或中黑雷道具触发，344-354 / 815-819）。
+                    // 跳跃中归零时 AS3 只把 lastState 改成 RUN（落地后按巡航跑），
+                    // 所以这里分开处理，避免 JUMP 分支继续按 accSpeed 白走 18 帧。
                     state.hp = 0;
-                    state.state = "RUN";
-                    accHoldFrames = 0;
-                    accCooldownFrames = 48;
+                    if (state.state == "JUMP") {
+                        state.lastState = "RUN";
+                    } else {
+                        state.state = "RUN";
+                        accCooldownFrames = 48;
+                    }
                 }
             }
         }
 
         // ---- 每 tick 兜底：推进/结算不能只放在内层帧循环里 ----
         // 内层帧数被 kMaxStepsPerTick 截断、或线程被抢占时，可能一个 tick 一帧
-        // 都没跑到。若把「到终点」「发同步包」「收尾」全塞在内层，距离就会永远
-        // 落后于墙钟斜坡，一局拖长甚至卡到超时。下面三件事按墙钟做。
-        //
-        // 但补进度必须限幅：一次 3 秒卡顿若把 distance 一口气补 +173，经同步包
-        // 发出去就是"1 秒窜 173 米"，服务器侧很容易判异常。kMaxCatchUpPerTick
-        // 让补帧最多一次走 0.7 秒的行程，小卡顿能自愈，大卡顿则宁可慢一点。
-        if (!state.localFinished && wallClockDistance > state.distance) {
-            const double capped = (std::min)(wallClockDistance, state.distance + kMaxCatchUpPerTick);
-            state.distance = capped;
+        // 都没跑到。但这里**不补距离**：进度只由 AS3 速度逐帧积分产生，补距离等于
+        // 凭空提速度。仅保留「彻底卡死」看门狗：超过 raceTargetSeconds 还没冲线，
+        // 说明这一局已经废了——中止本局交给外层重试，绝不伪造 distance 去骗结算：
+        // 伪造出来的 cost_time 与前面每秒上报的真实进度自相矛盾，正是最容易被判异常的形状。
+        if (!state.localFinished && state.raceTargetSeconds > 1.0
+            && elapsedSeconds > state.raceTargetSeconds) {
+            state.raceAborted = true;
+            break;
         }
 
-        if (!state.localFinished && state.distance >= HorseCompetitionState::ROUTE_DISTANCE) {
-            state.distance = HorseCompetitionState::ROUTE_DISTANCE;
+        // 把本线程累计的距离发布给外层：只此一处写，读侧永远读到完整值。
+        state.distance.store(raceDistance);
+
+        if (!state.localFinished &&
+            raceDistance >= static_cast<double>(HorseCompetitionState::ROUTE_DISTANCE)) {
+            raceDistance = static_cast<double>(HorseCompetitionState::ROUTE_DISTANCE);
+            state.distance.store(raceDistance);
             state.localFinished = true;
-            SendHorsePlayGamePacket(static_cast<int>(state.distance));
+            SendHorsePlayGamePacket(static_cast<int>(raceDistance));
         }
 
         // 同步包按墙钟 1 秒一次（AS3 是 distance setter 每 60 次调用发一次，
@@ -386,7 +486,7 @@ void HorseGameMainLoop() {
         // 避免掉帧时服务器长时间收不到进度。
         if (!state.localFinished && elapsedSeconds >= nextSyncSeconds) {
             nextSyncSeconds += 1.0;
-            SendHorsePlayGamePacket(static_cast<int>(state.distance));
+            SendHorsePlayGamePacket(static_cast<int>(raceDistance));
         }
 
         if (state.localFinished && state.receivedEndGame) {
@@ -405,15 +505,25 @@ void HorseGameMainLoop() {
     }
 }
 
-int ExtractJsonInt(const std::string& json, const std::string& key) {
+// 区分「字段缺失」与「值确实是 0」。status 缺失时若被当成 0，就会写成
+// HORSE_ROOM_FREE（房间已解散），配合 HandleHorseRoomStatusResponse 的
+// 「活跃态跌回 FREE 就判倒闭」语义，会把一个正常房间误判成解散并提前退房丢结算。
+bool TryExtractJsonInt(const std::string& json, const std::string& key, int& outValue) {
     const size_t pos = json.find("\"" + key + "\":");
-    if (pos != std::string::npos) {
-        int value = 0;
-        if (TryParseInt32Decimal(json.substr(pos + key.length() + 3), value)) {
-            return value;
-        }
+    if (pos == std::string::npos) {
+        return false;
     }
-    return 0;
+    int value = 0;
+    if (!TryParseInt32Decimal(json.substr(pos + key.length() + 3), value)) {
+        return false;
+    }
+    outValue = value;
+    return true;
+}
+
+int ExtractJsonInt(const std::string& json, const std::string& key) {
+    int value = 0;
+    return TryExtractJsonInt(json, key, value) ? value : 0;
 }
 
 uint32_t ExtractJsonUInt(const std::string& json, const std::string& key) {
@@ -427,59 +537,58 @@ uint32_t ExtractJsonUInt(const std::string& json, const std::string& key) {
     return 0;
 }
 
-std::string ExtractJsonObjectByPlayerId(const std::string& json, uint32_t playerId, int* outRank = nullptr) {
-    const std::string playerIdToken = "\"player_id\":" + std::to_string(playerId);
-    size_t searchPos = 0;
-    int rank = 0;
+// 从 pos 开始切出下一个「平衡括号对象」，并把 pos 移到该对象之后。跳过字符串与转义。
+// 排名表、members 数组、结算包计数三处共用这一份：以前每处各写一遍扫描，其中一份
+// 少了数组右界判断，改一处很容易漏另一处。
+bool SliceNextJsonObject(const std::string& json, size_t& pos, std::string& outObject) {
+    const size_t objectStart = json.find('{', pos);
+    if (objectStart == std::string::npos) {
+        return false;
+    }
 
-    while (true) {
-        const size_t objectStart = json.find('{', searchPos);
-        if (objectStart == std::string::npos) {
-            break;
-        }
-
-        size_t depthPos = objectStart;
-        int depth = 0;
-        bool inString = false;
-        bool escape = false;
-        size_t objectEnd = std::string::npos;
-
-        while (depthPos < json.size()) {
-            const char ch = json[depthPos];
-            if (escape) {
-                escape = false;
-            } else if (ch == '\\') {
-                escape = true;
-            } else if (ch == '"') {
-                inString = !inString;
-            } else if (!inString) {
-                if (ch == '{') {
-                    depth++;
-                } else if (ch == '}') {
-                    depth--;
-                    if (depth == 0) {
-                        objectEnd = depthPos;
-                        break;
-                    }
+    int depth = 0;
+    bool inString = false;
+    bool escape = false;
+    for (size_t i = objectStart; i < json.size(); ++i) {
+        const char ch = json[i];
+        if (escape) {
+            escape = false;
+        } else if (ch == '\\') {
+            escape = true;
+        } else if (ch == '"') {
+            inString = !inString;
+        } else if (!inString) {
+            if (ch == '{') {
+                ++depth;
+            } else if (ch == '}') {
+                --depth;
+                if (depth == 0) {
+                    outObject = json.substr(objectStart, i - objectStart + 1);
+                    pos = i + 1;
+                    return true;
                 }
             }
-            depthPos++;
         }
+    }
+    return false;
+}
 
-        if (objectEnd == std::string::npos) {
-            break;
-        }
+std::string ExtractJsonObjectByPlayerId(const std::string& json, uint32_t playerId, int* outRank = nullptr) {
+    size_t searchPos = 0;
+    int rank = 0;
+    std::string objectJson;
 
-        rank++;
-        const std::string objectJson = json.substr(objectStart, objectEnd - objectStart + 1);
-        if (objectJson.find(playerIdToken) != std::string::npos) {
+    while (SliceNextJsonObject(json, searchPos, objectJson)) {
+        ++rank;
+        // 按字段值比较，不能匹配子串 "player_id":123——服务器若序列化成
+        // `"player_id": 123`（冒号后带空格），子串匹配永远找不到自己：
+        // START_GAME 的成员自检恒 false（每局开局被丢、无限重试），排名也永远找不自己。
+        if (ExtractJsonUInt(objectJson, "player_id") == playerId) {
             if (outRank) {
                 *outRank = rank;
             }
             return objectJson;
         }
-
-        searchPos = objectEnd + 1;
     }
 
     if (outRank) {
@@ -488,17 +597,73 @@ std::string ExtractJsonObjectByPlayerId(const std::string& json, uint32_t player
     return "";
 }
 
+// 这段 JSON 里能解析出多少个「带 player_id 的玩家对象」（最多数 maxCount 个）。
+// 用来区分两种「找不到自己」：一种是对手都在、只是没有我（迟到包，应当丢弃）；
+// 另一种是一个 player_id 都解析不出来（服务器字段形态与预期不符，丢弃会让每局
+// 都白等到超时，只能照旧采纳并打出样包）。
+int CountJsonObjectsWithPlayerId(const std::string& json, int maxCount = 8) {
+    int count = 0;
+    size_t pos = 0;
+    std::string objectJson;
+    while (count < maxCount && SliceNextJsonObject(json, pos, objectJson)) {
+        if (ExtractJsonUInt(objectJson, "player_id") > 0) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 std::vector<int> ExtractItemDistances(const std::string& json) {
     std::vector<int> distances;
-    const size_t itemsPos = json.find("\"items\":[");
+    size_t itemsPos = json.find("\"items\":");
     if (itemsPos == std::string::npos) {
+        return distances;
+    }
+    itemsPos += 8;  // 指到 "items": 之后
+    while (itemsPos < json.size() && (json[itemsPos] == ' ' || json[itemsPos] == '\t')) {
+        ++itemsPos;
+    }
+    if (itemsPos >= json.size() || json[itemsPos] != '[') {
+        return distances;
+    }
+
+    // 先找出与 '[' 配对的 ']'，只在数组区间里找 "distance"：成员对象/房间对象自身
+    // 也带 distance 字段（HorseMemberInfo.distance），越过数组继续扫会把它们误当成
+    // 道具落点，跳跃窗口与提前收油（:326-327）就全判错了，平白掉速。
+    size_t itemsEnd = std::string::npos;
+    {
+        int depth = 0;
+        bool inString = false;
+        bool escape = false;
+        for (size_t i = itemsPos; i < json.size(); ++i) {
+            const char ch = json[i];
+            if (escape) {
+                escape = false;
+            } else if (ch == '\\') {
+                escape = true;
+            } else if (ch == '"') {
+                inString = !inString;
+            } else if (!inString) {
+                if (ch == '[') {
+                    ++depth;
+                } else if (ch == ']') {
+                    --depth;
+                    if (depth == 0) {
+                        itemsEnd = i;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if (itemsEnd == std::string::npos) {
         return distances;
     }
 
     size_t searchPos = itemsPos;
     while (true) {
         const size_t pos = json.find("\"distance\":", searchPos);
-        if (pos == std::string::npos) {
+        if (pos == std::string::npos || pos >= itemsEnd) {
             break;
         }
 
@@ -515,7 +680,19 @@ std::vector<int> ExtractItemDistances(const std::string& json) {
 }
 
 std::wstring MakeJsonPreview(const std::string& json, size_t maxLen = 220) {
-    std::wstring preview(json.begin(), json.end());
+    // 按 UTF-8 正确解码：逐字节升宽（std::wstring(json.begin(), json.end())）会把
+    // 中文昵称变成乱码，按字节截断还可能切在多字节字符中间，让「样包」这条诊断
+    // 信息本身失去意义。这里按字符数截断。
+    std::wstring preview;
+    if (!json.empty()) {
+        const int need = MultiByteToWideChar(
+            CP_UTF8, 0, json.data(), static_cast<int>(json.size()), nullptr, 0);
+        if (need > 0) {
+            preview.resize(static_cast<size_t>(need));
+            MultiByteToWideChar(
+                CP_UTF8, 0, json.data(), static_cast<int>(json.size()), preview.data(), need);
+        }
+    }
     if (preview.size() > maxLen) {
         preview = preview.substr(0, maxLen) + L"...";
     }
@@ -527,10 +704,126 @@ void ApplyHorseRoomStateFromJson(HorseCompetitionState& state, const std::string
     if (newRoomId != 0) {
         state.roomId = newRoomId;
     }
-    state.roomStatus = ExtractJsonInt(json, "status");
+    // status 只在包里确实带了才采纳：缺字段保持上一次的已知状态，
+    // 不能当成 0（= FREE，房间已解散）。
+    int newStatus = 0;
+    if (TryExtractJsonInt(json, "status", newStatus)) {
+        state.roomStatus = newStatus;
+    }
     state.updateTime = static_cast<double>(ExtractJsonInt(json, "update_time"));
     state.startTime = static_cast<double>(ExtractJsonInt(json, "start_time"));
 }
+
+// ---- 坐骑属性的唯一来源：服务器下发的「成员对象」----
+// AS3 里速度只取自 RoomInfoData.myMemberInfo（HorsePlayer.as:398-402），而这个成员
+// 对象由 MemberInfo.init（MemberInfo.as:92-103）从 member_info 里读：
+//   horse_info.base_power / horse_info.base_speed / horse_info.base_intimate，以及 items。
+// 成员对象进入客户端的方式有两条（HorseModel.as）：
+//   :86-94  JOIN_GAME  —— 包里就是「一个成员对象」，addMember(jsonData)；
+//   :95-106 ROOM_INFO   —— 包里是 {id, status, members:[成员对象...]}，逐个 createMember；
+//   :225-234 START_GAME —— 同样 members:[...]（RoomInfoData.members = jsonData["members"]）。
+// RoomInfoData.updateList(:158-173) 再用 player_id == 自己 挑出 myMemberInfo。
+// 1.13 只解析了 JOIN_GAME 里的 horse_info，且是在整包里找第一个 "horse_info" 键——
+// 我们自己的开局广播并不一定带我们的成员对象（入房回包 ROOM_INFO / 开局包 START_GAME
+// 的 members 数组才是权威来源），于是属性取不到、1.13 只能靠 base_speed=600 的兜底
+// 跑出 2.4 秒的怪局。这里按 AS3 的做法补齐：先按 player_id 定位自己的成员对象，再解析。
+bool ApplyHorseSelfFromMemberObject(HorseCompetitionState& state, const std::string& memberJson) {
+    const size_t horseInfoPos = memberJson.find("\"horse_info\":");
+    const std::string horseInfoJson =
+        (horseInfoPos == std::string::npos) ? std::string() : memberJson.substr(horseInfoPos);
+    const int baseHp = horseInfoJson.empty() ? 0 : ExtractJsonInt(horseInfoJson, "base_power");
+    const int baseSpeed = horseInfoJson.empty() ? 0 : ExtractJsonInt(horseInfoJson, "base_speed");
+    const int baseIntimate = horseInfoJson.empty() ? 0 : ExtractJsonInt(horseInfoJson, "base_intimate");
+    // horse_info 缺失或字段不全（可能只是别人的残包）时属性不可用。
+    const bool attrsUsable = (baseHp > 0 && baseSpeed > 0);
+
+    // 道具距离独立解析（MemberInfo.items，HorseGameView.as:474 用它建 itemList）：
+    // horse_info 有问题不能连 items 一起丢——那样跳跃窗口与收油抑制会整轮失效。
+    const std::vector<int> items = ExtractItemDistances(memberJson);
+    const uint32_t playerId = ExtractJsonUInt(memberJson, "player_id");
+
+    {
+        // myInfo 含 std::wstring、itemDistances 是 vector：与一键线程的
+        // ResetHorseRoundState / 比赛线程的开局快照共用一把锁。
+        std::lock_guard<std::mutex> lock(g_horseInfoMutex);
+        if (attrsUsable) {
+            if (playerId != 0) {
+                state.myInfo.player_id = playerId;
+            }
+            state.myInfo.horse_base_Hp = baseHp;
+            state.myInfo.horse_base_speed = baseSpeed;
+            state.myInfo.horse_base_intimate = baseIntimate;
+        }
+        if (!items.empty()) {
+            state.itemDistances = items;
+        }
+    }
+    return attrsUsable;
+}
+
+// 本局是否已经拿到可用的坐骑属性（读侧统一走这里，顺带加锁）。
+bool HorseSelfAttrsReady(HorseCompetitionState& state) {
+    std::lock_guard<std::mutex> lock(g_horseInfoMutex);
+    return state.myInfo.horse_base_speed > 0 && state.myInfo.horse_base_Hp > 0;
+}
+
+// 在一个带 "members":[...] 的包里找出「自己」那个成员对象并解析。
+// 自己是谁由 player_id == g_userId 判定（同 AS3 updateList:164）。
+// 拿不到自己的 id 时退一步：members 里只有一个人，那必然是自己。
+bool ApplyHorseSelfFromMembersArray(HorseCompetitionState& state, const std::string& json) {
+    size_t membersPos = json.find("\"members\":");
+    if (membersPos == std::string::npos) {
+        return false;
+    }
+    membersPos += 10;  // 指到 "members": 之后
+    while (membersPos < json.size() && (json[membersPos] == ' ' || json[membersPos] == '\t')) {
+        ++membersPos;
+    }
+    if (membersPos >= json.size() || json[membersPos] != '[') {
+        return false;
+    }
+
+    const uint32_t myId = g_userId.load();
+    std::string selfJson;
+    std::string firstJson;
+    int memberCount = 0;
+
+    size_t pos = membersPos + 1;  // 跳过 '['
+    std::string memberJson;
+    while (true) {
+        const size_t objStart = json.find('{', pos);
+        if (objStart == std::string::npos) {
+            break;
+        }
+        // 数组已结束（']' 在下一个 '{' 之前）就停，避免把后面的同名字段当成成员。
+        const size_t arrEnd = json.find(']', pos);
+        if (arrEnd != std::string::npos && arrEnd < objStart) {
+            break;
+        }
+        // 切出这一个成员对象（内部还有 horse_info / items 等嵌套）。
+        if (!SliceNextJsonObject(json, pos, memberJson)) {
+            break;
+        }
+
+        ++memberCount;
+        if (memberCount == 1) {
+            firstJson = memberJson;
+        }
+        if (myId != 0 && ExtractJsonUInt(memberJson, "player_id") == myId) {
+            selfJson = memberJson;
+            break;
+        }
+    }
+
+    if (selfJson.empty() && myId == 0 && memberCount == 1) {
+        selfJson = firstJson;  // 单人房且不知道自己的 id：唯一那个人就是我
+    }
+    if (selfJson.empty()) {
+        return false;
+    }
+    return ApplyHorseSelfFromMemberObject(state, selfJson);
+}
+
 
 // 判断一个带房间号的回包是不是「另一个房间」的包。
 //
@@ -576,6 +869,11 @@ void HandleHorseRoomInfoResponse(HorseCompetitionState& state, const std::string
     }
 
     ApplyHorseRoomStateFromJson(state, json);
+    // 入房回包自带 members（我方成员对象就在里面）：AS3 收到 ROOM_INFO 会
+    // RoomInfoData.members = jsonData["members"] → createMember 逐个建成员，
+    // 再由 updateList 按 player_id 定出 myMemberInfo（HorseModel.as:95-106、
+    // RoomInfoData.as:133-173）。这才是本方坐骑属性的权威来源，1.13 完全没有解析。
+    ApplyHorseSelfFromMembersArray(state, json);
     state.inRoom = true;
     if (state.phase < HORSE_PHASE_GAMING) {
         SetHorsePhase(state, HORSE_PHASE_WAITING_START);
@@ -583,6 +881,7 @@ void HandleHorseRoomInfoResponse(HorseCompetitionState& state, const std::string
 
     const size_t membersPos = json.find("\"members\":");
     if (membersPos != std::string::npos) {
+        std::lock_guard<std::mutex> lock(g_horseInfoMutex);
         state.otherMembers.clear();
     }
 }
@@ -611,6 +910,16 @@ void HandleHorseStartGameResponse(HorseCompetitionState& state, const std::strin
     }
 
     ApplyHorseRoomStateFromJson(state, json);
+    // START_GAME 同样带 members（AS3 HorseModel.as:225-234 也把它塞进
+    // RoomInfoData.members → createMember），这是开局前最后一份成员表，
+    // 属性以它为准最可靠。
+    ApplyHorseSelfFromMembersArray(state, json);
+    if (!HorseSelfAttrsReady(state)) {
+        // 真取不到就不硬跑（StartHorseCompetitionGame 会置 raceAborted 让外层退房重来），
+        // 同时把样包打出来，方便对着实际包结构核对字段名。
+        NotifyHorseProgress(L"开局包里没找到本方的 horse_info，样包：" +
+                            MakeJsonPreview(json, 400));
+    }
     if (!state.isGaming) {
         StartHorseCompetitionGame();
     }
@@ -633,22 +942,20 @@ void HandleHorseJoinGameResponse(HorseCompetitionState& state, const std::string
         return;
     }
 
-    // 坐骑属性与道具距离必须先解析：START_GAME 可能先于 JOIN_GAME 回包到达
-    // （此时 phase 已经是 GAMING，下面的阶段门会挡住整包），若解析放在门后，
-    // myInfo / itemDistances 就会一直沿用上一局的旧值或空值，导致跳跃与
-    // 加速抑制全失效、排名掉档。
-    const size_t horseInfoPos = json.find("\"horse_info\":");
-    if (horseInfoPos != std::string::npos) {
-        const std::string horseInfoJson = json.substr(horseInfoPos);
-        if (playerId != 0) {
-            state.myInfo.player_id = playerId;
+    // 坐骑属性与道具距离必须先解析：START_GAME 可能先于本包到达（此时 phase 已经是
+    // GAMING，下面的阶段门会挡住整包），若解析放在门后，myInfo / itemDistances 就会
+    // 一直沿用上一局的旧值或空值，导致跳跃与加速抑制全失效、排名掉档。
+    // 这条包本身就是一个成员对象（AS3 HorseModel.as:86-94 addMember(jsonData)），
+    // 直接按成员对象解析；万一服务器把入房广播也做成 {members:[...]} 形状，再退一步。
+    // 归属判定：只有「明确是本人」（player_id == 自己）或「本方还没有任何可用属性」时
+    // 才用它填 myInfo —— 否则别人入房的广播会把本方坐骑属性换成他的速度，
+    // 或用空的道具表覆盖掉已经解析好的那几处。
+    const bool attributableToSelf = (playerId != 0 && playerId == g_userId.load());
+    if (attributableToSelf || !HorseSelfAttrsReady(state)) {
+        if (!ApplyHorseSelfFromMemberObject(state, json)) {
+            ApplyHorseSelfFromMembersArray(state, json);
         }
-        state.myInfo.horse_base_Hp = ExtractJsonInt(horseInfoJson, "base_power");
-        state.myInfo.horse_base_speed = ExtractJsonInt(horseInfoJson, "base_speed");
-        state.myInfo.horse_base_intimate = ExtractJsonInt(horseInfoJson, "base_intimate");
     }
-
-    state.itemDistances = ExtractItemDistances(json);
 
     // 房间号/状态只在「本工具确实在入房/等开局」时采纳。上一局迟到的 JOIN_GAME
     // 若在这里被采纳，会把 inRoom 置真、phase 打回 WAITING_START。
@@ -669,6 +976,7 @@ void HandleHorseJoinGameResponse(HorseCompetitionState& state, const std::string
 void HandleHorseReadyResponse(HorseCompetitionState& state, const std::string& json) {
     const uint32_t playerId = ExtractJsonUInt(json, "player_id");
     if (playerId == g_userId.load()) {
+        std::lock_guard<std::mutex> lock(g_horseInfoMutex);
         state.myInfo.status = HORSE_ROOM_READY;
     }
 }
@@ -688,6 +996,7 @@ void HandleHorseRoomStatusResponse(HorseCompetitionState& state, const std::stri
     ApplyHorseRoomStateFromJson(state, json);
 
     if (state.roomStatus == HORSE_ROOM_READY) {
+        std::lock_guard<std::mutex> lock(g_horseInfoMutex);
         state.myInfo.status = HORSE_ROOM_READY;
     } else if (state.roomStatus == HORSE_ROOM_FREE) {
         // 房间已关闭/被解散。AS3 收到 FREE 会派发 HORSE_SHOW_CLOSE_BTN
@@ -713,14 +1022,31 @@ void HandleHorseRoomStatusResponse(HorseCompetitionState& state, const std::stri
 }
 
 void HandleHorseUiInfoResponse(HorseCompetitionState& state, const GamePacket& packet, size_t& offset) {
-    if (offset + 20 > packet.body.size()) {
+    // 4 个 int32 = 16 字节。旧代码要求 20 字节，若服务器正好只回 16 字节，
+    // uiInfoReceived 永远不置真，表现为每轮都「获取活动信息超时」空转。
+    // 只在本工具自己在跑时采纳：玩家手动打开游戏内的坐骑大赛界面也会收到同一条
+    // ui_info 回包，而它会改写 resDayPoint —— 那正是外层「今日点数已刷满」的判据。
+    if (!state.isRunning) {
         return;
     }
+    if (offset + 16 > packet.body.size()) {
+        return;
+    }
+
+    // 只有在「确实有一次请求还没被应答」时，这条包才算本次的新鲜数据。
+    // 光把 ack 记成「收包那一刻的 seq」没用：上一轮迟到的回包到达时 seq 也已经
+    // 递增过了，两者无法区分，于是点数刷满后仍会继续刷、或拿旧点数误判剩余量。
+    // 判定必须放在写字段之前——否则旧包照样会覆盖 resDayPoint。
+    if (!state.uiInfoPending) {
+        return;  // 没人等这条包：多半是上一轮迟到的回包，不能当新鲜数据用
+    }
+    state.uiInfoPending = false;
 
     state.cnt = ReadInt32LE(packet.body.data(), offset);
     state.isRide = ReadInt32LE(packet.body.data(), offset);
     state.day = ReadInt32LE(packet.body.data(), offset);
     state.resDayPoint = ReadInt32LE(packet.body.data(), offset);
+    state.uiInfoAckSeq = state.uiInfoSeq.load();
     state.uiInfoReceived = true;
 
     PostScriptToUI(
@@ -764,13 +1090,32 @@ void HandleHorseEndGameResponse(HorseCompetitionState& state, const GamePacket& 
         int myRank = 0;
         const std::string myRankJson = ExtractJsonObjectByPlayerId(rankListJson, g_userId.load(), &myRank);
 
+        // 迟到包防护：正常的 END_GAME 一定带一份含全部玩家的排名表（其中必有自己）。
+        // 排名表里「能解析出别人、却没有我」说明这不是本局的结算（多半是上一局退房后
+        // 才补推的）。若照样采纳会立刻 SetHorsePhase(FINISHED)：isGaming 被打回 false
+        // （比赛线程当场退出）、外层按「提前结束」重试，白丢一局还累加失败计数。
+        // 但一个 player_id 都解析不出来时不能丢：那说明服务器字段形态与预期不符，
+        // 丢掉会让每一局都白等到超时，只能照旧采纳并把样包打出来便于核对。
+        if (myRankJson.empty() && g_userId.load() != 0 && !state.localFinished) {
+            if (CountJsonObjectsWithPlayerId(rankListJson) > 0) {
+                NotifyHorseProgress(L"收到一份不含自己的结算包，按迟到包忽略：" +
+                                    MakeJsonPreview(rankListJson, 180));
+                return;
+            }
+            NotifyHorseProgress(L"结算包里解析不到 player_id，先按完成处理，样包：" +
+                                MakeJsonPreview(rankListJson, 200));
+        }
+
         if (!myRankJson.empty()) {
             const int myPoint = ExtractJsonInt(myRankJson, "point");
             const int myCostTime = ExtractJsonInt(myRankJson, "cost_time");
             const int myHorseIid = ExtractJsonInt(myRankJson, "iid");
-            state.myInfo.rank = myRank;
-            if (myCostTime > 0) {
-                state.myInfo.cost_time = myCostTime;
+            {
+                std::lock_guard<std::mutex> lock(g_horseInfoMutex);
+                state.myInfo.rank = myRank;
+                if (myCostTime > 0) {
+                    state.myInfo.cost_time = myCostTime;
+                }
             }
 
             std::wstring msg = L"游戏结束！排名第" + std::to_wstring(myRank) +
@@ -814,6 +1159,7 @@ void HandleHorseSyncMemberResponse(HorseCompetitionState& state, const std::stri
     const uint32_t playerId = ExtractJsonUInt(json, "player_id");
     const int costTime = ExtractJsonInt(json, "cost_time");
     if (playerId == g_userId.load()) {
+        std::lock_guard<std::mutex> lock(g_horseInfoMutex);
         state.myInfo.cost_time = costTime;
     }
 }
@@ -905,7 +1251,18 @@ static DWORD HorseRetryBackoffMs(int failures) {
 }
 
 BOOL SendHorseUIInfoPacket() {
-    return SendHorseCompetitionPacket(HorseCmd::UI_INFO);
+    auto& state = ActivityStateManager::Instance().GetHorseCompetitionState();
+    // 序号 +1、清掉「已收到」、标记「有一次请求在等应答」：只有这次请求之后到达的
+    // 回包才被 handler 采纳（上一轮迟到的 ui_info 会被 pending==false 挡掉，否则
+    // 结算前预取会拿到赛前的旧点数，刷满了也发现不了）。
+    ++state.uiInfoSeq;
+    state.uiInfoReceived = false;
+    state.uiInfoPending = true;
+    const BOOL sent = SendHorseCompetitionPacket(HorseCmd::UI_INFO);
+    if (!sent) {
+        state.uiInfoPending = false;  // 包没发出去，别让下一条迟到回包被当成这次的应答
+    }
+    return sent;
 }
 
 BOOL SendHorseExchangeInfoPacket() {
@@ -936,38 +1293,50 @@ BOOL StartHorseCompetitionGame() {
         return FALSE;
     }
 
-    int baseSpeed = state.myInfo.horse_base_speed;
-    const int baseIntimate = state.myInfo.horse_base_intimate;
-    int baseHp = state.myInfo.horse_base_Hp;
-
-    // base_speed 是「百分比」，不是绝对速度：HorseGameView.as:127 把它直接显示成
-    // "+" + horse_base_speed + "%"。所以它的合理量级是 10~50。
-    // 旧代码在拿不到 horse_info 时兜底成 600，代入 (600+15)/60 = 10.25 每帧，
-    // 1500 米只需 146 帧≈2.4 秒就跑完——这是「偶发秒完成 / 结算异常 / 被判异常
-    // 提前结束」的直接原因（START_GAME 可能先于 JOIN_GAME 回包到达，此时
-    // myInfo 还是 Reset 后的全 0）。这里改成 30（常见的 +30%），并钳制异常值。
-    if (baseSpeed <= 0 || baseSpeed > 200) {
-        baseSpeed = 30;
-    }
-    if (baseHp <= 0) {
-        baseHp = 1000;
+    int baseSpeed = 0;
+    int baseIntimate = 0;
+    int baseHp = 0;
+    {
+        // myInfo 由收包分发线程写，这里在收包线程/一键线程上读，必须同锁。
+        std::lock_guard<std::mutex> lock(g_horseInfoMutex);
+        baseSpeed = state.myInfo.horse_base_speed;
+        baseIntimate = state.myInfo.horse_base_intimate;
+        baseHp = state.myInfo.horse_base_Hp;
     }
 
+    // 速度只能来自服务器下发的 horse_info（JOIN_GAME 广播里每个成员各自的
+    // base_speed / base_intimate / base_power，见 MemberInfo.as:96-102）。
+    // 旧代码在拿不到时兜底成 base_speed=600（→ 每帧 10.25、2.4 秒跑完 1500 米），
+    // 那是「偶发秒完成/被判异常」的来源；后来改成兜底 30 也是凭空编一个服务器没下发
+    // 过的速度。两者都不要：拿不到就中止本局重来，绝不自造速度。
+    if (baseSpeed <= 0 || baseHp <= 0) {
+        // 复用看门狗标记：它同样表示「本局没法正常跑完，交给外层重试」，
+        // 等开局循环会立刻跳出并按「属性缺失」收尾。
+        state.raceAborted = true;
+        return FALSE;
+    }
+
+    // 速度基础值严格按 AS3 公式（HorsePlayer.as:401-402）。
     state.speed = (baseSpeed + 15.0) / 60.0;
     state.accSpeed = (baseSpeed + 15.0 + baseIntimate / 5.0) / 60.0;
     state.maxHp = baseHp;
 
-    // 关键提速点：天然速度（(base_speed+15)/60 每帧）慢于目标节奏时，用
-    // kHorseMinFrameStep 兜底，保证 1500 米在 kHorseTargetFinishSeconds 秒内跑完；
-    // 天然速度本来就更快（例如临时坐骑 base_speed 缺省 600）则保持原值不降速。
-    if (state.speed < kHorseMinFrameStep) {
-        state.speed = kHorseMinFrameStep;
-    }
-    // 加速段必须真的比常速快，否则 distanceGap 永远凑不到阈值、ACCRUN 变成
-    // 永不进入的死分支（墙钟斜坡被限幅后，只有加速才能真正把差距追回来）。
-    if (state.accSpeed < state.speed * 1.3) {
-        state.accSpeed = state.speed * 1.3;
-    }
+    // 这只坐骑的「理论最好成绩」：速度一帧不改，只按 AS3 的稳态冲刺占比 20.1%
+    // （回血 0.84/帧、耗血 3.33/帧）估出它自己跑完 1500 米要多久。
+    // 这个数只用来定看门狗，绝不反过来改速度。
+    const double vRunPerSec = state.speed * kHorseTargetFps;
+    const double vAccPerSec = state.accSpeed * kHorseTargetFps;
+    constexpr double kAccDutySteady = 0.84 / (0.84 + 3.33);  // ≈ 20.1%
+    const double shapeAvgSpeed = vRunPerSec + kAccDutySteady * (vAccPerSec - vRunPerSec);
+    const double naturalSeconds =
+        (shapeAvgSpeed > 1.0)
+            ? (static_cast<double>(HorseCompetitionState::ROUTE_DISTANCE) / shapeAvgSpeed)
+            : kHorseWatchdogFloorSeconds;
+
+    // 看门狗：进度只由上面这两条速度积分产生，墙钟不补距离，所以这里只是
+    // 「彻底卡死就中止本局」的兜底（理论时长 × 1.8，且不低于 60 秒）。
+    state.raceTargetSeconds = (std::max)(kHorseWatchdogFloorSeconds,
+                                         naturalSeconds * kHorseWatchdogFactor);
 
     state.hp = state.maxHp;
     state.distance = 0.0;
@@ -980,6 +1349,7 @@ BOOL StartHorseCompetitionGame() {
     state.receivedEndGame = false;
     state.abnormalRoundEnd = false;
     state.awaitingStart = false;
+    state.raceAborted = false;
 
     // 先回收上一局的线程，再置运行标志——顺序反过来会挂死：
     // 旧线程的循环条件是 g_horseGameRunning && state.isGaming，
@@ -1083,15 +1453,30 @@ void ProcessHorseCompetitionResponse(const GamePacket& packet) {
 BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount) {
     auto& state = ActivityStateManager::Instance().GetHorseCompetitionState();
 
-    if (state.isRunning) {
+    bool alreadyRunning = false;
+    {
+        // 「检查 + Reset + 置位」必须在同一把锁里完成：UI 每次点击都会新开一个
+        // detached 线程，连点两次会让两份流程都通过 isRunning 检查，各自 Reset
+        // 对方的状态、互相 StopHorseCompetitionGame 掐掉对方的比赛线程。
+        std::lock_guard<std::mutex> runLock(g_horseRunMutex);
+        if (state.isRunning) {
+            alreadyRunning = true;
+        } else {
+            // Reset 会清 myInfo（含 std::wstring）和 itemDistances，与收包分发线程
+            // 的解析并发是 UB，需与解析侧共用一把锁。
+            std::lock_guard<std::mutex> infoLock(g_horseInfoMutex);
+            state.Reset();
+            state.isRunning = true;
+            state.useTempMount = useTempMount;
+            state.stopRequested = false;
+        }
+    }
+    if (alreadyRunning) {
+        // 提示放到锁外：持 g_horseRunMutex 调 UI 回调没有好处，回调里若再触发
+        // 坐骑命令就是自锁（非递归 mutex）。
         NotifyHorseProgress(L"坐骑大赛正在运行中，请勿重复启动");
         return FALSE;
     }
-
-    state.Reset();
-    state.isRunning = true;
-    state.useTempMount = useTempMount;
-    state.stopRequested = false;
 
     bool rideHintShown = false;
     // 失败计数只用于「退避 + 提示」，绝不终止流程：坐骑大赛的语义就是
@@ -1135,6 +1520,11 @@ BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount) {
         NotifyHorseProgress(message + L"（第 " + std::to_wstring(consecutiveFailures) + L" 次）");
         StopHorseCompetitionGame();
         lastExitConfirmed = LeaveHorseRoomAndConfirm(400);
+        // 重试轮必须重新拉一次 ui_info：本轮提前取到的 pendingDayPoint 已经在
+        // 循环开头被消费掉，若不重置，下一轮 haveFreshPoints 恒为 false，
+        // 点数已刷满也发现不了（会多跑一局，甚至一直跑下去）。
+        pendingDayPoint = -1;
+        needUiInfo = true;
         std::this_thread::sleep_for(
             std::chrono::milliseconds(HorseRetryBackoffMs(consecutiveFailures)));
     };
@@ -1159,10 +1549,15 @@ BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount) {
 
             NotifyHorseProgress(L"正在获取活动信息...");
             SendHorseUIInfoPacket();
+            const int uiInfoWaitSeq = state.uiInfoSeq.load();
 
             if (WaitForHorseCondition(
-                    state, [&state] { return state.uiInfoReceived.load(); }, 3000) !=
-                HorseWaitOutcome::Signalled) {
+                    state,
+                    [&state, uiInfoWaitSeq] {
+                        return state.uiInfoReceived.load()
+                               && state.uiInfoAckSeq.load() == uiInfoWaitSeq;
+                    },
+                    3000) != HorseWaitOutcome::Signalled) {
                 if (state.stopRequested) {
                     return stopAndReturn(L"坐骑大赛已按请求停止");
                 }
@@ -1278,6 +1673,11 @@ BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount) {
             if (state.roomGone || state.stopRequested) {
                 break;
             }
+            // StartHorseCompetitionGame 拒绝起跑（拿不到服务器下发的坐骑属性）时
+            // 会置这个标记：立刻按「属性缺失」收尾，不在这里死等满 10 分钟。
+            if (state.raceAborted) {
+                break;
+            }
             if (waitedMs >= kStartGiveUpMs) {
                 break;
             }
@@ -1296,9 +1696,14 @@ BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount) {
             }
         }
         if (!state.isGaming) {
+            const bool missedHorseInfo = state.raceAborted;
             state.awaitingStart = false;
             if (state.stopRequested) {
                 return stopAndReturn(L"坐骑大赛已按请求停止");
+            }
+            if (missedHorseInfo) {
+                retryAndContinue(L"开局包缺少坐骑属性，退房后重新匹配");
+                continue;
             }
             retryAndContinue(state.roomGone ? L"房间已关闭，重新匹配"
                                             : L"长时间未开局，退房后重新匹配");
@@ -1309,16 +1714,19 @@ BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount) {
         NotifyHorseProgress(L"游戏开始！正在比赛中...");
 
         // 结算等待必须分两段，不能用一个总上限：
-        // - 比赛段（localFinished 之前）：32 秒跑完，50 秒足够（留 18 秒余量给卡顿）；
+        // - 比赛段（localFinished 之前）：进度严格按这只坐骑的真实速度推进，慢坐骑
+        //   （base_speed 10 → v_run 25 m/s）单局要 60 秒左右，快坐骑 25 秒。所以预算
+        //   不写死秒数，按看门狗（state.raceTargetSeconds = 理论时长 × 1.8）再加 30 秒。
         // - 结算段（localFinished 之后）：AS3 收到 ROOM_STATUS=SETTLE 后跑的是服务器
         //   下发的 update_time 倒计时（HorseGameView.as:477-486 overInverse，到 0 才
         //   弹结算界面），而服务器还要等其他玩家跑完（真人 33~60 秒）。
         //   若沿用同一个上限，「我跑完了、服务器还没结算」就会被判超时退房，
         //   本局奖励直接丢掉。
-        constexpr int kRaceTimeoutTicks = 500;
-        constexpr int kSettleTimeoutTicks = 1200;
+        constexpr int kSettleWaitTicks = 1400;  // 结算段 140 秒
+        const int raceWaitTicks =
+            static_cast<int>((state.raceTargetSeconds + 30.0) * 10.0);
         int waitCount = 0;
-        int waitLimit = kRaceTimeoutTicks;
+        int waitLimit = raceWaitTicks;
         bool settlingNotified = false;
         bool localFinishNotified = false;
         bool endGameNotified = false;
@@ -1338,9 +1746,14 @@ BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount) {
                 break;
             }
 
+            // 比赛线程的看门狗已中止本局（进度长时间不动）：不必再等满比赛段预算。
+            if (state.raceAborted) {
+                break;
+            }
+
             // 跑到终点后切换到「等结算」预算，并重新计时。
-            if (state.localFinished && waitLimit < kSettleTimeoutTicks) {
-                waitLimit = kSettleTimeoutTicks;
+            if (state.localFinished && waitLimit < kSettleWaitTicks) {
+                waitLimit = kSettleWaitTicks;
                 waitCount = 0;
             }
 
@@ -1380,7 +1793,8 @@ BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount) {
 
             if (waitCount % 100 == 0) {
                 const int progress = (std::min)(
-                    100, static_cast<int>(state.distance * 100 / HorseCompetitionState::ROUTE_DISTANCE));
+                    100, static_cast<int>(state.distance.load() * 100 /
+                                          HorseCompetitionState::ROUTE_DISTANCE));
                 if (!state.localFinished) {
                     NotifyHorseProgress(L"比赛进行中... 进度: " + std::to_wstring(progress) + L"%");
                 } else if (!state.receivedEndGame) {
@@ -1394,6 +1808,11 @@ BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount) {
         }
 
         if (!state.isFinished) {
+            // 看门狗中止：进度卡死，本局已经没有意义，退房重排。
+            if (state.raceAborted) {
+                retryAndContinue(L"比赛进度长时间无进展，已中止本局，退房后重新匹配");
+                continue;
+            }
             // 房间被解散：结算可能早就发过了，只是我们没等到。这种不该记失败，
             // 但也不能当「正常刷完」清零计数——保持原值，避免把一次真实异常洗掉。
             if (stoppedByRoomGone) {
@@ -1422,10 +1841,10 @@ BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount) {
 
         // 服务器回 result == 0 且给了排名，就是这一局正常结算完了。本地 localFinished
         // 为假不代表出错：服务器按 update_time 倒计时结算，可能比我们本地到点更早
-        // （例如卡顿导致 kMaxCatchUpPerTick 限幅、进度停在 1400 米左右）。
+        // （例如卡顿导致补帧令牌桶跟不上、进度停在 1400 米左右）。
         // 只有「本地明显没跑完」（不足 90% 路程）才当作被服务器提前结束。
         const double finishedRatio =
-            state.distance / static_cast<double>(HorseCompetitionState::ROUTE_DISTANCE);
+            state.distance.load() / static_cast<double>(HorseCompetitionState::ROUTE_DISTANCE);
         if (!state.localFinished && finishedRatio < 0.9) {
             // 服务器提前结束了这一局（进度被判定异常，或者房间被人拉走）。
             // 不能当「正常刷完」，否则失败计数被清零、问题永远发现不了。
@@ -1440,9 +1859,11 @@ BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount) {
         // 退房之前就把下一轮要用的 UI_INFO 发出去：退房确认 + 局间间隔本来就要
         // 等 550ms 以上，够它回包了。这样下一轮开头不用再单独等一次 3 秒往返。
         SendHorseUIInfoPacket();
+        const int uiInfoPrefetchSeq = state.uiInfoSeq.load();
         std::this_thread::sleep_for(std::chrono::milliseconds(150));
         lastExitConfirmed = LeaveHorseRoomAndConfirm(400);
-        if (state.uiInfoReceived) {
+        // 只采信「应答了本次预取」的那份回包：要的是新鲜点数，不是赛前的旧值。
+        if (state.uiInfoReceived && state.uiInfoAckSeq.load() == uiInfoPrefetchSeq) {
             pendingDayPoint = state.resDayPoint.load();
         }
 

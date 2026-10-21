@@ -573,11 +573,15 @@ void HandleHorseCompetitionProgressCommand(const std::wstring& progress) {
 }
 
 void HandleOneKeyHorseCompetitionWorker() {
-    StartOneKeyHorseCompetitionPacket(true);
+    // 启动是否成功只有这里知道（已在运行、状态异常都会返回 FALSE）。
+    // 之前不看返回值，界面会先报「已开始」，实际上什么都没跑。
+    if (!StartOneKeyHorseCompetitionPacket(true)) {
+        SetHelperText(L"坐骑大赛启动失败（可能已在运行中）");
+    }
 }
 
 void HandleStartOneKeyHorseCompetitionCommand() {
-    SetHelperText(L"坐骑大赛已开始（临时坐骑），请等待...");
+    SetHelperText(L"正在启动坐骑大赛（临时坐骑）...");
     SetHorseProgressCallback(HandleHorseCompetitionProgressCommand);
     LaunchDetachedStdThread(HandleOneKeyHorseCompetitionWorker);
 }

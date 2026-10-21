@@ -561,6 +561,15 @@ struct HorseCompetitionState : ActivityState {
     std::atomic<int> resDayPoint{0};
     std::atomic<int> exchangeNum{0};
     std::atomic<bool> uiInfoReceived{false};
+    // ui_info 的请求/应答序号：回包必须晚于这次请求才算新鲜数据。
+    // 只有一个 bool 的话，「上一轮迟到的回包」与「本轮真正的回包」无法区分，
+    // 结算前预取点数时会拿到赛前的旧值（见 horse_competition.cpp 的 pendingDayPoint）。
+    std::atomic<int> uiInfoSeq{0};
+    std::atomic<int> uiInfoAckSeq{0};
+    // 「有一次 ui_info 请求还没被应答」。只有它为真时到达的回包才算新鲜数据：
+    // 单靠 ack = 当前 seq 无法区分「本轮回包」与「上一轮迟到的回包」（两者到达时
+    // 的 seq 都等于当前值），那会让点数刷满后仍继续刷。
+    std::atomic<bool> uiInfoPending{false};
 
     // roomId 会被收包线程（ApplyHorseRoomStateFromJson）和一键工作线程
     // （ResetHorseRoundState）同时读写，必须是 atomic，否则是数据竞争（UB）。
@@ -579,7 +588,15 @@ struct HorseCompetitionState : ActivityState {
     double maxHp = 1000.0;
     double speed = 10.0;
     double accSpeed = 15.0;
-    double distance = 0.0;
+    // 本局看门狗（自开始计时的秒数）：只用于「彻底卡死就中止本局」的兜底，
+    // 不参与节奏。由 StartHorseCompetitionGame 按这只坐骑自己的理论时长 × 1.8
+    // 设置（下限 60 秒），正常对局永远不会触发（详见 horse_competition.cpp 顶部注释）。
+    double raceTargetSeconds = 0.0;
+    // 看门狗触发标记：卡死到超时也不许伪造 distance，只中止本局让外层重试。
+    std::atomic<bool> raceAborted{false};
+    // distance 由比赛线程每帧积分，一键线程要读它算进度百分比与「是否真跑完」，
+    // 裸 double 的并发读写是数据竞争（可能读到撕裂值，把正常局判成提前结束）。
+    std::atomic<double> distance{0.0};
     std::string state = "RUN";
     std::string lastState = "RUN";
     std::atomic<bool> canControl{true};
@@ -609,6 +626,9 @@ struct HorseCompetitionState : ActivityState {
         resDayPoint = 0;
         exchangeNum = 0;
         uiInfoReceived = false;
+        uiInfoSeq = 0;
+        uiInfoAckSeq = 0;
+        uiInfoPending = false;
         roomId = 0;
         useTempMount = true;
         useItems = false;
@@ -625,6 +645,8 @@ struct HorseCompetitionState : ActivityState {
         maxHp = 1000.0;
         speed = 10.0;
         accSpeed = 15.0;
+        raceTargetSeconds = 0.0;
+        raceAborted = false;
         distance = 0.0;
         state = "RUN";
         lastState = "RUN";
