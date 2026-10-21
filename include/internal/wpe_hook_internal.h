@@ -3,6 +3,7 @@
 #include <mutex>
 #include <unordered_map>
 
+#include "packet_types.h"
 #include "wpe_hook.h"
 #include "utils.h"
 
@@ -17,6 +18,10 @@ extern bool g_bHijackEnabled;
 extern EXECUTE_SCRIPT_FUNC g_ExecuteScriptFunc;
 extern CRITICAL_SECTION g_towerCS;
 extern bool g_towerMapEntered;
+
+// 怪物列表（g_monsterData）由收包线程整体重建、活动线程读取。
+// 统一走快照：拿到的是一份完整拷贝，不会读到正在被改的 vector。
+MonsterData SnapshotMonsterData();
 
 // 玄塔临界区的建立与销毁（hook 初始化/清理调用）。
 void InitializeTowerState();

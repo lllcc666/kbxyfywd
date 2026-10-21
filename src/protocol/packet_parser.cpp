@@ -281,7 +281,17 @@ static void ParseNamedItemsSection(const std::string& section, std::unordered_ma
 // ============================================================================
 // 妖怪背包数据全局变量（用于副本跳层等功能）
 // ============================================================================
+namespace {
+// 保护 g_monsterData：收包线程重建、活动线程读快照。
+std::mutex g_monsterDataMutex;
+}  // namespace
+
 MonsterData g_monsterData;
+
+MonsterData SnapshotMonsterData() {
+    std::lock_guard<std::mutex> lock(g_monsterDataMutex);
+    return g_monsterData;
+}
 
 /**
  * @brief 获取 Buff 名称
@@ -2634,9 +2644,13 @@ void PacketParser::ProcessMonsterPacket(const GamePacket& packet) {
     }
 
     // 保存妖怪数据到全局变量（用于副本跳层等功能）
-    g_monsterData.sn = sn;
-    g_monsterData.count = mcount;
-    g_monsterData.monsters = monsters;
+    {
+        // 三步一起换，读端拿到的要么是旧表要么是新表，不会是半张。
+        std::lock_guard<std::mutex> lock(g_monsterDataMutex);
+        g_monsterData.sn = sn;
+        g_monsterData.count = mcount;
+        g_monsterData.monsters = monsters;
+    }
 
     // 通知副本跳层模块妖怪数据已收到
     extern struct DungeonJumpState g_dungeonJumpState;

@@ -11,6 +11,7 @@
 #include "packet_protocol.h"
 #include "ui_bridge.h"
 #include "wpe_hook.h"
+#include "wpe_hook_internal.h"
 
 extern bool PostScriptToUI(const std::wstring& jsCode);
 
@@ -179,8 +180,8 @@ static DWORD WINAPI DungeonJumpThreadProc(LPVOID lpParam) {
         return 1;
     }
     
-    // 获取妖怪数据
-    MonsterData& monsterData = g_monsterData;
+    // 获取妖怪数据（快照，避免与收包线程重建同时读写）
+    const MonsterData monsterData = SnapshotMonsterData();
     if (monsterData.monsters.empty()) {
         g_dungeonJumpState.Reset();
         return 1;

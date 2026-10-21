@@ -8,6 +8,7 @@
 #include "hook_shared.h"
 #include "managed_thread.h"
 #include "packet_builder.h"
+#include "wpe_hook_internal.h"
 #include "packet_parser.h"
 #include "packet_protocol.h"
 #include "shuangtai.h"
@@ -35,8 +36,10 @@ extern std::unordered_map<int, int> g_skillPowers;
 // ========== 工具函数 ==========
 
 uint32_t GetHighestPowerSkillId(uint32_t spiritId) {
+    // 先取快照：monster->skills 是指向列表元素的指针，直接指进全局表会被收包线程改掉。
+    const MonsterData snapshot = SnapshotMonsterData();
     const MonsterItem* monster = nullptr;
-    for (const auto& m : g_monsterData.monsters) {
+    for (const auto& m : snapshot.monsters) {
         if (static_cast<uint32_t>(m.id) == spiritId) {
             monster = &m;
             break;
@@ -83,13 +86,14 @@ bool ShuangTaiAutoBattle::Start(bool blockBattle) {
     }
     
     // 检查妖怪背包数据
-    if (g_monsterData.monsters.empty()) {
+    const size_t monsterCount = SnapshotMonsterData().monsters.size();
+    if (monsterCount == 0) {
         UIBridge::Instance().UpdateHelperText(L"双台谷刷级：请先点击查询按钮");
         return false;
     }
     
     // 检查妖怪数量（至少需要2只）
-    if (g_monsterData.monsters.size() < 2) {
+    if (monsterCount < 2) {
         UIBridge::Instance().UpdateHelperText(L"双台谷刷级：需要至少2只妖怪");
         return false;
     }
@@ -113,7 +117,7 @@ bool ShuangTaiAutoBattle::Start(bool blockBattle) {
 
     
     UIBridge::Instance().UpdateHelperText(L"双台谷刷级：开始运行，共 " + 
-        std::to_wstring(g_monsterData.monsters.size()) + L" 只妖怪...");
+        std::to_wstring(monsterCount) + L" 只妖怪...");
     
     // 开始流程：发送初始化封包
     SendInitPacket();
@@ -159,19 +163,24 @@ void ShuangTaiAutoBattle::Reset() {
 
 
 bool ShuangTaiAutoBattle::InitializePetData() {
+    const MonsterData snapshot = SnapshotMonsterData();
+    if (snapshot.monsters.empty()) {
+        return false;
+    }
+
     // 获取最后一只妖怪作为主宠
-    m_mainPetId = g_monsterData.monsters.back().id;
+    m_mainPetId = snapshot.monsters.back().id;
     
     // 获取所有妖怪ID（包括主宠，都需要切换上场获得经验）
     // 第一只已出战不需要切换，所以 m_petIds 包含第2只到最后一只（主宠）
     m_petIds.clear();
-    for (size_t i = 1; i < g_monsterData.monsters.size(); i++) {
-        m_petIds.push_back(g_monsterData.monsters[i].id);
+    for (size_t i = 1; i < snapshot.monsters.size(); i++) {
+        m_petIds.push_back(snapshot.monsters[i].id);
     }
     
     // 获取主宠最高威力技能及其PP值
     const MonsterItem* monster = nullptr;
-    for (const auto& m : g_monsterData.monsters) {
+    for (const auto& m : snapshot.monsters) {
         if (static_cast<uint32_t>(m.id) == m_mainPetId) {
             monster = &m;
             break;
@@ -559,14 +568,15 @@ BOOL QueryShuangTaiMonsters() {
 
 void UpdateShuangTaiUIFromMonsterData() {
     // 检查妖怪数量
-    size_t petCount = g_monsterData.monsters.size();
+    const MonsterData snapshot = SnapshotMonsterData();
+    size_t petCount = snapshot.monsters.size();
     if (petCount < 2) {
         UIBridge::Instance().UpdateHelperText(L"双台谷：需要至少2只妖怪，当前只有 " + std::to_wstring(petCount) + L" 只");
         return;
     }
     
     // 获取最后一只妖怪信息（主宠）
-    const auto& mainPet = g_monsterData.monsters.back();
+    const auto& mainPet = snapshot.monsters.back();
     std::wstring petName = mainPet.name;
     
     // 获取最高威力技能名称
