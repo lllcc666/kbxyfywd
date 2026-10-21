@@ -1146,15 +1146,24 @@ BOOL StartOneKeyLatestActivitiesPacket(const std::vector<uint32_t>& activityIds)
 
     // 走受管线程：退出时 CleanupWpeHook 会 RequestStopAll/JoinAll，不再是一条没人等的裸线程。
     const bool started = ManagedThread::Start(L"latest_activities", [targets]() {
-        for (const LatestActDesc* desc : targets) {
-            if (!g_latestBatchRunning.load() || ManagedThread::StopRequested()) {
-                break;
+        bool failed = false;
+        try {
+            for (const LatestActDesc* desc : targets) {
+                if (!g_latestBatchRunning.load() || ManagedThread::StopRequested()) {
+                    break;
+                }
+                RunOneActivityUntilDone(*desc);
             }
-            RunOneActivityUntilDone(*desc);
+        } catch (...) {
+            failed = true;
         }
+
         const bool cancelled = !g_latestBatchRunning.load() || ManagedThread::StopRequested();
+        // 运行标志必须无条件放掉：否则一次异常就让「一键执行」永远报"进行中"。
         g_latestBatchRunning = false;
-        if (cancelled) {
+        if (failed) {
+            UIBridge::Instance().UpdateHelperText(L"最新活动：一键执行异常中止");
+        } else if (cancelled) {
             UIBridge::Instance().UpdateHelperText(L"最新活动：一键执行已停止");
         } else {
             UIBridge::Instance().UpdateHelperText(L"最新活动：一键执行完成");

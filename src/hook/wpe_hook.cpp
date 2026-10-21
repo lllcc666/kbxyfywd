@@ -396,9 +396,6 @@ bool IsWpeHookInitialized() {
 }
 
 VOID CleanupWpeHook() {
-    // 先让受管线程收尾，再拆 hook：否则线程还在跑的时候钩子函数就没了。
-    ManagedThread::RequestStopAll();
-    ManagedThread::JoinAll(3000);
 
     if (!g_bInitialized) return;
 
@@ -531,6 +528,32 @@ void SetPacketCallback(PACKET_CALLBACK callback) {
 // UI 同步函数
 // ============================================================================
 
+// 生成"往列表追加一行"的 JS。hex、方向、时间、标签全部从封包本身算，
+// 让整表重建与增量追加两条路径输出的 DOM 完全一致。
+static std::wstring BuildPacketListEntryJs(const BYTE* pData, DWORD dwSize, BOOL bSend,
+                                           DWORD dwTime, size_t displayIndex) {
+    const std::wstring direction = bSend ? L"发送包" : L"接收包";
+    const std::wstring wideHex = Utf8ToWide(HexToString(pData, dwSize));
+
+    std::string labelUtf8;
+    if (dwSize >= PacketProtocol::HEADER_SIZE) {
+        size_t offset = 0;
+        const uint16_t magic = ReadUInt16LE(pData, offset);   // Magic: offset 0-1
+        (void)ReadUInt16LE(pData, offset);                    // Length: offset 2-3
+        if (magic == PacketProtocol::MAGIC_NORMAL || magic == PacketProtocol::MAGIC_COMPRESSED) {
+            const uint32_t opcode = ReadUInt32LE(pData, offset);  // Opcode: offset 4-7
+            labelUtf8 = GetPacketLabel(opcode, bSend);
+        }
+    }
+
+    wchar_t timeStr[64];
+    FormatPacketClock(dwTime, timeStr, _countof(timeStr));
+
+    return L"if(window.addPacketToList) { window.addPacketToList("
+        + std::to_wstring(displayIndex) + L", '" + direction + L"', '"
+        + wideHex + L"', '" + timeStr + L"', '" + Utf8ToWide(labelUtf8) + L"'); }";
+}
+
 void SyncPacketsToUI() {
     if (!g_hWnd) {
         return;
@@ -565,35 +588,9 @@ void SyncPacketsToUI() {
     for (size_t i = 0; i < packetsCopy.size(); ++i) {
         const auto& packet = packetsCopy[i];
         if (packet.data.empty()) continue;
-
-        std::string hexStr = HexToString(packet.data.data(), static_cast<DWORD>(packet.data.size()));
-        std::wstring wideHexStr = Utf8ToWide(hexStr);
-        std::wstring direction = packet.bSend ? L"发送包" : L"接收包";
-        
-        // 获取封包标签
-        std::string labelUtf8 = "";
-        if (packet.data.size() >= PacketProtocol::HEADER_SIZE) {
-            size_t offset = 0;
-            uint16_t magic = ReadUInt16LE(packet.data.data(), offset);  // Magic: offset 0-1
-            (void)ReadUInt16LE(packet.data.data(), offset);             // Length: offset 2-3
-            if (magic == PacketProtocol::MAGIC_NORMAL || magic == PacketProtocol::MAGIC_COMPRESSED) {
-                uint32_t opcode = ReadUInt32LE(packet.data.data(), offset);  // Opcode: offset 4-7
-                labelUtf8 = GetPacketLabel(opcode, packet.bSend);
-            }
-        }
-        std::wstring wideLabel = Utf8ToWide(labelUtf8);
-        
-        // 时间戳取自封包自身的时间（dwTime 是 GetTickCount 基准），
-        // 这样列表重建后显示的仍是封包到达时刻，而不是重建时刻。
-        wchar_t timeStr[64];
-        FormatPacketClock(packet.dwTime, timeStr, _countof(timeStr));
-        
-        std::wstring jsCode = 
-            L"if(window.addPacketToList) { window.addPacketToList(" 
-            + std::to_wstring(i + 1) + L", '" + direction + L"', '" 
-            + wideHexStr + L"', '" + timeStr + L"', '" + wideLabel + L"'); }";
-        
-        UIBridge::Instance().ExecuteJS(jsCode);
+        UIBridge::Instance().ExecuteJS(BuildPacketListEntryJs(
+            packet.data.data(), static_cast<DWORD>(packet.data.size()),
+            packet.bSend ? TRUE : FALSE, packet.dwTime, i + 1));
     }
     
     // 在最后统一更新一次计数
@@ -604,47 +601,40 @@ void SyncPacketsToUI() {
     UIBridge::Instance().ExecuteJS(jsUpdateCount);
 }
 
-void AddPacketToUI(BOOL bSend, const BYTE* pData, DWORD dwSize, DWORD dwTime) {
-    if (!g_hWnd || !pData || dwSize == 0) return;
-    if (!g_bInterceptEnabled) return;
+void AppendPacketAndShow(const PACKET& packet) {
+    if (!packet.pData || packet.dwSize == 0) {
+        return;
+    }
 
-    size_t packetIndex;
+    // 序号与入表在同一临界区算出来：分两次加锁时，收/发两条 hook 线程交错
+    // 会让两个真实封包拿到同一个序号。
+    size_t displayIndex = 0;
+    bool evicted = false;
     {
         CriticalSectionLock lock(g_packetListCS.Get());
-        packetIndex = g_PacketList.size();  // 封包已添加，直接使用size()，不加1
-    }
-
-    // 窗口可见时只追加这一条。原来每来一个包就把整张列表清空重发，
-    // 挂机久了是 O(n²) 次 DOM 操作，几万条时界面直接卡死。
-    if (AppHost::IsPacketWindowVisible()) {
-        std::string hexStr = HexToString(pData, dwSize);
-        const std::wstring direction = bSend ? L"发送包" : L"接收包";
-
-        std::string labelUtf8;
-        if (dwSize >= PacketProtocol::HEADER_SIZE) {
-            size_t offset = 0;
-            const uint16_t magic = ReadUInt16LE(pData, offset);   // Magic: offset 0-1
-            (void)ReadUInt16LE(pData, offset);                    // Length: offset 2-3
-            if (magic == PacketProtocol::MAGIC_NORMAL || magic == PacketProtocol::MAGIC_COMPRESSED) {
-                const uint32_t opcode = ReadUInt32LE(pData, offset);  // Opcode: offset 4-7
-                labelUtf8 = GetPacketLabel(opcode, bSend);
-            }
+        while (g_PacketList.size() >= kMaxPacketListSize) {
+            delete[] g_PacketList.front().pData;
+            g_PacketList.erase(g_PacketList.begin());
+            evicted = true;
         }
-
-        wchar_t timeStr[64];
-        FormatPacketClock(dwTime, timeStr, _countof(timeStr));
-
-        std::wstring jsCode =
-            L"if(window.addPacketToList) { window.addPacketToList("
-            + std::to_wstring(packetIndex) + L", '" + direction + L"', '"
-            + Utf8ToWide(hexStr) + L"', '" + timeStr + L"', '" + Utf8ToWide(labelUtf8) + L"'); }";
-        UIBridge::Instance().ExecuteJS(jsCode);
+        g_PacketList.push_back(packet);
+        displayIndex = g_PacketList.size();
     }
 
-    // 计数在窗口关闭时也要更新（原来只有关闭状态才刷）。
-    std::wstring jsCountCode =
+    if (AppHost::IsPacketWindowVisible()) {
+        if (evicted) {
+            // 淘汰了队首后，内存里的下标整体前移，增量追加已对不上，整表重建一次。
+            SyncPacketsToUI();
+        } else {
+            UIBridge::Instance().ExecuteJS(BuildPacketListEntryJs(
+                packet.pData, packet.dwSize, packet.bSend, packet.dwTime, displayIndex));
+        }
+    }
+
+    // 计数在窗口关闭时也要更新。
+    const std::wstring jsCountCode =
         L"if(window.updatePacketCount) { window.updatePacketCount("
-        + std::to_wstring(packetIndex) + L"); }";
+        + std::to_wstring(displayIndex) + L"); }";
     UIBridge::Instance().ExecuteJS(jsCountCode);
 }
 
@@ -720,9 +710,7 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
                     memcpy(packet.pData, modifiedData.data(), dwSize);
                     packet.dwTime = GetTickCount();
 
-                    AppendPacketToList(packet);
-                    // 锁外调用 UI 更新，避免死锁
-                    AddPacketToUI(TRUE, packet.pData, packet.dwSize, packet.dwTime);
+                    AppendPacketAndShow(packet);
 
                     if (g_PacketCallback) {
                         g_PacketCallback(TRUE, modifiedData.data(), dwSize);
@@ -770,9 +758,7 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
             memcpy(packet.pData, pData, dwSize);
             packet.dwTime = GetTickCount();
 
-            AppendPacketToList(packet);
-            // 锁外调用 UI 更新，避免死锁
-            AddPacketToUI(TRUE, packet.pData, packet.dwSize, packet.dwTime);
+            AppendPacketAndShow(packet);
 
             if (g_PacketCallback) {
                 g_PacketCallback(TRUE, pData, dwSize);
@@ -1200,9 +1186,7 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
             memcpy(packet.pData, packetData.data(), packetData.size());
             packet.dwTime = GetTickCount();
 
-            AppendPacketToList(packet);
-            // 锁外调用 UI 更新，避免死锁
-            AddPacketToUI(FALSE, packet.pData, packet.dwSize, packet.dwTime);
+            AppendPacketAndShow(packet);
 
             // 调用回调函数
             if (g_PacketCallback) {
@@ -1434,11 +1418,15 @@ bool ResponseWaiter::WaitForResponse(
             break;
         }
 
-        SleepConditionVariableCS(
-            &s_cv,
-            &s_cs,
-            timeoutMs - elapsed
-        );
+        // 分片等待：线程被要求停止时能及时退出，不必睡满整个超时。
+        DWORD slice = timeoutMs - elapsed;
+        if (slice > 200) {
+            slice = 200;
+        }
+        SleepConditionVariableCS(&s_cv, &s_cs, slice);
+        if (ManagedThread::StopRequested()) {
+            break;
+        }
     }
 
     LeaveCriticalSection(&s_cs);
@@ -1874,6 +1862,9 @@ BOOL SendPacket(
     }
 
     for (int attempt = 0; attempt < 3; ++attempt) {
+        if (ManagedThread::StopRequested()) {
+            return FALSE;
+        }
         if (attempt > 0) {
             Sleep(WpeHook::TIMEOUT_RETRY_INTERVAL);
         }

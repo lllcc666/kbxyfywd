@@ -67,6 +67,9 @@ void UIBridge::ExecuteJS(const std::wstring& script) {
 // 辅助方法
 // ============================================================================
 
+// 注意：这里做的是"JS 字符串字面量转义"（含单引号），不是严格 JSON 转义。
+// 全部调用点都是把结果拼进 JS 字面量；若将来要生成真 JSON 再 JSON.parse，
+// 单引号的 ' 不合法，需另走一条转义路径。
 std::wstring UIBridge::EscapeJsonString(const std::wstring& input) {
     std::wstring result;
     result.reserve(input.length() * 2); // 预留更多空间，因为转义字符会增加长度

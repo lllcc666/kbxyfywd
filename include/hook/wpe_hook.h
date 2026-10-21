@@ -108,7 +108,9 @@ std::string HexToString(const BYTE* pData, DWORD dwSize);
 
 std::vector<BYTE> StringToHex(const std::string& str);
 
-void AddPacketToUI(BOOL bSend, const BYTE* pData, DWORD dwSize, DWORD dwTime);
+/// 把封包追加进列表并同步到界面。入表、序号、UI 三件事在同一临界区内定序，
+/// 收/发两条 hook 线程并发时不会拿到重复序号；达到容量上限时淘汰最旧的包。
+void AppendPacketAndShow(const PACKET& packet);
 
 void SyncPacketsToUI();
 

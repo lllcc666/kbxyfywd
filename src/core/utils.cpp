@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <cctype>
+#include <cerrno>
 #include <cstdlib>
 
 // 将UTF-8字符串转换为宽字符字符串
@@ -129,8 +130,12 @@ bool TryParseInt32Decimal(const std::string& text, int32_t& value) {
 
 bool TryParseUInt32Decimal(const std::string& text, uint32_t& value) {
     // strtoul 会把 "-1" 静默变成 4294967295，无符号解析必须自己挡掉负号。
-    const size_t first = text.find_first_not_of(" \t\r\n");
-    if (first != std::string::npos && text[first] == '-') {
+    // 空白判定跟 TryParseDecimal 用同一个 isspace 口径，避免 "\f-1" 这类绕过。
+    size_t first = 0;
+    while (first < text.size() && std::isspace(static_cast<unsigned char>(text[first]))) {
+        ++first;
+    }
+    if (first < text.size() && text[first] == '-') {
         return false;
     }
     return TryParseDecimal(text, value, std::strtoul);

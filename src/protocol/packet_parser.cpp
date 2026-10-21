@@ -1086,12 +1086,12 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
     const bool hadPendingReceiveBytes = !g_recvBuffer.empty();
 
 
-    const size_t newSize = g_recvBuffer.size() + size;
-    if (newSize > kMaxReceiveBufferBytes) {
-        // 缓冲堆到上限说明失了包边界，清空重新对齐，别让进程一直吃内存。
-        g_recvBuffer.clear();
-        return false;
+    if (g_recvBuffer.size() + size > kMaxReceiveBufferBytes) {
+        // 缓冲堆到上限说明早就失了包边界（单包 body 最大 64KB）：整块丢掉并释放容量，
+        // 再从本次收到的数据重新对齐，而不是把这次的数据一起扔掉。
+        std::vector<uint8_t>().swap(g_recvBuffer);
     }
+    const size_t newSize = g_recvBuffer.size() + size;
     if (g_recvBuffer.capacity() < newSize) {
         g_recvBuffer.reserve((std::max)(newSize, g_recvBuffer.capacity() * 2));
     }

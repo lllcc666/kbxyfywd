@@ -29,6 +29,7 @@
 #include "embedded/ui_html.h"
 
 // 包含WPE Hook头文件
+#include "managed_thread.h"
 #include "wpe_hook.h"
 #include "packet_parser.h"
 #include "utils.h"
@@ -1096,7 +1097,13 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         DestroyWindow(hWnd);
         break;
     case WM_DESTROY:
-        // 停止拦截并卸载Hook
+        // 顺序很重要：活动线程还在用 SendPacket / 原始发包函数，必须先让它们退出，
+        // 再拆拦截与 hook，最后才清理封包列表与解析器。
+        ManagedThread::RequestStopAll();
+        // 超时要覆盖线程体内单次最长等待（SendPacket 默认 5000ms + 重试），
+        // 否则到点只是 detach，线程会在已卸载的代码上继续跑。
+        ManagedThread::JoinAll(8000);
+
         StopIntercept();
         UninitializeHooks();
         CleanupWpeHook();

@@ -46,7 +46,9 @@ constexpr uint32_t DECOMPOSE_RESPONSE = RESOLVE_SPIRIT_BACK;
 
 constexpr uint32_t MONSTER_LIST = 1318401;
 
-constexpr uint32_t DEEP_DIG_SEND = 1185525;  ///< 地宫挖宝请求（开始/结束共用）
+// 地宫挖宝请求：PacketBuilder 路径用的是 1185525；daily_activity 里的裸字节包用的是
+// 1184789（0x15 0x14 0x12 0x00）。两者尚未统一，改动前需按实际回包核对。
+constexpr uint32_t DEEP_DIG_SEND = 1185525;
 constexpr uint32_t DEEP_DIG_BACK = 1315861;
 constexpr uint32_t ACTIVITY_QUERY_BACK = 1316501;
 
