@@ -1579,49 +1579,16 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
         return m_act778State;
     }
 
-    Act685State& ActivityStateManager::GetAct685State() {
-        return m_act685State;
-    }
 
-    Act666State& ActivityStateManager::GetAct666State() {
-        return m_act666State;
-    }
 
-    Act757State& ActivityStateManager::GetAct757State() {
-        return m_act757State;
-    }
 
-    Act822State& ActivityStateManager::GetAct822State() {
-        return m_act822State;
-    }
 
-    Act826State& ActivityStateManager::GetAct826State() {
-        return m_act826State;
-    }
 
-    Act827State& ActivityStateManager::GetAct827State() {
-        return m_act827State;
-    }
 
-    Act641State& ActivityStateManager::GetAct641State() {
-        return m_act641State;
-    }
 
-    Act684State& ActivityStateManager::GetAct684State() {
-        return m_act684State;
-    }
 
-    Act717State& ActivityStateManager::GetAct717State() {
-        return m_act717State;
-    }
 
-    Act805State& ActivityStateManager::GetAct805State() {
-        return m_act805State;
-    }
 
-    Act631State& ActivityStateManager::GetAct631State() {
-        return m_act631State;
-    }
 
     HorseCompetitionState& ActivityStateManager::GetHorseCompetitionState() {
         return m_horseCompetitionState;

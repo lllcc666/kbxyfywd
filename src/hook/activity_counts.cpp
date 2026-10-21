@@ -75,16 +75,7 @@ constexpr int kActivityCountTargetNum =
 
 // 返回单个活动剩余次数；< 0 表示未解析出（不含“次数为 0”的合法情况）。
 int GetActivityRemainingCount(uint32_t activityId) {
-    auto& mgr = ActivityStateManager::Instance();
     switch (activityId) {
-        case Act717::ACTIVITY_ID: return mgr.GetAct717State().playCount.load();
-        case Act684::ACTIVITY_ID: return mgr.GetAct684State().playCount.load();
-        case Act827::ACTIVITY_ID: return mgr.GetAct827State().playCount.load();
-        case Act826::ACTIVITY_ID: return mgr.GetAct826State().playCount.load();
-        case Act822::ACTIVITY_ID: return mgr.GetAct822State().playCount.load();
-        case Act685::ACTIVITY_ID: return mgr.GetAct685State().playCount.load();
-        case Act631::ACTIVITY_ID: return mgr.GetAct631State().playCount.load();
-        case Act641::ACTIVITY_ID: return mgr.GetAct641State().playCount.load();
         case Act808::ACTIVITY_ID: return GetAct808PlayCount();
         default:
             // 最新活动（周活动小游戏）由独立模块维护次数。

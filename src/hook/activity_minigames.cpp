@@ -137,7 +137,6 @@ bool ShouldAutoSweep(int bestScore, int flowScore) {
     return bestScore >= flowScore;
 }
 
-#define ACT685_STATE ActivityStateManager::Instance().GetAct685State()
 
 
 
@@ -150,7 +149,6 @@ bool ShouldAutoSweep(int bestScore, int flowScore) {
 
 // ============ 天之骄子的特训功能实现 (Act666) ============
 
-#define ACT666_STATE ActivityStateManager::Instance().GetAct666State()
 
 
 
@@ -163,7 +161,6 @@ bool ShouldAutoSweep(int bestScore, int flowScore) {
 
 // ============ 光辉穿梭大考验功能实现 (Act822) ============
 
-#define ACT822_STATE ActivityStateManager::Instance().GetAct822State()
 
 
 
@@ -179,7 +176,6 @@ bool ShouldAutoSweep(int bestScore, int flowScore) {
 
 // ============ 圣石之战功能实现 (Act826) ============
 
-#define ACT826_STATE ActivityStateManager::Instance().GetAct826State()
 
 
 
@@ -194,7 +190,6 @@ bool ShouldAutoSweep(int bestScore, int flowScore) {
 
 // ============ 齐心协力大挑战功能实现 (Act827) ============
 
-#define ACT827_STATE ActivityStateManager::Instance().GetAct827State()
 
 
 
@@ -209,7 +204,6 @@ bool ShouldAutoSweep(int bestScore, int flowScore) {
 
 // ============ 清除煞气功能实现 (Act641) ============
 
-#define ACT641_STATE ActivityStateManager::Instance().GetAct641State()
 
 
 
@@ -246,7 +240,6 @@ static std::atomic<bool> g_act810SweepAvailable{false};
 
 // ============ 土幻的曙光功能实现 (Act684) ============
 
-#define ACT684_STATE ActivityStateManager::Instance().GetAct684State()
 
 
 
@@ -259,7 +252,6 @@ static std::atomic<bool> g_act810SweepAvailable{false};
 
 // ============ 驱赶毒蚊功能实现 (Act717) ============
 
-#define ACT717_STATE ActivityStateManager::Instance().GetAct717State()
 
 
 
@@ -272,7 +264,6 @@ static std::atomic<bool> g_act810SweepAvailable{false};
 
 // ============ 守护梦境功能实现 (Act805) ============
 
-#define ACT805_STATE ActivityStateManager::Instance().GetAct805State()
 
 
 
@@ -286,7 +277,6 @@ static std::atomic<bool> g_act810SweepAvailable{false};
 
 // ============ 果宝救援功能实现 (Act757) ============
 
-#define ACT757_STATE ActivityStateManager::Instance().GetAct757State()
 
 
 
@@ -301,7 +291,6 @@ static std::atomic<bool> g_act810SweepAvailable{false};
 
 // ============ 妖力考验功能实现 (Act631) ============
 
-#define ACT631_STATE ActivityStateManager::Instance().GetAct631State()
 
 
 
