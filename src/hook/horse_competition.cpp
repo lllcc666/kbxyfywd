@@ -84,17 +84,23 @@ void NotifyHorseProgress(const std::wstring& msg) {
 }
 
 // 拟人化使用的随机源。thread_local：StartHorseCompetitionGame 跑在收包分发线程、
-// 抖动跑在比赛线程，共用一个 mt19937 就是数据竞争。
-std::mt19937& HorseRng() {
-    thread_local std::mt19937 rng(static_cast<uint32_t>(
-        std::chrono::steady_clock::now().time_since_epoch().count()));
-    return rng;
+// 抖动跑在比赛线程，共用一个状态就是数据竞争。
+// 只用得上 [0,1) 的均匀数，所以用 xorshift64* 代替 std::mt19937：
+// mt19937 的 2.5KB 状态表和 uniform_real_distribution 那套都是白带的体积。
+uint64_t HorseRngNext() {
+    thread_local uint64_t state = static_cast<uint64_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count()) | 1u;
+    state ^= state >> 12;
+    state ^= state << 25;
+    state ^= state >> 27;
+    return state * 0x2545F4914F6CDD1DULL;
 }
 
 // [lo, hi] 均匀分布。
 double HorseRand(double lo, double hi) {
-    std::uniform_real_distribution<double> dist(lo, hi);
-    return dist(HorseRng());
+    // 取高 53 位换成 [0, 1)：double 的有效位正好 53 位。
+    const double unit = static_cast<double>(HorseRngNext() >> 11) * (1.0 / 9007199254740992.0);
+    return lo + (hi - lo) * unit;
 }
 
 namespace HorseCmd {

@@ -62,44 +62,115 @@ bool PacketTagEquals(const std::string& tag, const char* expected) {
 }
 
 
-BOOL SavePacketListToFile(const std::wstring& filePath) {
-    std::ofstream file(filePath, std::ios::out | std::ios::trunc);
-    if (!file.is_open()) {
-        return FALSE;
+namespace {
+
+// 直接走 Win32 文件 API：std::fstream 会把 locale、streambuf 那一整套拉进二进制，
+// 而这里只用到"整块写、整块读"。
+bool WriteAllBytes(const std::wstring& filePath, const std::string& content) {
+    HANDLE file = CreateFileW(filePath.c_str(), GENERIC_WRITE, 0, nullptr,
+                              CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return false;
     }
 
+    size_t written = 0;
+    bool ok = true;
+    while (written < content.size()) {
+        const DWORD chunk = static_cast<DWORD>(
+            std::min<size_t>(content.size() - written, 1u << 20));
+        DWORD bytesWritten = 0;
+        if (!WriteFile(file, content.data() + written, chunk, &bytesWritten, nullptr) ||
+            bytesWritten != chunk) {
+            ok = false;
+            break;
+        }
+        written += bytesWritten;
+    }
+
+    CloseHandle(file);
+    return ok;
+}
+
+bool ReadWholeFile(const std::wstring& filePath, std::string& content) {
+    content.clear();
+    HANDLE file = CreateFileW(filePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    LARGE_INTEGER size{};
+    constexpr long long kMaxSaveFileBytes = 64LL * 1024LL * 1024LL;
+    if (!GetFileSizeEx(file, &size) || size.QuadPart < 0 || size.QuadPart > kMaxSaveFileBytes) {
+        CloseHandle(file);
+        return false;
+    }
+
+    content.resize(static_cast<size_t>(size.QuadPart));
+    size_t readTotal = 0;
+    bool ok = true;
+    while (readTotal < content.size()) {
+        const DWORD chunk = static_cast<DWORD>(
+            std::min<size_t>(content.size() - readTotal, 1u << 20));
+        DWORD bytesRead = 0;
+        if (!ReadFile(file, &content[readTotal], chunk, &bytesRead, nullptr) || bytesRead == 0) {
+            ok = false;
+            break;
+        }
+        readTotal += bytesRead;
+    }
+
+    CloseHandle(file);
+    if (ok) {
+        content.resize(readTotal);
+    }
+    return ok;
+}
+
+}  // namespace
+
+BOOL SavePacketListToFile(const std::wstring& filePath) {
     std::vector<PACKET> packetsCopy;
     {
         CriticalSectionLock lock(g_packetListCS.Get());
         packetsCopy = g_PacketList;
     }
 
-    file << "# [SEND] = 客户端发出, [RECV] = 服务端下发; 载入时只取 [SEND]" << std::endl;
+    std::string content;
+    content.reserve(64 * 1024);
+    content += "# [SEND] = 客户端发出, [RECV] = 服务端下发; 载入时只取 [SEND]\r\n";
 
     // 保存全部被拦截的封包（发送 + 接收），逐行标记方向，便于对着时间线读收发成对关系。
     for (const auto& packet : packetsCopy) {
         if (packet.pData == nullptr || packet.dwSize == 0) {
             continue;
         }
-        file << (packet.bSend ? kPacketSendTag : kPacketRecvTag)
-             << HexToString(packet.pData, packet.dwSize) << std::endl;
+        content += packet.bSend ? kPacketSendTag : kPacketRecvTag;
+        content += HexToString(packet.pData, packet.dwSize);
+        content += "\r\n";
     }
 
-    file.close();
-    return TRUE;
+    return WriteAllBytes(filePath, content) ? TRUE : FALSE;
 }
 
 BOOL LoadPacketListFromFile(const std::wstring& filePath) {
-    std::ifstream file(filePath, std::ios::in);
-    if (!file.is_open()) {
+    std::string content;
+    if (!ReadWholeFile(filePath, content)) {
         return FALSE;
     }
 
     // 先清空现有封包列表
     ClearPacketList();
 
-    std::string line;
-    while (std::getline(file, line)) {
+    size_t pos = 0;
+    while (pos < content.size()) {
+        size_t eol = content.find('\n', pos);
+        if (eol == std::string::npos) {
+            eol = content.size();
+        }
+        std::string line = content.substr(pos, eol - pos);
+        pos = eol + 1;
+
         // 移除空白字符
         line.erase(0, line.find_first_not_of(" \t\r\n"));
         if (!line.empty()) {
@@ -147,7 +218,6 @@ BOOL LoadPacketListFromFile(const std::wstring& filePath) {
         }
     }
 
-    file.close();
     return TRUE;
 }
 
