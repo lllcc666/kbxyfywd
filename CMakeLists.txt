@@ -47,6 +47,18 @@ add_executable(WebView2Demo WIN32
     ${SRC_DIR}/protocol/packet_builder.cpp
     ${SRC_DIR}/core/ui_bridge.cpp
     ${SRC_DIR}/core/web_message_handler.cpp
+
+    # 内嵌 zlib（只保留解压/压缩实现，gz* 文件读写不参与编译）
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/adler32.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/crc32.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/zutil.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/inflate.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/inftrees.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/inffast.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/uncompr.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/compress.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/deflate.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/trees.c
 )
 
 # 设置编译器使用 UTF-8 编码
@@ -55,6 +67,9 @@ if(MSVC)
     # /W4：警告等级提升到 Level4，用于拦截未使用变量/参数、收窄转换、
     # 有符号无符号混用等问题。暂不开启 /WX，避免历史代码阻断构建。
     target_compile_options(WebView2Demo PRIVATE /W4)
+    # 全仓库没有 dynamic_cast/typeid，关掉 RTTI 省掉 type_info 与类名字符串。
+    target_compile_options(WebView2Demo PRIVATE /GR-)
+    target_include_directories(WebView2Demo PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib)
 endif()
 
 # 设置 vcpkg 路径（本机绝对路径，换机器须修改）

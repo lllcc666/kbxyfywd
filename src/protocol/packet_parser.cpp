@@ -2,7 +2,7 @@
 
 #include "bounded_reader.h"
 #include <MemoryModule.h>
-#include "embedded/zlib_data.h"
+#include "zlib.h"
 #include "battle_six.h"
 #include "dungeon_jump.h"
 #include "wpe_hook.h"
@@ -22,30 +22,6 @@
 
 // 外部窗口句柄（来自demo.cpp）
 extern HWND g_hWnd;
-
-// zlib function prototype for packet body decompression
-typedef int (*PFN_UNCOMPRESS)(unsigned char* dest, unsigned long* destLen, const unsigned char* source, unsigned long sourceLen);
-typedef int (*PFN_COMPRESS)(unsigned char* dest, unsigned long* destLen, const unsigned char* source, unsigned long sourceLen);
-typedef int (*PFN_COMPRESS2)(unsigned char* dest, unsigned long* destLen, const unsigned char* source, unsigned long sourceLen, int level);
-typedef int (*PFN_DEFLATEINIT)(void* strm, int level);
-typedef int (*PFN_DEFLATE)(void* strm, int flush);
-typedef int (*PFN_DEFLATEEND)(void* strm);
-typedef int (*PFN_INFLATEINIT)(void* strm);
-typedef int (*PFN_INFLATEINIT2)(void* strm, int windowBits);
-typedef int (*PFN_INFLATE)(void* strm, int flush);
-typedef int (*PFN_INFLATEEND)(void* strm);
-
-static HMEMORYMODULE g_zlibModule = nullptr;
-static PFN_UNCOMPRESS g_uncompress = nullptr;
-static PFN_COMPRESS g_compress = nullptr;
-static PFN_COMPRESS2 g_compress2 = nullptr;
-static PFN_DEFLATEINIT g_deflateInit = nullptr;
-static PFN_DEFLATE g_deflate = nullptr;
-static PFN_DEFLATEEND g_deflateEnd = nullptr;
-static PFN_INFLATEINIT g_inflateInit = nullptr;
-static PFN_INFLATEINIT2 g_inflateInit2 = nullptr;
-static PFN_INFLATE g_inflate = nullptr;
-static PFN_INFLATEEND g_inflateEnd = nullptr;
 
 // minizip module and functions
 BattleData PacketParser::g_currentBattle;
@@ -648,10 +624,10 @@ static bool ExtractZipEntry(const std::vector<uint8_t>& zip, const std::string& 
 
     // 使用轻量级ZIP解析器进行纯内存解压
     // 传入inflate函数以支持raw deflate格式（ZIP使用）
-    return ExtractZipEntryFromMemory(zip, filename, out, g_uncompress, 
-        reinterpret_cast<InflateInit2Func>(g_inflateInit2),
-        reinterpret_cast<InflateFunc>(g_inflate),
-        reinterpret_cast<InflateEndFunc>(g_inflateEnd));
+    return ExtractZipEntryFromMemory(zip, filename, out, uncompress,
+        reinterpret_cast<InflateInit2Func>(inflateInit2_),
+        reinterpret_cast<InflateFunc>(inflate),
+        reinterpret_cast<InflateEndFunc>(inflateEnd));
 }
 
 static std::string NormalizeXmlUtf8(const std::vector<uint8_t>& data) {
@@ -942,36 +918,12 @@ static void LoadHttpData();
 
 bool PacketParser::Initialize() {
     std::lock_guard<std::mutex> lifecycleLock(g_parserLifecycleMutex);
-    if (g_zlibModule) return true;
-
-    // 内存加载 zlib.dll
-    g_zlibModule = MemoryLoadLibrary(g_zlib1Data, g_zlib1Size);
-    if (g_zlibModule) {
-        g_uncompress = (PFN_UNCOMPRESS)MemoryGetProcAddress(g_zlibModule, "uncompress");
-        g_compress = (PFN_COMPRESS)MemoryGetProcAddress(g_zlibModule, "compress");
-        g_compress2 = (PFN_COMPRESS2)MemoryGetProcAddress(g_zlibModule, "compress2");
-        g_deflateInit = (PFN_DEFLATEINIT)MemoryGetProcAddress(g_zlibModule, "deflateInit_");
-        if (!g_deflateInit) {
-            g_deflateInit = (PFN_DEFLATEINIT)MemoryGetProcAddress(g_zlibModule, "deflateInit");
-        }
-        g_deflate = (PFN_DEFLATE)MemoryGetProcAddress(g_zlibModule, "deflate");
-        g_deflateEnd = (PFN_DEFLATEEND)MemoryGetProcAddress(g_zlibModule, "deflateEnd");
-        g_inflateInit = (PFN_INFLATEINIT)MemoryGetProcAddress(g_zlibModule, "inflateInit_");
-        if (!g_inflateInit) {
-            g_inflateInit = (PFN_INFLATEINIT)MemoryGetProcAddress(g_zlibModule, "inflateInit");
-        }
-        g_inflateInit2 = (PFN_INFLATEINIT2)MemoryGetProcAddress(g_zlibModule, "inflateInit2_");
-        if (!g_inflateInit2) {
-            g_inflateInit2 = (PFN_INFLATEINIT2)MemoryGetProcAddress(g_zlibModule, "inflateInit2");
-        }
-        g_inflate = (PFN_INFLATE)MemoryGetProcAddress(g_zlibModule, "inflate");
-        g_inflateEnd = (PFN_INFLATEEND)MemoryGetProcAddress(g_zlibModule, "inflateEnd");
-    }
+    // zlib 已静态链接进 exe（third_party/zlib），不再内存加载 zlib1.dll。
 
     // 加载HTTP数据
     LoadHttpData();
 
-    return g_zlibModule != nullptr;
+    return true;
 }
 
 void PacketParser::Cleanup() {
@@ -982,26 +934,12 @@ void PacketParser::Cleanup() {
         g_currentBattle = BattleData{};
     }
     g_battleStarted = false;
-    if (g_zlibModule) {
-        MemoryFreeLibrary(g_zlibModule);
-        g_zlibModule = nullptr;
-        g_uncompress = nullptr;
-        g_compress = nullptr;
-        g_compress2 = nullptr;
-        g_deflateInit = nullptr;
-        g_deflate = nullptr;
-        g_deflateEnd = nullptr;
-        g_inflateInit = nullptr;
-        g_inflateInit2 = nullptr;
-        g_inflate = nullptr;
-        g_inflateEnd = nullptr;
-    }
 }
 
 bool PacketParser::UncompressBody(const std::vector<uint8_t>& compressed, std::vector<uint8_t>& decompressed) {
     decompressed.clear();
     
-    if (!g_uncompress || compressed.empty()) return false;
+    if (compressed.empty()) return false;
     
     // 安全检查：压缩数据大小限制（最大10MB）
     if (compressed.size() > (10 * 1024 * 1024)) return false;
@@ -1019,7 +957,7 @@ bool PacketParser::UncompressBody(const std::vector<uint8_t>& compressed, std::v
     
     while (destLen <= maxDestLen) {
         decompressed.resize(destLen);
-        res = g_uncompress(decompressed.data(), &destLen, compressed.data(), (unsigned long)compressed.size());
+        res = uncompress(decompressed.data(), &destLen, compressed.data(), (unsigned long)compressed.size());
         
         if (res == 0) { // Z_OK
             decompressed.resize(destLen);
@@ -2729,13 +2667,13 @@ void PacketParser::ProcessMonsterPacket(const GamePacket& packet) {
 // ============================================================================
 
 ZlibUncompressFunc GetZlibUncompress() {
-    return g_uncompress;
+    return &uncompress;
 }
 
 ZlibCompressFunc GetZlibCompress() {
-    return g_compress;
+    return &compress;
 }
 
 ZlibCompress2Func GetZlibCompress2() {
-    return g_compress2;
+    return &compress2;
 }

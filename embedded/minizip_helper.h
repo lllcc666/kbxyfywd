@@ -73,6 +73,9 @@ typedef int (*InflateFunc)(void* strm, int flush);
 typedef int (*InflateEndFunc)(void* strm);
 
 // z_stream结构体定义（与zlib兼容）
+// 注意：如果本文件之前已经 include 了真正的 zlib.h，就用 zlib 自己的 z_stream_s，
+// 否则会撞上 C2011 类型重定义。
+#ifndef ZLIB_H
 struct z_stream_s {
     unsigned char* next_in;
     unsigned int avail_in;
@@ -89,6 +92,7 @@ struct z_stream_s {
     unsigned long adler;
     unsigned long reserved;
 };
+#endif  // ZLIB_H
 
 // 使用inflate解压raw deflate数据（ZIP格式）
 inline int UncompressRawDeflate(
@@ -109,7 +113,7 @@ inline int UncompressRawDeflate(
     strm.avail_out = static_cast<unsigned int>(*destLen);
     
     // -15 = -MAX_WBITS 表示raw deflate（没有zlib头）
-    int ret = inflateInit2(&strm, -15, "1.2.11", sizeof(z_stream_s));
+    int ret = (inflateInit2)(&strm, -15, "1.2.11", sizeof(z_stream_s));
     if (ret != 0) {
         return ret;
     }
