@@ -27,6 +27,10 @@ add_executable(WebView2Demo WIN32
     ${SRC_DIR}/hook/shuangtai.cpp
     ${SRC_DIR}/hook/story_task.cpp
     ${SRC_DIR}/hook/eight_trigrams.cpp
+    ${SRC_DIR}/hook/activity_minigames.cpp
+    ${SRC_DIR}/hook/activity_counts.cpp
+    ${SRC_DIR}/hook/battle.cpp
+    ${SRC_DIR}/hook/collect.cpp
     ${SRC_DIR}/core/utils.cpp
     ${SRC_DIR}/core/managed_thread.cpp
     ${SRC_DIR}/protocol/packet_parser.cpp

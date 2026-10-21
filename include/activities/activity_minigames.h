@@ -257,6 +257,8 @@ BOOL SendAct808SweepInfoPacket();
 BOOL SendAct808SweepPacket();
 BOOL StartOneKeyAct808Packet(bool useSweep = false);
 void ProcessAct808Response(const GamePacket& packet);
+// 剩余次数：< 0 表示尚未解析到。
+int GetAct808PlayCount();
 
 namespace HeavenFurui {
 constexpr int ACTIVITY_ID = 900;
@@ -264,6 +266,14 @@ constexpr int OP_QUERY = 1;
 constexpr int OP_PICKUP = 2;
 constexpr int OP_CONFIRM = 4;
 }  // namespace HeavenFurui
+
+// 福瑞宝箱运行状态（hook 核心的进图回包要置位 entered）。
+extern std::atomic<bool> g_heavenFuruiRunning;
+extern std::atomic<bool> g_heavenFuruiQuerySuccess;
+extern std::atomic<int> g_heavenFuruiBoxCount;
+extern std::atomic<bool> g_heavenFuruiEnteredMap;
+extern std::atomic<int> g_heavenFuruiMaxBoxes;
+extern std::atomic<int> g_heavenFuruiOpenedBoxes;
 
 BOOL SendHeavenFuruiPacket(int opType, const std::vector<int32_t>& bodyValues = {});
 BOOL SendHeavenFuruiQueryPacket(int mapId);
