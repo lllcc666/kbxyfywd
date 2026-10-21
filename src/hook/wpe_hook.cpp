@@ -11,7 +11,6 @@
 #include <condition_variable>
 #include <mutex>
 #include <string>
-#include <array>
 #include <vector>
 #include <memory>
 #include <tuple>
@@ -19,11 +18,8 @@
 #include <deque>
 #include <map>
 #include <unordered_map>
-#include <fstream>
 #include <thread>
-#include <random>
 #include <cctype>
-#include <chrono>
 
 // 第三方库
 #include <MemoryModule.h>
@@ -215,7 +211,6 @@ std::atomic<bool> g_bInterceptEnabled{false};///< 是否启用拦截
 
 
 // 自动发送状态
-bool g_bAutoSendEnabled = false;  ///< 是否启用自动发送
 
 
 }  // anonymous namespace
@@ -286,7 +281,6 @@ namespace {
 
 // -------------------------
 // 回调函数
-PACKET_CALLBACK g_PacketCallback = nullptr;
 static std::mutex g_receiveDispatchMutex;
 static std::condition_variable g_receiveDispatchCv;
 static std::deque<std::vector<GamePacket>> g_receiveDispatchQueue;
@@ -335,24 +329,6 @@ inline uint32_t ReadOpcode(const BYTE* pData) {
            (static_cast<uint32_t>(pData[5]) << 8) |
            (static_cast<uint32_t>(pData[6]) << 16) |
            (static_cast<uint32_t>(pData[7]) << 24);
-}
-
-/**
- * @brief 从封包数据读取 Params
- */
-inline uint32_t ReadParams(const BYTE* pData) {
-    return static_cast<uint32_t>(pData[8]) | 
-           (static_cast<uint32_t>(pData[9]) << 8) |
-           (static_cast<uint32_t>(pData[10]) << 16) |
-           (static_cast<uint32_t>(pData[11]) << 24);
-}
-
-/**
- * @brief 从封包数据读取 Body 长度
- */
-inline uint16_t ReadBodyLength(const BYTE* pData) {
-    return static_cast<uint16_t>(pData[2]) | 
-           (static_cast<uint16_t>(pData[3]) << 8);
 }
 
 }  // anonymous namespace
@@ -506,19 +482,6 @@ VOID UnloadMinHookFromMemory() {
 }
 
 }  // namespace
-
-// ============================================================================
-// 道具功能实现
-// ============================================================================
-
-/**
- * @brief 请求背包数据
- * @param packType 包类型 (0xFFFFFFFF = 全部)
- * @return 发送是否成功
- */
-void SetPacketCallback(PACKET_CALLBACK callback) {
-    g_PacketCallback = callback;
-}
 
 // ============================================================================
 // 十六进制转换工具
@@ -730,10 +693,6 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
                     packet.dwTime = GetTickCount();
 
                     AppendPacketAndShow(packet);
-
-                    if (g_PacketCallback) {
-                        g_PacketCallback(TRUE, modifiedData.data(), dwSize);
-                    }
                 }
                 return result;
             }
@@ -778,10 +737,6 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
             packet.dwTime = GetTickCount();
 
             AppendPacketAndShow(packet);
-
-            if (g_PacketCallback) {
-                g_PacketCallback(TRUE, pData, dwSize);
-            }
         }
     }
     
@@ -1211,11 +1166,6 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
             packet.dwTime = GetTickCount();
 
             AppendPacketAndShow(packet);
-
-            // 调用回调函数
-            if (g_PacketCallback) {
-                g_PacketCallback(FALSE, packetData.data(), static_cast<DWORD>(packetData.size()));
-            }
         }
     }
 

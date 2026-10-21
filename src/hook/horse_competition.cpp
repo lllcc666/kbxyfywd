@@ -35,7 +35,7 @@ std::mutex g_horseGameThreadMutex;
 std::mutex g_horseRunMutex;
 
 // 保护 HorseCompetitionState 里带堆分配的字段（myInfo 含 std::wstring、
-// itemDistances / otherMembers 是 std::vector）。收包分发线程整体赋值它们的同时，
+// itemDistances 是 std::vector）。收包分发线程整体赋值它们的同时，
 // 一键线程 ResetHorseRoundState 清空、比赛线程拷贝，都是同对象的并发访问 = UB
 // （可能堆损坏）。锁只罩字段读写，不跨发包、不跨 UI 回调。
 std::mutex g_horseInfoMutex;
@@ -337,7 +337,7 @@ void HorseGameMainLoop() {
             ++steps;
 
 
-            if (state.canControl) {
+            {
                 if (accCooldownFrames > 0) {
                     --accCooldownFrames;
                 }
@@ -884,11 +884,6 @@ void HandleHorseRoomInfoResponse(HorseCompetitionState& state, const std::string
         SetHorsePhase(state, HORSE_PHASE_WAITING_START);
     }
 
-    const size_t membersPos = json.find("\"members\":");
-    if (membersPos != std::string::npos) {
-        std::lock_guard<std::mutex> lock(g_horseInfoMutex);
-        state.otherMembers.clear();
-    }
 }
 
 void HandleHorseStartGameResponse(HorseCompetitionState& state, const std::string& json) {
@@ -1201,10 +1196,6 @@ BOOL SendHorseJoinGamePacket() {
     return SendHorseCompetitionPacket(HorseCmd::JOIN_GAME);
 }
 
-BOOL SendHorseRoomInfoPacket() {
-    return SendHorseCompetitionPacket(HorseCmd::ROOM_INFO);
-}
-
 BOOL SendHorseReadyPacket() {
     return SendHorseCompetitionPacket(HorseCmd::READY);
 }
@@ -1270,25 +1261,8 @@ BOOL SendHorseUIInfoPacket() {
     return sent;
 }
 
-BOOL SendHorseExchangeInfoPacket() {
-    return SendHorseCompetitionPacket(HorseCmd::EXCHANGE_INFO);
-}
-
-BOOL SendHorseExchangePacket(int exchangeId, int count) {
-    return SendHorseCompetitionPacket(HorseCmd::EXCHANGE, {exchangeId, count});
-}
-
 BOOL SendHorsePlayGamePacket(int distance) {
     return SendHorseCompetitionPacket(HorseCmd::PLAY_GAME, {distance});
-}
-
-BOOL SendHorseUseItemPacket(int itemIdx) {
-    const std::string jsonData = "{\"item_idx\":" + std::to_string(itemIdx) + "}";
-    return SendHorsePacketBody(BuildHorsePacketBodyWithJson(HorseCmd::USE_ITEM, jsonData), true);
-}
-
-BOOL SendHorseGetRegressionPacket(int idx) {
-    return SendHorseCompetitionPacket(HorseCmd::GET_REGRESSION, {idx});
 }
 
 BOOL StartHorseCompetitionGame() {
@@ -1347,7 +1321,6 @@ BOOL StartHorseCompetitionGame() {
     state.distance = 0.0;
     state.state = "RUN";
     state.lastState = "RUN";
-    state.canControl = true;
     state.isDie = false;
     state.items.clear();
     state.localFinished = false;
@@ -1455,7 +1428,7 @@ void ProcessHorseCompetitionResponse(const GamePacket& packet) {
     state.waitingResponse = false;
 }
 
-BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount) {
+BOOL StartOneKeyHorseCompetitionPacket() {
     auto& state = ActivityStateManager::Instance().GetHorseCompetitionState();
 
     bool alreadyRunning = false;
@@ -1472,7 +1445,6 @@ BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount) {
             std::lock_guard<std::mutex> infoLock(g_horseInfoMutex);
             state.Reset();
             state.isRunning = true;
-            state.useTempMount = useTempMount;
             state.stopRequested = false;
         }
     }

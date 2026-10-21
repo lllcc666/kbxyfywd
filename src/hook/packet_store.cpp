@@ -3,18 +3,11 @@
 #include <wincrypt.h>
 
 #include <algorithm>
-#include <array>
 #include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <cstdio>
-#include <deque>
 #include <fstream>
-#include <map>
 #include <mutex>
-#include <random>
-#include <set>
-#include <sstream>
 #include <string>
 #include <thread>
 #include <utility>
@@ -296,18 +289,6 @@ VOID DeleteSelectedPackets(const std::vector<DWORD>& indices) {
 DWORD GetPacketCount() {
     CriticalSectionLock lock(g_packetListCS.Get());
     return static_cast<DWORD>(g_PacketList.size());
-}
-
-BOOL GetPacket(DWORD index, PPACKET pPacket) {
-    if (!pPacket) return FALSE;
-    
-    CriticalSectionLock lock(g_packetListCS.Get());
-    if (index >= g_PacketList.size()) {
-        return FALSE;
-    }
-    
-    *pPacket = g_PacketList[index];
-    return TRUE;
 }
 
 // 主线任务回包的分发包装：TASK_TALK_BACK 与八卦灵盘共用，两边都要收到。

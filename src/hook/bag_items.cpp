@@ -3,18 +3,10 @@
 #include <wincrypt.h>
 
 #include <algorithm>
-#include <array>
 #include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <cstdio>
-#include <deque>
-#include <fstream>
-#include <map>
 #include <mutex>
-#include <random>
-#include <set>
-#include <sstream>
 #include <string>
 #include <thread>
 #include <utility>
@@ -472,50 +464,6 @@ BOOL SendUseItemInBattlePacket(uint32_t itemId, uint32_t position) {
         .Build();
     
     return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
-}
-
-/**
- * @brief 使用道具（通用，非战斗）
- * @param itemId 道具ID
- * @param spiritId 妖怪ID
- * @param param1 参数1
- * @param param2 参数2
- * @param param3 参数3
- * @return 发送是否成功
- * @note 封包格式: Opcode=1184310, Params=itemId, Body=[spiritId, param1, param2, param3]
- */
-BOOL SendUsePropsPacket(uint32_t itemId, uint32_t spiritId, 
-                        uint32_t param1, uint32_t param2, uint32_t param3) {
-    // 封包格式: Opcode=1184310, Params=itemId, Body=[spiritId, param1, param2, param3]
-    std::vector<uint8_t> packet = PacketBuilder()
-        .SetOpcode(Opcode::USE_PROPS_SEND)
-        .SetParams(itemId)
-        .WriteUInt32(spiritId)
-        .WriteUInt32(param1)
-        .WriteUInt32(param2)
-        .WriteUInt32(param3)
-        .Build();
-    
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
-}
-
-/**
- * @brief 获取道具名称
- * @param itemId 道具ID
- * @return 道具名称
- */
-/**
- * @brief 获取物品位置
- * @param itemId 物品ID
- * @return 物品位置索引
- */
-uint32_t GetItemPosition(uint32_t itemId) {
-    std::lock_guard<std::mutex> packLock(g_packItemsMutex);
-    auto it = g_itemPositionMap.find(itemId);
-    if (it != g_itemPositionMap.end()) {
-        return it->second;
-    }
-    return 0;
 }
 
 // ============================================================================

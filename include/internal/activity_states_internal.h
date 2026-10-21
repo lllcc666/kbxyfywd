@@ -578,8 +578,6 @@ struct HorseCompetitionState : ActivityState {
     double startTime = 0.0;
 
     HorseMemberInfo myInfo;
-    std::vector<HorseMemberInfo> otherMembers;
-    std::vector<std::pair<uint32_t, int>> rankList;
     std::vector<std::pair<int, int>> exchangeLimits;
     std::vector<int> itemDistances;
 
@@ -598,12 +596,9 @@ struct HorseCompetitionState : ActivityState {
     std::atomic<double> distance{0.0};
     std::string state = "RUN";
     std::string lastState = "RUN";
-    std::atomic<bool> canControl{true};
     std::atomic<bool> isDie{false};
     std::vector<int> items;
 
-    std::atomic<bool> useTempMount{true};
-    std::atomic<bool> useItems{false};
     std::atomic<bool> stopRequested{false};
 
     void Reset() override {
@@ -629,14 +624,10 @@ struct HorseCompetitionState : ActivityState {
         uiInfoAckSeq = 0;
         uiInfoPending = false;
         roomId = 0;
-        useTempMount = true;
-        useItems = false;
         stopRequested = false;
         roomStatus = HORSE_ROOM_FREE;
         startTime = 0.0;
         myInfo.Reset();
-        otherMembers.clear();
-        rankList.clear();
         exchangeLimits.clear();
         itemDistances.clear();
         hp = 1000.0;
@@ -648,7 +639,6 @@ struct HorseCompetitionState : ActivityState {
         distance = 0.0;
         state = "RUN";
         lastState = "RUN";
-        canControl = true;
         isDie = false;
         items.clear();
     }

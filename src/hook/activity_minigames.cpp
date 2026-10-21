@@ -5,9 +5,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
-#include <map>
 #include <mutex>
-#include <random>
 #include <string>
 #include <thread>
 #include <utility>
@@ -98,8 +96,6 @@ static std::atomic<bool> g_act822WaitingResponse{false};
 static std::atomic<bool> g_act822UseSweep{false};
 static std::atomic<bool> g_act822SweepAvailable{false};
 static std::mutex g_act822Mutex;
-static std::vector<int> g_act822PassAwards;
-static std::vector<std::pair<int, int>> g_act822CatchList;
 static std::vector<std::pair<int, int>> g_act822SweepAwards;
 static std::vector<std::pair<int, int>> g_act822ResultAwards;
 
@@ -792,8 +788,6 @@ static void ResetAct822State() {
     g_act822SweepAvailable = false;
 
     std::lock_guard<std::mutex> lock(g_act822Mutex);
-    g_act822PassAwards.assign(3, 0);
-    g_act822CatchList.assign(1, {0, 0});
     g_act822SweepAwards.clear();
     g_act822ResultAwards.clear();
 }

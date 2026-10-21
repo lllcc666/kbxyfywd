@@ -27,7 +27,6 @@ typedef struct _PACKET {
 
 } PACKET, *PPACKET;
 
-typedef void (*PACKET_CALLBACK)(BOOL bSend, const BYTE* pData, DWORD dwSize);
 
 typedef HRESULT (*EXECUTE_SCRIPT_FUNC)(const WCHAR* script);
 
@@ -60,8 +59,6 @@ VOID StopIntercept();
 
 VOID SetInterceptType(BOOL bSend, BOOL bRecv);
 
-void SetPacketCallback(PACKET_CALLBACK callback);
-
 void SetExecuteScriptFunction(EXECUTE_SCRIPT_FUNC func);
 
 using PacketProgressCallback = void (*)(DWORD, DWORD, const std::string&);
@@ -81,8 +78,6 @@ VOID ClearPacketList();
 VOID DeleteSelectedPackets(const std::vector<DWORD>& indices);
 
 DWORD GetPacketCount();
-
-BOOL GetPacket(DWORD index, PPACKET pPacket);
 
 /// 封包列表容量上限：超限后淘汰最旧的包，避免长时间挂机把内存吃满。
 constexpr std::size_t kMaxPacketListSize = 20000;
@@ -123,10 +118,6 @@ BOOL SendQueryBagPacket();
 BOOL SendDecomposeLingyuPacket(const std::wstring& jsonArray);
 
 BOOL SendQueryMonsterPacket();
-
-BOOL SendDeepDigPacketNTimes(int count = WpeHook::DEEP_DIG_DEFAULT_COUNT);
-
-BOOL SendDeepDigPacket();
 
 BOOL SendQueryDeepDigCountPacket();
 
@@ -180,27 +171,13 @@ void ProcessTrialResponse(const GamePacket& packet);
 
 BOOL SendFireWindTrialPacket();
 
-BOOL SendFireWindEndPacket(int result, int awardCount, int checkCode);
-
 BOOL SendFireTrialPacket();
 
-BOOL SendFireEndPacket(int result, int awardCount, int checkCode);
-
 BOOL SendStormTrialPacket();
-
-BOOL SendStormEndPacket(int exitStatus, int brand, int checkCode);
-
-BOOL SendPutToSpiritStorePacket(int param1, int param2);
-
-BOOL SendFabaoPacket(int type, uint32_t userId);
 
 BOOL SendTowerCheckInfoPacket();
 
 BOOL SendBuyDicePacket();
-
-BOOL SendBuyDice5Packet();
-
-BOOL SendEnterTowerMapPacket();
 
 BOOL SendThrowBonesPacket();
 
@@ -349,10 +326,6 @@ BOOL SendUsePropsPacket(uint32_t itemId, uint32_t spiritId = 0,
 
 std::wstring GetItemName(uint32_t itemId);
 
-uint32_t GetItemPrice(uint32_t itemId);
-
-uint32_t GetItemPosition(uint32_t itemId);
-
 extern std::wstring g_loginKey;
 
 BOOL ExtractLoginKeyFromPacket(const BYTE* pData, DWORD len);
@@ -360,7 +333,6 @@ BOOL ExtractLoginKeyFromPacket(const BYTE* pData, DWORD len);
 std::wstring BuildLoginUrl(const std::wstring& hexPacket);
 
 void ProcessMD5CheckAndReply(const std::vector<BYTE>& body, uint32_t params);
-
 
 /**
  * @brief 查询全部「最新活动」的剩余次数并异步回填到前端。

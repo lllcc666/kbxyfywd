@@ -121,26 +121,6 @@ std::wstring GetItemName(uint32_t itemId) {
     return std::to_wstring(itemId);
 }
 
-uint32_t GetItemPrice(uint32_t itemId) {
-    static const ItemPriceEntry itemPrices[] = {
-        {100006, 120},
-        {100007, 50},
-        {100008, 20},
-        {100010, 100},
-        {100011, 150},
-        {100012, 200},
-        {100031, 350},
-    };
-
-    for (const auto& entry : itemPrices) {
-        if (entry.id == itemId) {
-            return entry.price;
-        }
-    }
-
-    return 0;
-}
-
 std::string HexToString(const BYTE* pData, DWORD dwSize) {
     if (dwSize == 0) {
         return "";

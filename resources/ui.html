@@ -3515,13 +3515,6 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
         window.isDailyTaskRunning = false;
         window.isTaskZoneRunning = false;
 
-        // 更新深度挖宝次数显示
-        window.updateDeepDigCount = function(count) {
-            var countEl = document.getElementById('deep-dig-count');
-            if (countEl) {
-                countEl.textContent = count >= 0 ? ('剩余' + count + '次') : '-';
-            }
-        };
 
         // 更新日常活动状态显示
         window.updateDailyTaskStatus = function(text, isRunning) {
@@ -4433,13 +4426,6 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             }
         };
 
-        // 坐骑大赛 - 更新状态（C++调用）
-        window.updateHorseCompetitionStatus = function(status) {
-            var statusEl = document.getElementById('horse-competition-status');
-            if (statusEl) {
-                statusEl.textContent = status;
-            }
-        };
 
         window.updateHorseCompetitionPoints = function(points) {
             var pointsEl = document.getElementById('horse-competition-points');
@@ -4627,32 +4613,8 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             window.updateHelperText('已完成 ' + completedCount + '/' + totalCount + ' 项日常活动');
         };
 
-        // 试炼完成回调
-        window.onTrialComplete = function(trialName) {
-            window.updateDailyTaskStatus(trialName + ' 完成', false);
-            window.updateHelperText(trialName + ' 完成');
-        };
 
-        // 全选/全不选
-        window.selectAllDaily = function() {
-            var checkboxes = ['daily-deep-dig', 'daily-dance', 'daily-fire-wind', 'daily-fire', 
-                             'daily-storm', 'daily-card', 'daily-gift', 'weekly-gift',
-                             'family-checkin', 'family-report', 'family-defend', 'shop-surprise'];
-            checkboxes.forEach(function(id) {
-                var cb = document.getElementById(id);
-                if (cb) cb.checked = true;
-            });
-        };
 
-        window.deselectAllDaily = function() {
-            var checkboxes = ['daily-deep-dig', 'daily-dance', 'daily-fire-wind', 'daily-fire', 
-                             'daily-storm', 'daily-card', 'daily-gift', 'weekly-gift',
-                             'family-checkin', 'family-report', 'family-defend', 'shop-surprise'];
-            checkboxes.forEach(function(id) {
-                var cb = document.getElementById(id);
-                if (cb) cb.checked = false;
-            });
-        };
 
         // 绑定所有按钮事件
         document.addEventListener('DOMContentLoaded', function() {
@@ -4840,10 +4802,6 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             }
         });
 
-        window.decomposeLingyu = function() {
-            // 保留此函数以兼容旧代码，现在重定向到批量分解
-            window.decomposeAllInQueue();
-        };
 
         window.applyLingyuSort = function() {
             if (!window.currentLingyuData || !window.currentLingyuData.items) return;

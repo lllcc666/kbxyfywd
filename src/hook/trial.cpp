@@ -3,18 +3,10 @@
 #include <wincrypt.h>
 
 #include <algorithm>
-#include <array>
 #include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <cstdio>
-#include <deque>
-#include <fstream>
-#include <map>
 #include <mutex>
-#include <random>
-#include <set>
-#include <sstream>
 #include <string>
 #include <thread>
 #include <utility>
@@ -50,9 +42,6 @@ extern bool PostScriptToUI(const std::wstring& jsCode);
 
 // 试炼活动全局变量
 static int g_trialCheckCode = 0;           // 校验码
-static int g_trialGameCount = 0;           // 游戏次数
-static int g_trialCoolTime = 0;            // 冷却时间
-static int g_trialAwardNum = 0;            // 印记数量
 static bool g_waitingTrialResponse = false; // 等待响应标志
 static bool g_trialComplete = false;        // 试炼完成标志
 
@@ -147,21 +136,12 @@ static BOOL SendEndTrialPacket(TrialType type, int result, int award, int checkC
 
 // 火风试炼
 BOOL SendFireWindTrialPacket() { return SendStartTrialPacket(TrialType::FireWind); }
-BOOL SendFireWindEndPacket(int result, int awardCount, int checkCode) {
-    return SendEndTrialPacket(TrialType::FireWind, result, awardCount, checkCode);
-}
 
 // 火焰试炼
 BOOL SendFireTrialPacket() { return SendStartTrialPacket(TrialType::Fire); }
-BOOL SendFireEndPacket(int result, int awardCount, int checkCode) {
-    return SendEndTrialPacket(TrialType::Fire, result, awardCount, checkCode);
-}
 
 // 风暴试炼
 BOOL SendStormTrialPacket() { return SendStartTrialPacket(TrialType::Storm); }
-BOOL SendStormEndPacket(int exitStatus, int brand, int checkCode) {
-    return SendEndTrialPacket(TrialType::Storm, exitStatus, brand, checkCode);
-}
 
 // 试炼线程参数结构
 struct TrialThreadParam {
@@ -231,9 +211,9 @@ void ProcessTrialResponse(const GamePacket& packet) {
         case 21:  // 火风试炼基础信息
         case 11:  // 风暴试炼基础信息
             if (offset + 12 <= packet.body.size()) {
-                g_trialGameCount = ReadInt32LE(body, offset);
-                g_trialCoolTime = ReadInt32LE(body, offset);
-                g_trialAwardNum = ReadInt32LE(body, offset);
+                (void)ReadInt32LE(body, offset);  // GameCount（未使用）
+                (void)ReadInt32LE(body, offset);  // CoolTime（未使用）
+                (void)ReadInt32LE(body, offset);  // AwardNum（未使用）
             }
             break;
     }

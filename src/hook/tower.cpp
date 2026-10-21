@@ -3,18 +3,10 @@
 #include <wincrypt.h>
 
 #include <algorithm>
-#include <array>
 #include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <cstdio>
-#include <deque>
-#include <fstream>
-#include <map>
 #include <mutex>
-#include <random>
-#include <set>
-#include <sstream>
 #include <string>
 #include <thread>
 #include <utility>
@@ -51,18 +43,14 @@ static int g_towerRemainingDice = 0;       // 剩余骰子数
 bool g_towerMapEntered = false;     // 是否已进入地图
 static bool g_towerBattleStarted = false;  // 是否已开始战斗
 static bool g_towerResultReceived = false; // 是否收到查询结果响应
-static bool g_towerWaitingResponse = false; // 等待响应
-static HANDLE g_towerThread = nullptr;      // 玄塔线程句柄
 
 // 投掷骰子结果追踪
 static bool g_towerThrowResponseReceived = false;  // 是否收到投掷响应
 static bool g_towerLastThrowSuccess = false;       // 最后一次投掷是否成功
-static int g_towerLastThrowStep = 0;               // 最后一次投掷步数
 static int g_towerLastThrowNodeType = 0;           // 最后一次投掷节点类型
 
 // CHECK_INFO 响应追踪
 static bool g_towerCheckInfoReceived = false;      // 是否收到CHECK_INFO响应
-static int g_towerCheckInfoNbones = 0;             // CHECK_INFO返回的普通骰子数
 static int g_towerPassFlag = 0;                    // 通关标志（0=未通关，1=已通关）
 static bool g_towerIsCompleted = false;            // 玄塔是否已完成（nodetype==8）
 
@@ -70,32 +58,6 @@ static bool g_towerIsCompleted = false;            // 玄塔是否已完成（no
 static bool g_towerBuyBonesReceived = false;       // 是否收到BUY_BONES响应
 static bool g_towerBuyBonesSuccess = false;        // 购买是否成功
 static int g_towerBuyBonesNum = 0;                 // 购买后的骰子数量
-
-// ============ 玄塔寻宝功能实现 ============
-
-// 存入妖怪仓库
-// Opcode: 1187333, Params: 1, Body: [param1, param2]
-BOOL SendPutToSpiritStorePacket(int param1, int param2) {
-    auto packet = PacketBuilder()
-        .SetOpcode(1187333)
-        .SetParams(1)
-        .WriteInt32(param1)
-        .WriteInt32(param2)
-        .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
-}
-
-// 法宝操作（贝贝）
-// Opcode: 1186832, Params: type (0=召唤, 2=收回), Body: [userId, 0]
-BOOL SendFabaoPacket(int type, uint32_t userId) {
-    auto packet = PacketBuilder()
-        .SetOpcode(1186832)
-        .SetParams(static_cast<uint32_t>(type))
-        .WriteUInt32(userId)
-        .WriteInt32(0)
-        .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
-}
 
 // 查询玄塔信息
 // Opcode: 1184833, Params: 341, Body: [1] (CHECK_INFO)
@@ -122,28 +84,6 @@ BOOL SendBuyDicePacket() {
         UIBridge::Instance().UpdateHelperText(L"已购买18个骰子");
     }
     return result;
-}
-
-// 购买骰子（5个）
-// Opcode: 1184833, Params: 341, Body: [6, 5] (BUY_BONES, 数量5)
-BOOL SendBuyDice5Packet() {
-    auto packet = PacketBuilder()
-        .SetOpcode(1184833)
-        .SetParams(341)
-        .WriteInt32(6)
-        .WriteInt32(5)
-        .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
-}
-
-// 跳转到玄塔地图
-// Opcode: 1184313, Params: 16006
-BOOL SendEnterTowerMapPacket() {
-    auto packet = PacketBuilder()
-        .SetOpcode(Opcode::ENTER_SCENE_SEND)
-        .SetParams(16006)
-        .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
 }
 
 // 投掷骰子
@@ -484,7 +424,6 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
                 if (sbones > 20) sbones = 20;
                 g_towerDiceCount = nbones;
                 g_towerRemainingDice = nbones;
-                g_towerCheckInfoNbones = nbones;
                 g_towerPassFlag = passflag;  // 存储通关标志
                 g_towerCheckInfoReceived = true;
             }
@@ -540,7 +479,7 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
             // param3: 随机骰子点数
             else if (operation == 2 && packet.body.size() >= 28) {
                 int32_t result = ReadInt32LE(packet.body.data(), offset);    // 结果 (0=成功, -1=失败)
-                int32_t step = ReadInt32LE(packet.body.data(), offset);      // 步数
+                (void)ReadInt32LE(packet.body.data(), offset);                // 步数（未使用）
                 int32_t nodetype = ReadInt32LE(packet.body.data(), offset);  // 节点类型
                 int32_t param1 = ReadInt32LE(packet.body.data(), offset);
                 int32_t param2 = ReadInt32LE(packet.body.data(), offset);
@@ -552,7 +491,6 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
                 CriticalSectionLock lock(g_towerCS);
                 // 记录投掷结果
                 g_towerLastThrowSuccess = (result == 0);
-                g_towerLastThrowStep = step;
                 g_towerLastThrowNodeType = nodetype;
                 g_towerThrowResponseReceived = true;
                 

@@ -17,16 +17,11 @@ BOOL SendHorseCompetitionPacket(
 );
 
 BOOL SendHorseJoinGamePacket();
-BOOL SendHorseRoomInfoPacket();
 BOOL SendHorseReadyPacket();
 BOOL SendHorseExitRoomPacket();
 BOOL SendHorseUIInfoPacket();
-BOOL SendHorseExchangeInfoPacket();
-BOOL SendHorseExchangePacket(int exchangeId, int count);
 BOOL SendHorsePlayGamePacket(int distance);
-BOOL SendHorseUseItemPacket(int itemIdx);
-BOOL SendHorseGetRegressionPacket(int idx);
-BOOL StartOneKeyHorseCompetitionPacket(bool useTempMount = true);
+BOOL StartOneKeyHorseCompetitionPacket();
 void RequestStopHorseCompetition();
 void SetHorseProgressCallback(HorseProgressCallback callback);
 void ProcessHorseCompetitionResponse(const GamePacket& packet);

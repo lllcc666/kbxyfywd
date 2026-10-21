@@ -3,18 +3,10 @@
 #include <wincrypt.h>
 
 #include <algorithm>
-#include <array>
 #include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <cstdio>
-#include <deque>
-#include <fstream>
-#include <map>
 #include <mutex>
-#include <random>
-#include <set>
-#include <sstream>
 #include <string>
 #include <thread>
 #include <utility>
@@ -45,24 +37,6 @@ extern bool PostScriptToUI(const std::wstring& jsCode);
 // 深度挖宝 owner：会话、剩余次数和自动循环状态统一由该状态对象维护。
 
 DeepDigState g_deepDigState;
-
-BOOL SendDeepDigPacket() {
-    g_deepDigState.waitingResponse = true;
-    g_deepDigState.sessionId = 0;
-    
-    auto packet = PacketBuilder()
-        .SetOpcode(Opcode::DEEP_DIG_SEND)
-        .SetParams(12)
-        .WriteInt32(0)
-        .WriteInt32(0)
-        .WriteInt32(0)
-        .WriteInt32(0)
-        .WriteInt32(0)
-        .WriteInt32(0)
-        .Build();
-    
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
-}
 
 // 查询深度挖宝剩余次数
 // Opcode: 1185685, Params: 668, Body: "open_ui"字符串
@@ -178,28 +152,6 @@ DWORD WINAPI DeepDigLoopThreadProc(LPVOID lpParam) {
     g_deepDigState.autoMode = false;
     delete data;
     return 0;
-}
-
-// 深度挖宝 - 执行N次
-BOOL SendDeepDigPacketNTimes(int count) {
-    if (count <= 0) count = WpeHook::DEEP_DIG_DEFAULT_COUNT;
-    if (g_deepDigState.autoMode) return FALSE;
-    
-    g_deepDigState.autoMode = true;
-    g_deepDigState.targetCount = count;
-    g_deepDigState.completedCount = 0;
-    
-    DeepDigThreadData* data = new DeepDigThreadData();
-    data->targetCount = count;
-    data->hwnd = g_hWnd;
-    
-    // 走受管线程：退出时能收住这条循环线程。
-    if (StartManagedThreadOnce(L"deep_dig_loop", DeepDigLoopThreadProc, data)) {
-        return TRUE;
-    }
-    g_deepDigState.autoMode = false;
-    delete data;
-    return FALSE;
 }
 
 // 深度挖宝 - 发送结束游戏封包

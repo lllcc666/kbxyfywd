@@ -3,7 +3,6 @@
 #include <cstdlib>
 #include <string>
 #include <vector>
-#include <fstream>
 #include <WebView2.h>
 #include <MinHook.h>
 #include <MemoryModule.h>
@@ -65,11 +64,6 @@ HMEMORYMODULE g_webView2LoaderModule = nullptr;
 HMEMORYMODULE g_speedhackModule = nullptr;
 typedef void (__stdcall *PFN_INITIALIZESPEEDHACK)(float);
 PFN_INITIALIZESPEEDHACK g_pfnInitializeSpeedhack = nullptr;
-
-// 钩子相关的原始地址
-void* g_realGetTickCount64 = nullptr;
-void* g_realGetTickCount = nullptr;
-void* g_realQueryPerformanceCounter = nullptr;
 
 // 版本检查相关常量
 // 版本号与窗口标题统一取自 WpeHook::APP_VERSION_W / APP_WINDOW_TITLE_W，避免多处字面量漂移。
@@ -486,30 +480,6 @@ std::wstring TrimWhitespace(const std::wstring& value) {
     return value.substr(start, end - start + 1);
 }
 
-bool TryParseIntInRange(const std::wstring& text, int minValue, int maxValue, int defaultValue, int& value) {
-    const std::wstring trimmed = TrimWhitespace(text);
-    if (trimmed.empty()) {
-        value = defaultValue;
-        return false;
-    }
-
-    wchar_t* end = nullptr;
-    long parsed = std::wcstol(trimmed.c_str(), &end, 10);
-    if (end == trimmed.c_str() || *end != L'\0') {
-        value = defaultValue;
-        return false;
-    }
-
-    if (parsed < minValue) {
-        value = minValue;
-    } else if (parsed > maxValue) {
-        value = maxValue;
-    } else {
-        value = static_cast<int>(parsed);
-    }
-    return true;
-}
-
 bool TryParseFloatValue(const std::wstring& text, float& value) {
     const std::wstring trimmed = TrimWhitespace(text);
     if (trimmed.empty()) {
@@ -704,51 +674,6 @@ void CheckForUpdatesAsync() {
         if (hConnect) WinHttpCloseHandle(hConnect);
         if (hSession) WinHttpCloseHandle(hSession);
     }).detach();
-}
-
-// 回调函数：查找WebView2渲染窗口
-BOOL CALLBACK EnumWebView2ChildWindowsProc(HWND hwnd, LPARAM lParam)
-{
-    TCHAR className[256];
-    if (GetClassName(hwnd, className, sizeof(className)) > 0)
-    {
-        // 查找WebView2渲染窗口的类名
-        if (_tcsstr(className, _T("Chrome_RenderWidgetHostHWND")) != NULL ||
-            _tcsstr(className, _T("Chrome_WidgetWin_1")) != NULL)
-        {
-            HWND* render_hwnd = (HWND*)lParam;
-            *render_hwnd = hwnd;
-            return FALSE; // 找到目标窗口，停止枚举
-        }
-    }
-    return TRUE; // 继续枚举
-}
-
-// 获取WebView2渲染窗口句柄
-HWND GetWebView2RenderWindow()
-{
-    if (!g_hwnd_webview)
-    {
-        if (g_controller)
-        {
-            g_controller->get_ParentWindow(&g_hwnd_webview);
-        }
-    }
-    
-    if (g_hwnd_webview)
-    {
-        // 枚举WebView2父窗口的子窗口，查找渲染窗口
-        HWND render_hwnd = NULL;
-        EnumChildWindows(g_hwnd_webview, EnumWebView2ChildWindowsProc, (LPARAM)&render_hwnd);
-        
-        if (render_hwnd)
-        {
-            return render_hwnd;
-        }
-    }
-    
-    // 如果找不到渲染窗口，返回原始窗口句柄
-    return g_hwnd_webview;
 }
 
 // 全局或类成员变量，记录渲染窗口句柄

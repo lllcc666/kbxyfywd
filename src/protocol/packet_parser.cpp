@@ -14,7 +14,6 @@
 #include <functional>
 #include <limits>
 #include <mutex>
-#include <sstream>
 #include <unordered_map>
 
 // 轻量级ZIP解压辅助函数（纯内存，使用已加载的zlib）
