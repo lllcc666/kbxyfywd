@@ -309,9 +309,8 @@ DWORD WINAPI Act685ThreadProc(LPVOID lpParam) {
 
 BOOL StartOneKeyAct685Packet(bool useSweep) {
     ACT685_STATE.useSweep = useSweep;
-    HANDLE hThread = CreateThread(nullptr, 0, Act685ThreadProc, nullptr, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
+    // 走受管线程：退出时统一 RequestStopAll/JoinAll，不给脱管线程留活口。
+    if (ManagedThread::Start(L"act685", []() { Act685ThreadProc(nullptr); })) {
         return TRUE;
     }
     return FALSE;
@@ -584,9 +583,8 @@ DWORD WINAPI Act666ThreadProc(LPVOID lpParam) {
 
 BOOL StartOneKeyAct666Packet(bool useSweep) {
     ACT666_STATE.useSweep = useSweep;
-    HANDLE hThread = CreateThread(nullptr, 0, Act666ThreadProc, nullptr, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
+    // 走受管线程：退出时统一 RequestStopAll/JoinAll，不给脱管线程留活口。
+    if (ManagedThread::Start(L"act666", []() { Act666ThreadProc(nullptr); })) {
         return TRUE;
     }
     return FALSE;
@@ -953,9 +951,8 @@ BOOL StartOneKeyAct822Packet(bool useSweep, int targetScore) {
     (void)targetScore;
     ACT822_STATE.useSweep = useSweep;
     bool* pUseSweep = new bool(useSweep);
-    HANDLE hThread = CreateThread(nullptr, 0, Act822ThreadProc, pUseSweep, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
+    // 走受管线程：退出时统一 RequestStopAll/JoinAll，不给脱管线程留活口。
+    if (ManagedThread::Start(L"act822", [pUseSweep]() { Act822ThreadProc(pUseSweep); })) {
         return TRUE;
     }
     delete pUseSweep;
@@ -1388,9 +1385,8 @@ DWORD WINAPI Act826ThreadProc(LPVOID lpParam) {
 BOOL StartOneKeyAct826Packet(bool useSweep) {
     ACT826_STATE.useSweep = useSweep;
     bool* pUseSweep = new bool(useSweep);
-    HANDLE hThread = CreateThread(nullptr, 0, Act826ThreadProc, pUseSweep, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
+    // 走受管线程：退出时统一 RequestStopAll/JoinAll，不给脱管线程留活口。
+    if (ManagedThread::Start(L"act826", [pUseSweep]() { Act826ThreadProc(pUseSweep); })) {
         return TRUE;
     }
     delete pUseSweep;
@@ -1705,9 +1701,8 @@ DWORD WINAPI Act827ThreadProc(LPVOID lpParam) {
 BOOL StartOneKeyAct827Packet(bool useSweep) {
     ACT827_STATE.useSweep = useSweep;
     bool* pUseSweep = new bool(useSweep);
-    HANDLE hThread = CreateThread(nullptr, 0, Act827ThreadProc, pUseSweep, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
+    // 走受管线程：退出时统一 RequestStopAll/JoinAll，不给脱管线程留活口。
+    if (ManagedThread::Start(L"act827", [pUseSweep]() { Act827ThreadProc(pUseSweep); })) {
         return TRUE;
     }
     delete pUseSweep;
@@ -1986,9 +1981,8 @@ DWORD WINAPI Act641ThreadProc(LPVOID lpParam) {
 BOOL StartOneKeyAct641Packet(bool useSweep, int targetScore) {
     ACT641_STATE.useSweep = useSweep;
     int* pTargetScore = new int(targetScore);
-    HANDLE hThread = CreateThread(nullptr, 0, Act641ThreadProc, pTargetScore, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
+    // 走受管线程：退出时统一 RequestStopAll/JoinAll，不给脱管线程留活口。
+    if (ManagedThread::Start(L"act641", [pTargetScore]() { Act641ThreadProc(pTargetScore); })) {
         return TRUE;
     }
     delete pTargetScore;
@@ -2344,9 +2338,8 @@ DWORD WINAPI Act810ThreadProc(LPVOID lpParam) {
 
 BOOL StartOneKeyAct810Packet(bool useSweep) {
     g_act810UseSweep = useSweep;
-    HANDLE hThread = CreateThread(nullptr, 0, Act810ThreadProc, nullptr, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
+    // 走受管线程：退出时统一 RequestStopAll/JoinAll，不给脱管线程留活口。
+    if (ManagedThread::Start(L"act810", []() { Act810ThreadProc(nullptr); })) {
         return TRUE;
     }
     return FALSE;
@@ -2630,9 +2623,8 @@ DWORD WINAPI Act684ThreadProc(LPVOID lpParam) {
 BOOL StartOneKeyAct684Packet(bool useSweep, int targetScore) {
     ACT684_STATE.useSweep = useSweep;
     int* pTargetScore = new int(targetScore);
-    HANDLE hThread = CreateThread(nullptr, 0, Act684ThreadProc, pTargetScore, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
+    // 走受管线程：退出时统一 RequestStopAll/JoinAll，不给脱管线程留活口。
+    if (ManagedThread::Start(L"act684", [pTargetScore]() { Act684ThreadProc(pTargetScore); })) {
         return TRUE;
     }
 
@@ -2873,9 +2865,8 @@ DWORD WINAPI Act717ThreadProc(LPVOID lpParam) {
 BOOL StartOneKeyAct717Packet(bool useSweep, int targetScore) {
     ACT717_STATE.useSweep = useSweep;
     int* pTargetScore = new int(targetScore);
-    HANDLE hThread = CreateThread(nullptr, 0, Act717ThreadProc, pTargetScore, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
+    // 走受管线程：退出时统一 RequestStopAll/JoinAll，不给脱管线程留活口。
+    if (ManagedThread::Start(L"act717", [pTargetScore]() { Act717ThreadProc(pTargetScore); })) {
         return TRUE;
     }
 
@@ -3132,9 +3123,8 @@ DWORD WINAPI Act805ThreadProc(LPVOID lpParam) {
 BOOL StartOneKeyAct805Packet(bool useSweep, int targetScore) {
     ACT805_STATE.useSweep = useSweep;
     int* pTargetScore = new int(targetScore);
-    HANDLE hThread = CreateThread(nullptr, 0, Act805ThreadProc, pTargetScore, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
+    // 走受管线程：退出时统一 RequestStopAll/JoinAll，不给脱管线程留活口。
+    if (ManagedThread::Start(L"act805", [pTargetScore]() { Act805ThreadProc(pTargetScore); })) {
         return TRUE;
     }
     delete pTargetScore;
@@ -3438,9 +3428,8 @@ DWORD WINAPI Act757ThreadProc(LPVOID lpParam) {
 
 BOOL StartOneKeyAct757Packet(bool useSweep) {
     bool* pUseSweep = new bool(useSweep);
-    HANDLE hThread = CreateThread(nullptr, 0, Act757ThreadProc, pUseSweep, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
+    // 走受管线程：退出时统一 RequestStopAll/JoinAll，不给脱管线程留活口。
+    if (ManagedThread::Start(L"act757", [pUseSweep]() { Act757ThreadProc(pUseSweep); })) {
         return TRUE;
     }
     delete pUseSweep;
@@ -3829,9 +3818,8 @@ DWORD WINAPI Act631ThreadProc(LPVOID lpParam) {
 
 BOOL StartOneKeyAct631Packet(bool useSweep) {
     ACT631_STATE.useSweep = useSweep;
-    HANDLE hThread = CreateThread(nullptr, 0, Act631ThreadProc, nullptr, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
+    // 走受管线程：退出时统一 RequestStopAll/JoinAll，不给脱管线程留活口。
+    if (ManagedThread::Start(L"act631", []() { Act631ThreadProc(nullptr); })) {
         return TRUE;
     }
     return FALSE;
@@ -4259,9 +4247,8 @@ static std::atomic<int> g_act808PlayCount{0};
 
     BOOL StartOneKeyAct808Packet(bool useSweep) {
         bool* pUseSweep = new bool(useSweep);
-        HANDLE hThread = CreateThread(nullptr, 0, Act808ThreadProc, pUseSweep, 0, nullptr);
-        if (hThread) {
-            CloseHandle(hThread);
+        // 走受管线程：退出时统一 RequestStopAll/JoinAll，不给脱管线程留活口。
+        if (ManagedThread::Start(L"act808", [pUseSweep]() { Act808ThreadProc(pUseSweep); })) {
             return TRUE;
         }
 
@@ -4558,9 +4545,8 @@ static std::atomic<int> g_act808PlayCount{0};
     BOOL StartOneKeyAct782Packet(bool useSweep, int targetScore) {
         g_act782UseSweep = useSweep;
         int* pTargetScore = new int(targetScore);
-        HANDLE hThread = CreateThread(nullptr, 0, Act782ThreadProc, pTargetScore, 0, nullptr);
-        if (hThread) {
-            CloseHandle(hThread);
+        // 走受管线程：退出时统一 RequestStopAll/JoinAll，不给脱管线程留活口。
+        if (ManagedThread::Start(L"act782", [pTargetScore]() { Act782ThreadProc(pTargetScore); })) {
             return TRUE;
         }
         delete pTargetScore;
@@ -4853,9 +4839,8 @@ static std::atomic<int> g_act808PlayCount{0};
     BOOL StartOneKeyAct804Packet(bool useSweep, int targetScore) {
         g_act804UseSweep = useSweep;
         int* pTargetScore = new int(targetScore);
-        HANDLE hThread = CreateThread(nullptr, 0, Act804ThreadProc, pTargetScore, 0, nullptr);
-        if (hThread) {
-            CloseHandle(hThread);
+        // 走受管线程：退出时统一 RequestStopAll/JoinAll，不给脱管线程留活口。
+        if (ManagedThread::Start(L"act804", [pTargetScore]() { Act804ThreadProc(pTargetScore); })) {
             return TRUE;
         }
         delete pTargetScore;
@@ -5234,9 +5219,8 @@ static std::atomic<int> g_act808PlayCount{0};
 
     BOOL StartOneKeyAct811Packet(bool useSweep) {
         g_act811UseSweep = useSweep;
-        HANDLE hThread = CreateThread(nullptr, 0, Act811ThreadProc, nullptr, 0, nullptr);
-        if (hThread) {
-            CloseHandle(hThread);
+        // 走受管线程：退出时统一 RequestStopAll/JoinAll，不给脱管线程留活口。
+        if (ManagedThread::Start(L"act811", []() { Act811ThreadProc(nullptr); })) {
             return TRUE;
         }
         return FALSE;
@@ -5488,8 +5472,10 @@ static std::atomic<int> g_act808PlayCount{0};
     
     BOOL StartOneKeyAct778Packet(bool useSweep) {
         ACT778_STATE.useSweep = useSweep;  // 设置扫荡选项
-        HANDLE hThread = CreateThread(nullptr, 0, Act778ThreadProc, nullptr, 0, nullptr);
-        if (hThread) { CloseHandle(hThread); return TRUE; }
+        // 走受管线程：退出时统一 RequestStopAll/JoinAll。
+        if (ManagedThread::Start(L"act778", []() { Act778ThreadProc(nullptr); })) {
+            return TRUE;
+        }
         return FALSE;
     }
     
@@ -5881,9 +5867,8 @@ int GetAct808PlayCount() {
         g_heavenFuruiRunning = true;
         
         // 启动线程执行一键完成
-        HANDLE hThread = CreateThread(nullptr, 0, HeavenFuruiThreadProc, nullptr, 0, nullptr);
-        if (hThread) {
-            CloseHandle(hThread);
+        // 走受管线程：退出时统一 RequestStopAll/JoinAll，不给脱管线程留活口。
+        if (ManagedThread::Start(L"heavenfurui", []() { HeavenFuruiThreadProc(nullptr); })) {
             return TRUE;
         }
         

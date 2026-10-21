@@ -450,9 +450,8 @@ BOOL StartOneKeyCollectPacket(DWORD flags) {
     }
     
     DWORD* pFlags = new DWORD(flags);
-    HANDLE hThread = CreateThread(NULL, 0, CollectThreadProc, pFlags, 0, NULL);
-    if (hThread) {
-        CloseHandle(hThread);
+    // 走受管线程：退出时统一 RequestStopAll/JoinAll。
+    if (ManagedThread::Start(L"collect", [pFlags]() { CollectThreadProc(pFlags); })) {
         return TRUE;
     } else {
         delete pFlags;

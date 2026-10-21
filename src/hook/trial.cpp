@@ -205,8 +205,10 @@ void ProcessTrialResponse(const GamePacket& packet) {
                 
                 // 启动通用试炼线程
                 TrialThreadParam* param = new TrialThreadParam{g_trialCheckCode, type};
-                HANDLE hThread = CreateThread(nullptr, 0, TrialThreadProc, param, 0, nullptr);
-                if (hThread) CloseHandle(hThread);
+                // 走受管线程：退出时统一 RequestStopAll/JoinAll；启动失败要自己回收参数。
+                if (!ManagedThread::Start(L"trial", [param]() { TrialThreadProc(param); })) {
+                    delete param;
+                }
             }
             break;
             
