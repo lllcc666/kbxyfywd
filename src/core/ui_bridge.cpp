@@ -74,6 +74,7 @@ std::wstring UIBridge::EscapeJsonString(const std::wstring& input) {
     for (wchar_t c : input) {
         switch (c) {
             case L'"':  result += L"\\\""; break;
+            case L'\'': result += L"\\'"; break;
             case L'\\': result += L"\\\\"; break;
             case L'\n': result += L"\\n"; break;
             case L'\r': result += L"\\r"; break;

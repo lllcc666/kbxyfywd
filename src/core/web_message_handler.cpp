@@ -654,12 +654,15 @@ void HandleStartSendAllPacketsCommand(const std::wstring& msg) {
     DWORD sendDelay = 300;
     const std::wstring sendCountStr = GetJsonValue(msg, L"sendCount");
     if (!sendCountStr.empty()) {
-        sendCount = static_cast<DWORD>(_wtoi(sendCountStr.c_str()));
-        if (sendCount < 1) sendCount = 1;
+        const long parsedCount = _wtol(sendCountStr.c_str());
+        // 上限兜底：界面填错（或填 -1 被转成 DWORD 上限）时别真的发几十亿个包。
+        sendCount = parsedCount < 1 ? 1 : (parsedCount > 10000 ? 10000 : static_cast<DWORD>(parsedCount));
     }
     const std::wstring sendDelayStr = GetJsonValue(msg, L"sendDelay");
     if (!sendDelayStr.empty()) {
-        sendDelay = static_cast<DWORD>(_wtoi(sendDelayStr.c_str()));
+        const long parsedDelay = _wtol(sendDelayStr.c_str());
+        // 间隔同样要夹住：负数转成 DWORD 会变成几十亿毫秒，等于整条流程卡死。
+        sendDelay = parsedDelay < 0 ? 0 : (parsedDelay > 60000 ? 60000 : static_cast<DWORD>(parsedDelay));
     }
     LaunchDetachedStdThread(HandleStartSendAllPacketsWorker, sendCount, sendDelay);
 }

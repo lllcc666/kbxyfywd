@@ -103,8 +103,10 @@ bool TryParseDecimal(const std::string& text, ParsedType& value, ParseFunction p
 
     char* end = nullptr;
     const char* begin = text.c_str() + start;
+    errno = 0;
     const auto parsed = parseFunction(begin, &end, 10);
-    if (end == begin) {
+    if (end == begin || errno == ERANGE) {
+        // 超范围就整条不认，别把截断后的值当成功。
         return false;
     }
 
@@ -126,5 +128,10 @@ bool TryParseInt32Decimal(const std::string& text, int32_t& value) {
 }
 
 bool TryParseUInt32Decimal(const std::string& text, uint32_t& value) {
+    // strtoul 会把 "-1" 静默变成 4294967295，无符号解析必须自己挡掉负号。
+    const size_t first = text.find_first_not_of(" \t\r\n");
+    if (first != std::string::npos && text[first] == '-') {
+        return false;
+    }
     return TryParseDecimal(text, value, std::strtoul);
 }
