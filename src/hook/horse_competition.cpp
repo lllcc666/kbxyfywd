@@ -142,16 +142,6 @@ std::vector<uint8_t> BuildHorsePacketBody(
     return body;
 }
 
-std::vector<uint8_t> BuildHorsePacketBodyWithJson(
-    const std::string& operation,
-    const std::string& jsonData) {
-    std::vector<uint8_t> body = BuildHorsePacketBody(operation);
-    const uint16_t jsonLen = static_cast<uint16_t>(jsonData.length());
-    body.push_back(static_cast<uint8_t>(jsonLen & 0xFF));
-    body.push_back(static_cast<uint8_t>((jsonLen >> 8) & 0xFF));
-    body.insert(body.end(), jsonData.begin(), jsonData.end());
-    return body;
-}
 
 std::vector<uint8_t> WrapHorsePacketBody(const std::vector<uint8_t>& body, bool useGameCmd) {
     const uint32_t opcode = useGameCmd ? Opcode::HORSE_GAME_CMD_SEND : Opcode::HORSE_COMPETITION_SEND;

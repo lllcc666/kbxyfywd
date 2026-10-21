@@ -35,19 +35,6 @@ BOOL SendActivityPacket(uint32_t activityId, const std::string& operation,
                       activityId, true);
 }
 
-BOOL SendActivityDailyTaskReport() {
-    std::vector<BYTE> packet = PacketBuilder()
-                                   .SetOpcode(Opcode::TASK_DAILY_REPORT_SEND)
-                                   .SetParams(3)
-                                   .WriteInt32(3)
-                                   .WriteInt32(4039001)
-                                   .WriteInt32(0)
-                                   .Build();
-    if (packet.empty()) {
-        return FALSE;
-    }
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
-}
 
 void NotifySpiritAlert(const std::wstring& message) {
     PostScriptToUI(L"if(window.handleSpiritCollectData) { window.handleSpiritCollectData({\"type\":\"alert\",\"message\":\"" +

@@ -20,7 +20,6 @@ BOOL SendAct778GameHitPacket(int below);
 BOOL SendAct778EndGamePacket(int monsterCount, int endType);
 BOOL SendAct778SweepInfoPacket();
 BOOL SendAct778SweepPacket();
-BOOL StartOneKeyAct778Packet(bool useSweep = false);
 void ProcessAct778Response(const GamePacket& packet);
 
 namespace Act685 {
@@ -35,7 +34,6 @@ BOOL SendAct685StartGamePacket(int ruleFlag = 0);
 BOOL SendAct685EndGamePacket(int score);
 BOOL SendAct685SweepInfoPacket();
 BOOL SendAct685SweepPacket();
-BOOL StartOneKeyAct685Packet(bool useSweep = false);
 void ProcessAct685Response(const GamePacket& packet);
 
 namespace Act666 {
@@ -48,7 +46,6 @@ BOOL SendAct666StartGamePacket(int isPropt = 0, int type = 0);
 BOOL SendAct666EndGamePacket(int medalCount, bool isPass = true);
 BOOL SendAct666SweepInfoPacket();
 BOOL SendAct666SweepPacket();
-BOOL StartOneKeyAct666Packet(bool useSweep = false);
 void ProcessAct666Response(const GamePacket& packet);
 
 namespace Act641 {
@@ -63,7 +60,6 @@ BOOL SendAct641StartGamePacket();
 BOOL SendAct641EndGamePacket(int score);
 BOOL SendAct641SweepInfoPacket();
 BOOL SendAct641SweepPacket();
-BOOL StartOneKeyAct641Packet(bool useSweep = false, int targetScore = Act641::TARGET_SCORE);
 void ProcessAct641Response(const GamePacket& packet);
 
 namespace Act684 {
@@ -79,7 +75,6 @@ BOOL SendAct684StartGamePacket(int ruleFlag = 0);
 BOOL SendAct684EndGamePacket(int score);
 BOOL SendAct684SweepInfoPacket();
 BOOL SendAct684SweepPacket();
-BOOL StartOneKeyAct684Packet(bool useSweep = false, int targetScore = Act684::TARGET_SCORE);
 void ProcessAct684Response(const GamePacket& packet);
 
 namespace Act717 {
@@ -93,7 +88,6 @@ BOOL SendAct717StartGamePacket(int promptFlag = 0);
 BOOL SendAct717EndGamePacket(int score);
 BOOL SendAct717SweepInfoPacket();
 BOOL SendAct717SweepPacket();
-BOOL StartOneKeyAct717Packet(bool useSweep = false, int targetScore = Act717::TARGET_SCORE);
 void ProcessAct717Response(const GamePacket& packet);
 
 namespace Act805 {
@@ -108,7 +102,6 @@ BOOL SendAct805StartGamePacket();
 BOOL SendAct805EndGamePacket(int score);
 BOOL SendAct805SweepInfoPacket();
 BOOL SendAct805SweepPacket();
-BOOL StartOneKeyAct805Packet(bool useSweep = false, int targetScore = Act805::TARGET_SCORE);
 void ProcessAct805Response(const GamePacket& packet);
 
 namespace Act757 {
@@ -123,7 +116,6 @@ BOOL SendAct757StartGamePacket(int promptFlag = 0);
 BOOL SendAct757EndGamePacket(int score);
 BOOL SendAct757SweepInfoPacket();
 BOOL SendAct757SweepPacket();
-BOOL StartOneKeyAct757Packet(bool useSweep = false);
 void ProcessAct757Response(const GamePacket& packet);
 
 namespace Act631 {
@@ -138,7 +130,6 @@ BOOL SendAct631StartGamePacket(int ruleFlag = 0);
 BOOL SendAct631EndGamePacket(int isPass, int clientCheckCode, int score);
 BOOL SendAct631SweepInfoPacket();
 BOOL SendAct631SweepPacket();
-BOOL StartOneKeyAct631Packet(bool useSweep = false);
 void ProcessAct631Response(const GamePacket& packet);
 
 namespace Act782 {
@@ -153,7 +144,6 @@ BOOL SendAct782StartGamePacket(int ruleFlag);
 BOOL SendAct782EndGamePacket(int score);
 BOOL SendAct782SweepInfoPacket();
 BOOL SendAct782SweepPacket();
-BOOL StartOneKeyAct782Packet(bool useSweep = false, int targetScore = Act782::TARGET_SCORE);
 void ProcessAct782Response(const GamePacket& packet);
 
 namespace Act804 {
@@ -167,7 +157,6 @@ BOOL SendAct804StartGamePacket(int promptFlag = 1);
 BOOL SendAct804EndGamePacket(const std::string& jsonStr);
 BOOL SendAct804SweepInfoPacket();
 BOOL SendAct804SweepPacket();
-BOOL StartOneKeyAct804Packet(bool useSweep = false, int targetScore = Act804::TARGET_SCORE);
 void ProcessAct804Response(const GamePacket& packet);
 
 namespace Act810 {
@@ -180,7 +169,6 @@ BOOL SendAct810StartGamePacket(int ruleFlag = 1);
 BOOL SendAct810EndGamePacket(int medalCount);
 BOOL SendAct810SweepInfoPacket();
 BOOL SendAct810SweepPacket();
-BOOL StartOneKeyAct810Packet(bool useSweep = false);
 void ProcessAct810Response(const GamePacket& packet);
 
 namespace Act811 {
@@ -193,7 +181,6 @@ BOOL SendAct811StartGamePacket(int hintFlag = 0);
 BOOL SendAct811SweepInfoPacket();
 BOOL SendAct811SweepPacket();
 BOOL SendAct811EndGamePacket();
-BOOL StartOneKeyAct811Packet(bool useSweep = false);
 void ProcessAct811Response(const GamePacket& packet);
 
 namespace Act822 {
@@ -211,7 +198,6 @@ BOOL SendAct822StartGamePacket(int ruleFlag = 0);
 BOOL SendAct822EndGamePacket(int score, bool isPass = true);
 BOOL SendAct822SweepInfoPacket();
 BOOL SendAct822SweepPacket();
-BOOL StartOneKeyAct822Packet(bool useSweep = false, int targetScore = Act822::PASS_SCORE);
 void ProcessAct822Response(const GamePacket& packet);
 
 namespace Act826 {
@@ -225,7 +211,6 @@ BOOL SendAct826StartGamePacket(int ruleFlag = 0);
 BOOL SendAct826EndGamePacket(int checkCode, int score);
 BOOL SendAct826SweepInfoPacket();
 BOOL SendAct826SweepPacket();
-BOOL StartOneKeyAct826Packet(bool useSweep = false);
 void ProcessAct826Response(const GamePacket& packet);
 
 namespace Act827 {
@@ -239,7 +224,6 @@ BOOL SendAct827StartGamePacket(int promptFlag = 0);
 BOOL SendAct827EndGamePacket(int checkCode, int score);
 BOOL SendAct827SweepInfoPacket();
 BOOL SendAct827SweepPacket();
-BOOL StartOneKeyAct827Packet(bool useSweep = false);
 void ProcessAct827Response(const GamePacket& packet);
 
 namespace Act808 {
@@ -255,7 +239,6 @@ BOOL SendAct808GameingPacket(int index);
 BOOL SendAct808EndGamePacket(int score);
 BOOL SendAct808SweepInfoPacket();
 BOOL SendAct808SweepPacket();
-BOOL StartOneKeyAct808Packet(bool useSweep = false);
 void ProcessAct808Response(const GamePacket& packet);
 // 剩余次数：< 0 表示尚未解析到。
 int GetAct808PlayCount();
