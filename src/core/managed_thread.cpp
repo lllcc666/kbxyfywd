@@ -19,13 +19,22 @@ std::vector<std::shared_ptr<ThreadState>> g_registry;
 thread_local ThreadState* t_currentThread = nullptr;
 
 // 清掉已经结束的条目。必须在持锁状态下调用。
+// 已结束但还没 join 的条目也要在这里 join 掉再删，否则线程句柄会一直挂着。
 void PruneFinishedLocked() {
     for (auto it = g_registry.begin(); it != g_registry.end();) {
-        if ((*it)->finished.load() && !(*it)->thread.joinable()) {
-            it = g_registry.erase(it);
-        } else {
+        if (!(*it)->finished.load()) {
             ++it;
+            continue;
         }
+        if ((*it)->thread.joinable()) {
+            if (std::this_thread::get_id() == (*it)->thread.get_id()) {
+                // 线程体里自己触发回收：不能 join 自己，跳过，下次再收。
+                ++it;
+                continue;
+            }
+            (*it)->thread.join();
+        }
+        it = g_registry.erase(it);
     }
 }
 
@@ -108,8 +117,10 @@ size_t ManagedThread::JoinAll(DWORD timeoutMs) {
         }
     }
 
-    const ULONGLONG deadline = GetTickCount64() + timeoutMs;
+    // 每个线程各自算截止时间：共用一个 deadline 时，第一个线程吃满超时后
+    // 后面的线程剩余等待为 0，等于直接 detach。
     for (auto& state : snapshot) {
+        const ULONGLONG deadline = GetTickCount64() + timeoutMs;
         while (!state->finished.load() && GetTickCount64() < deadline) {
             Sleep(10);
         }

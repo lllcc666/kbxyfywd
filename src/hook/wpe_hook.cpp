@@ -528,6 +528,12 @@ void SetPacketCallback(PACKET_CALLBACK callback) {
 // UI 同步函数
 // ============================================================================
 
+// 整表重建的互斥：SyncPacketsToUI（窗口切换/删除后）与淘汰触发的重建
+// 如果交错投递"清空 + 逐行追加"，DOM 里会出现重复行，行序和 g_PacketList 就对不上了。
+namespace {
+std::mutex g_packetUiMutex;
+}
+
 // 生成"往列表追加一行"的 JS。hex、方向、时间、标签全部从封包本身算，
 // 让整表重建与增量追加两条路径输出的 DOM 完全一致。
 static std::wstring BuildPacketListEntryJs(const BYTE* pData, DWORD dwSize, BOOL bSend,
@@ -559,6 +565,8 @@ void SyncPacketsToUI() {
         return;
     }
 
+    std::lock_guard<std::mutex> uiLock(g_packetUiMutex);
+
     // 深拷贝快照：锁外继续使用封包内容，避免别的线程清列表后读到已释放的内存。
     const std::vector<PacketSnapshot> packetsCopy = SnapshotPacketList();
     if (packetsCopy.empty()) {
@@ -588,9 +596,10 @@ void SyncPacketsToUI() {
     for (size_t i = 0; i < packetsCopy.size(); ++i) {
         const auto& packet = packetsCopy[i];
         if (packet.data.empty()) continue;
+        // 序号取封包在原列表里的下标，列表里若有空包被跳过也不会错行。
         UIBridge::Instance().ExecuteJS(BuildPacketListEntryJs(
             packet.data.data(), static_cast<DWORD>(packet.data.size()),
-            packet.bSend ? TRUE : FALSE, packet.dwTime, i + 1));
+            packet.bSend ? TRUE : FALSE, packet.dwTime, packet.index + 1));
     }
     
     // 在最后统一更新一次计数
@@ -605,6 +614,10 @@ void AppendPacketAndShow(const PACKET& packet) {
     if (!packet.pData || packet.dwSize == 0) {
         return;
     }
+    if (!g_bInterceptEnabled) {
+        // 关掉拦截后不再往列表里塞包（退出阶段尤其重要）。
+        return;
+    }
 
     // 序号与入表在同一临界区算出来：分两次加锁时，收/发两条 hook 线程交错
     // 会让两个真实封包拿到同一个序号。
@@ -612,10 +625,15 @@ void AppendPacketAndShow(const PACKET& packet) {
     bool evicted = false;
     {
         CriticalSectionLock lock(g_packetListCS.Get());
-        while (g_PacketList.size() >= kMaxPacketListSize) {
-            delete[] g_PacketList.front().pData;
-            g_PacketList.erase(g_PacketList.begin());
-            evicted = true;
+        // 一次腾出 10% 的余量：否则容量到顶后每个新包都要淘汰+整表重建，
+        // 等于回到 O(n²)，而且这段代码跑在游戏 socket 线程上。
+        if (g_PacketList.size() >= kMaxPacketListSize) {
+            const size_t target = kMaxPacketListSize - kMaxPacketListSize / 10;
+            while (g_PacketList.size() > target) {
+                delete[] g_PacketList.front().pData;
+                g_PacketList.erase(g_PacketList.begin());
+                evicted = true;
+            }
         }
         g_PacketList.push_back(packet);
         displayIndex = g_PacketList.size();
@@ -624,6 +642,7 @@ void AppendPacketAndShow(const PACKET& packet) {
     if (AppHost::IsPacketWindowVisible()) {
         if (evicted) {
             // 淘汰了队首后，内存里的下标整体前移，增量追加已对不上，整表重建一次。
+            // 重建自带 g_packetUiMutex，和窗口切换触发的重建互斥。
             SyncPacketsToUI();
         } else {
             UIBridge::Instance().ExecuteJS(BuildPacketListEntryJs(

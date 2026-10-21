@@ -1096,13 +1096,20 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         DestroyWindow(hWnd);
         break;
-    case WM_DESTROY:
+    case WM_DESTROY: {
         // 顺序很重要：活动线程还在用 SendPacket / 原始发包函数，必须先让它们退出，
         // 再拆拦截与 hook，最后才清理封包列表与解析器。
         ManagedThread::RequestStopAll();
         // 超时要覆盖线程体内单次最长等待（SendPacket 默认 5000ms + 重试），
         // 否则到点只是 detach，线程会在已卸载的代码上继续跑。
-        ManagedThread::JoinAll(8000);
+        const size_t stillRunning = ManagedThread::JoinAll(8000);
+        if (stillRunning > 0) {
+            // 还有活动线程没停：此时拆钩子会让它在已卸载的代码上继续发包，
+            // 宁可跳过清理直接退出进程。
+            OutputDebugStringW(L"WM_DESTROY: 活动线程未能在超时内退出，跳过钩子清理\n");
+            PostQuitMessage(0);
+            break;
+        }
 
         StopIntercept();
         UninitializeHooks();
@@ -1136,6 +1143,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         
         PostQuitMessage(0);
         break;
+    }
     case WM_SIZE:
         if (g_controller != nullptr)
         {

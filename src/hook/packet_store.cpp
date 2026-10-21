@@ -176,28 +176,17 @@ void FormatPacketClock(DWORD tick, wchar_t* out, size_t outCount) {
     swprintf_s(out, outCount, L"%02d:%02d:%02d", st.wHour, st.wMinute, st.wSecond);
 }
 
-// 追加封包：统一在这里做加锁与容量淘汰，避免各处 push_back 绕过上限。
-void AppendPacketToList(const PACKET& packet) {
-    if (!packet.pData || packet.dwSize == 0) {
-        return;
-    }
-    CriticalSectionLock lock(g_packetListCS.Get());
-    while (g_PacketList.size() >= kMaxPacketListSize) {
-        delete[] g_PacketList.front().pData;
-        g_PacketList.erase(g_PacketList.begin());
-    }
-    g_PacketList.push_back(packet);
-}
-
 std::vector<PacketSnapshot> SnapshotPacketList() {
     std::vector<PacketSnapshot> snapshot;
     CriticalSectionLock lock(g_packetListCS.Get());
     snapshot.reserve(g_PacketList.size());
-    for (const auto& packet : g_PacketList) {
+    for (size_t i = 0; i < g_PacketList.size(); ++i) {
+        const auto& packet = g_PacketList[i];
         if (!packet.pData || packet.dwSize == 0) {
             continue;
         }
         PacketSnapshot item;
+        item.index = i;
         item.bSend = packet.bSend != FALSE;
         item.dwTime = packet.dwTime;
         item.data.assign(packet.pData, packet.pData + packet.dwSize);

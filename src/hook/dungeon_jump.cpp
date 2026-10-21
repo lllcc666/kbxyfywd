@@ -23,7 +23,6 @@ extern bool PostScriptToUI(const std::wstring& jsCode);
 DungeonJumpState g_dungeonJumpState;
 
 // 外部变量声明（来自packet_parser.cpp）
-extern MonsterData g_monsterData;
 
 BOOL SendDungeonJumpLayerPacket(int layer) {
     if (layer < 1 || layer > 9999) {

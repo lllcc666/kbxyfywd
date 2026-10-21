@@ -17,7 +17,6 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern MonsterData g_monsterData;
 extern std::unordered_map<int, int> g_skillPowers;
 
 extern bool PostScriptToUI(const std::wstring& jsCode);
@@ -30,7 +29,6 @@ extern bool PostScriptToUI(const std::wstring& jsCode);
 ShuangTaiAutoBattle g_shuangtaiAuto;
 
 // 引用妖怪数据和技能威力映射
-extern MonsterData g_monsterData;
 extern std::unordered_map<int, int> g_skillPowers;
 
 // ========== 工具函数 ==========

@@ -90,13 +90,11 @@ constexpr std::size_t kMaxPacketListSize = 20000;
 /// 封包列表的深拷贝快照：脱离 g_packetListCS 之后继续使用封包内容，
 /// 避免直接持有裸 pData 而在别的线程清列表后读到已释放内存。
 struct PacketSnapshot {
+    std::size_t index;   ///< 在 g_PacketList 中的下标（0 起始），界面序号用它推
     bool bSend;
     DWORD dwTime;
     std::vector<BYTE> data;
 };
-
-/// 追加一条封包记录（内部加锁，超限淘汰最旧）。
-void AppendPacketToList(const PACKET& packet);
 
 /// 把封包时间（GetTickCount 基准）格式化成 hh:mm:ss。
 void FormatPacketClock(DWORD tick, wchar_t* out, std::size_t outCount);
