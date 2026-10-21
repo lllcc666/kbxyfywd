@@ -326,3 +326,185 @@ BOOL SendQueryMonsterPacket() {
     return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
 }
 
+BOOL SendReqPackageDataPacket(uint32_t packType) {
+    // 封包格式: Opcode=1183761, Params=packType, Body=空
+    std::vector<uint8_t> packet = PacketBuilder()
+        .SetOpcode(Opcode::REQ_PACKAGE_DATA_SEND)
+        .SetParams(packType)
+        .Build();
+    
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+}
+
+/**
+ * @brief 处理背包数据响应
+ * @param packet 封包数据
+ */
+void ProcessPackageDataResponse(const GamePacket& packet) {
+    if (packet.body.size() < 8) {
+        UIBridge::Instance().UpdateHelperText(L"背包数据响应格式错误");
+        return;
+    }
+    
+    const BYTE* body = packet.body.data();
+    size_t offset = 0;
+    size_t bodySize = packet.body.size();
+    
+    // 读取 isocode（占位字段，仅需推进 offset）
+    (void)ReadInt32LE(body, offset);
+    
+    // 读取 packcount（包数量）
+    int packcount = ReadInt32LE(body, offset);
+    
+    // 清空之前的物品映射
+    g_itemPositionMap.clear();
+    g_packItems.clear();
+    
+    // 遍历每个包
+    for (int i = 0; i < packcount; i++) {
+        // 检查是否有足够的空间读取 packcode, packid, count (共12字节)
+        if (offset + 12 > bodySize) break;
+        
+        int packcode = ReadInt32LE(body, offset);
+        (void)ReadInt32LE(body, offset);  // packid：占位字段，仅需推进 offset
+        int count = ReadInt32LE(body, offset);
+        
+        // 遍历包内物品
+        for (int j = 0; j < count; j++) {
+            // 检查是否有足够的空间读取 position 和 id (共8字节)
+            if (offset + 8 > bodySize) break;
+            
+            PackItemInfo item;
+            item.packcode = packcode;
+            item.position = ReadInt32LE(body, offset);
+            item.id = ReadInt32LE(body, offset);
+            
+            if (item.id > 0) {
+                // 检查是否有足够的空间读取 count (4字节)
+                if (offset + 4 > bodySize) break;
+                
+                item.count = ReadInt32LE(body, offset);
+                
+                // 保存到列表
+                g_packItems.push_back(item);
+                
+                // 建立ID -> position映射
+                g_itemPositionMap[item.id] = item.position;
+            }
+        }
+    }
+    
+    // 构建道具数量JSON并发送到JS
+    std::wstring itemCountsJson = L"{";
+    bool first = true;
+    for (const auto& item : g_packItems) {
+        if (!first) itemCountsJson += L",";
+        first = false;
+        itemCountsJson += L"\"" + std::to_wstring(item.id) + L"\":" + std::to_wstring(item.count);
+    }
+    itemCountsJson += L"}";
+    
+    std::wstring script = L"if(window.updateItemCounts) { window.updateItemCounts(" + itemCountsJson + L"); }";
+    UIBridge::Instance().ExecuteJS(script);
+    
+    // 更新UI
+    wchar_t msg[128];
+    swprintf_s(msg, L"背包数据已更新，共 %zu 个物品", g_packItems.size());
+    UIBridge::Instance().UpdateHelperText(msg);
+}
+
+/**
+ * @brief 购买道具
+ * @param itemId 道具ID
+ * @param count 购买数量
+ * @return 发送是否成功
+ * @note 封包格式: Opcode=1183760, Params=itemId, Body=[count]
+ */
+BOOL SendBuyGoodsPacket(uint32_t itemId, uint32_t count) {
+    // 封包格式: Opcode=1183760, Params=itemId, Body=[count]
+    std::vector<uint8_t> packet = PacketBuilder()
+        .SetOpcode(Opcode::BUY_GOODS_SEND)
+        .SetParams(itemId)
+        .WriteUInt32(count)
+        .Build();
+    
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+}
+
+/**
+ * @brief 使用道具（战斗中）
+ * @param itemId 道具ID
+ * @param position 物品位置索引（如果为0则从映射表查找）
+ * @return 发送是否成功
+ * @note 封包格式: Opcode=1186050, Params=2, Body=[packcode=1, position, sid=1]
+ */
+BOOL SendUseItemInBattlePacket(uint32_t itemId, uint32_t position) {
+    // 如果未指定位置，从映射表中查找
+    if (position == 0) {
+        auto it = g_itemPositionMap.find(itemId);
+        if (it == g_itemPositionMap.end()) {
+            return FALSE;
+        }
+        position = it->second;
+    }
+    
+    // 封包格式: Opcode=1186050, Params=2, Body=[packcode, position, sid]
+    // packcode = 1 (道具背包), sid = 1 (玩家角色)
+    std::vector<uint8_t> packet = PacketBuilder()
+        .SetOpcode(Opcode::USER_OP_SEND)
+        .SetParams(2)
+        .WriteUInt32(1)        // packcode = 1
+        .WriteUInt32(position) // position
+        .WriteUInt32(1)        // sid = 1
+        .Build();
+    
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+}
+
+/**
+ * @brief 使用道具（通用，非战斗）
+ * @param itemId 道具ID
+ * @param spiritId 妖怪ID
+ * @param param1 参数1
+ * @param param2 参数2
+ * @param param3 参数3
+ * @return 发送是否成功
+ * @note 封包格式: Opcode=1184310, Params=itemId, Body=[spiritId, param1, param2, param3]
+ */
+BOOL SendUsePropsPacket(uint32_t itemId, uint32_t spiritId, 
+                        uint32_t param1, uint32_t param2, uint32_t param3) {
+    // 封包格式: Opcode=1184310, Params=itemId, Body=[spiritId, param1, param2, param3]
+    std::vector<uint8_t> packet = PacketBuilder()
+        .SetOpcode(Opcode::USE_PROPS_SEND)
+        .SetParams(itemId)
+        .WriteUInt32(spiritId)
+        .WriteUInt32(param1)
+        .WriteUInt32(param2)
+        .WriteUInt32(param3)
+        .Build();
+    
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+}
+
+/**
+ * @brief 获取道具名称
+ * @param itemId 道具ID
+ * @return 道具名称
+ */
+/**
+ * @brief 获取物品位置
+ * @param itemId 物品ID
+ * @return 物品位置索引
+ */
+uint32_t GetItemPosition(uint32_t itemId) {
+    auto it = g_itemPositionMap.find(itemId);
+    if (it != g_itemPositionMap.end()) {
+        return it->second;
+    }
+    return 0;
+}
+
+// ============================================================================
+// 封包回调
+// ============================================================================
+

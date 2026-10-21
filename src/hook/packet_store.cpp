@@ -152,3 +152,51 @@ BOOL LoadPacketListFromFile(const std::wstring& filePath) {
 }
 
 // 一键完成所有选中的日常活动
+
+VOID ClearPacketList() {
+    if (!IsWpeHookInitialized()) return;
+    
+    CriticalSectionLock lock(g_packetListCS.Get());
+    for (auto& packet : g_PacketList) {
+        delete[] packet.pData;
+        packet.pData = nullptr;
+    }
+    g_PacketList.clear();
+}
+
+VOID DeleteSelectedPackets(const std::vector<DWORD>& indices) {
+    if (!IsWpeHookInitialized()) return;
+    
+    CriticalSectionLock lock(g_packetListCS.Get());
+    
+    // 从大到小排序，避免索引偏移
+    std::vector<DWORD> sortedIndices = indices;
+    std::sort(sortedIndices.begin(), sortedIndices.end(), std::greater<DWORD>());
+    
+    for (DWORD index : sortedIndices) {
+        if (index < g_PacketList.size()) {
+            delete[] g_PacketList[index].pData;
+            g_PacketList.erase(g_PacketList.begin() + index);
+        }
+    }
+}
+
+DWORD GetPacketCount() {
+    CriticalSectionLock lock(g_packetListCS.Get());
+    return static_cast<DWORD>(g_PacketList.size());
+}
+
+BOOL GetPacket(DWORD index, PPACKET pPacket) {
+    if (!pPacket) return FALSE;
+    
+    CriticalSectionLock lock(g_packetListCS.Get());
+    if (index >= g_PacketList.size()) {
+        return FALSE;
+    }
+    
+    *pPacket = g_PacketList[index];
+    return TRUE;
+}
+
+// 主线任务回包的分发包装：TASK_TALK_BACK 与八卦灵盘共用，两边都要收到。
+// TASK_TALK_BACK 分发链：八卦灵盘与主线任务共用一个 opcode，两者都要收到回包。
