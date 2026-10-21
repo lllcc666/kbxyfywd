@@ -75,14 +75,8 @@ constexpr int kActivityCountTargetNum =
 
 // 返回单个活动剩余次数；< 0 表示未解析出（不含“次数为 0”的合法情况）。
 int GetActivityRemainingCount(uint32_t activityId) {
-    switch (activityId) {
-        case Act808::ACTIVITY_ID: return GetAct808PlayCount();
-        default:
-            // 最新活动（周活动小游戏）由独立模块维护次数。
-            return IsLatestActivity(activityId)
-                ? GetLatestActivityPlayCount(activityId)
-                : -1;
-    }
+    // 最新活动（周活动小游戏）由独立模块维护次数，其余活动不再有一键入口。
+    return IsLatestActivity(activityId) ? GetLatestActivityPlayCount(activityId) : -1;
 }
 
 void ReportActivityCount(uint32_t activityId, int remainingCount) {

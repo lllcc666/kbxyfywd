@@ -1508,13 +1508,6 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerOpcode(Opcode::COLLECT_STATUS_BACK, ProcessCollectResponse);
     registerOpcode(Opcode::REQ_PACKAGE_DATA_BACK, ProcessPackageDataResponse);
 
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act778::ACTIVITY_ID, ProcessAct778Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act808::ACTIVITY_ID, ProcessAct808Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act782::ACTIVITY_ID, ProcessAct782Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act804::ACTIVITY_ID, ProcessAct804Response);
-    registerParams(Opcode::ACTIVITY_LUA_V3_BACK, Act804::ACTIVITY_ID, ProcessAct804Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act811::ACTIVITY_ID, ProcessAct811Response);
-    registerParams(Opcode::ACTIVITY_LUA_V3_BACK, Act811::ACTIVITY_ID, ProcessAct811Response);
     registerParams(Opcode::HORSE_COMPETITION_BACK, HORSE_COMPETITION_ACT_ID, ProcessHorseCompetitionResponse);
 
     // 最新活动（周活动小游戏）：按活动 ID 路由到统一处理器
@@ -1575,9 +1568,6 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
         return instance;
     }
 
-    Act778State& ActivityStateManager::GetAct778State() {
-        return m_act778State;
-    }
 
 
 

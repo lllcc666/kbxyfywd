@@ -26,14 +26,6 @@ bool ReadPacketString(const BYTE* body, size_t bodySize, size_t& offset, std::st
     return true;
 }
 
-BOOL SendActivityPacket(uint32_t activityId, const std::string& operation,
-                        const std::vector<int32_t>& bodyValues) {
-    std::vector<BYTE> packet =
-        BuildActivityPacket(Opcode::ACTIVITY_QINGYANG_NEW_SEND, activityId, operation, bodyValues);
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()),
-                      Opcode::ACTIVITY_QUERY_BACK, WpeHook::TIMEOUT_RESPONSE,
-                      activityId, true);
-}
 
 
 void NotifySpiritAlert(const std::wstring& message) {

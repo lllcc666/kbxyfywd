@@ -24,20 +24,6 @@ struct ActivityState {
     }
 };
 
-struct Act778State : ActivityState {
-    std::atomic<int> bestScore{0};
-    std::atomic<bool> useSweep{false};
-    std::atomic<bool> sweepSuccess{false};
-    std::atomic<int> gameTime{0};
-
-    void Reset() override {
-        ActivityState::Reset();
-        bestScore = 0;
-        useSweep = false;
-        sweepSuccess = false;
-        gameTime = 0;
-    }
-};
 
 
 
@@ -235,7 +221,6 @@ class ActivityStateManager {
 public:
     static ActivityStateManager& Instance();
 
-    Act778State& GetAct778State();
     HorseCompetitionState& GetHorseCompetitionState();
 
 private:
@@ -244,6 +229,5 @@ private:
     ActivityStateManager(const ActivityStateManager&) = delete;
     ActivityStateManager& operator=(const ActivityStateManager&) = delete;
 
-    Act778State m_act778State;
     HorseCompetitionState m_horseCompetitionState;
 };
