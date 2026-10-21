@@ -40,6 +40,13 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
+// 背包映射由收包线程在 ProcessPackageDataResponse 里整体重建，
+// 活动线程会在发包前查 position，两边必须用同一把锁。
+namespace {
+std::mutex g_packItemsMutex;
+}
+
+
 extern bool PostScriptToUI(const std::wstring& jsCode);
 
 // ============ 灵玉相关功能实现 ============
@@ -356,9 +363,13 @@ void ProcessPackageDataResponse(const GamePacket& packet) {
     // 读取 packcount（包数量）
     int packcount = ReadInt32LE(body, offset);
     
-    // 清空之前的物品映射
-    g_itemPositionMap.clear();
-    g_packItems.clear();
+    // 重建整张映射表：先持锁清空再填充，JS 调用留到锁外。
+    std::wstring itemCountsJson = L"{";
+    size_t itemTotal = 0;
+    {
+        std::lock_guard<std::mutex> packLock(g_packItemsMutex);
+        g_itemPositionMap.clear();
+        g_packItems.clear();
     
     // 遍历每个包
     for (int i = 0; i < packcount; i++) {
@@ -394,22 +405,23 @@ void ProcessPackageDataResponse(const GamePacket& packet) {
         }
     }
     
-    // 构建道具数量JSON并发送到JS
-    std::wstring itemCountsJson = L"{";
-    bool first = true;
-    for (const auto& item : g_packItems) {
-        if (!first) itemCountsJson += L",";
-        first = false;
-        itemCountsJson += L"\"" + std::to_wstring(item.id) + L"\":" + std::to_wstring(item.count);
+        // 构建道具数量JSON
+        bool first = true;
+        for (const auto& item : g_packItems) {
+            if (!first) itemCountsJson += L",";
+            first = false;
+            itemCountsJson += L"\"" + std::to_wstring(item.id) + L"\":" + std::to_wstring(item.count);
+        }
+        itemCountsJson += L"}";
+        itemTotal = g_packItems.size();
     }
-    itemCountsJson += L"}";
     
     std::wstring script = L"if(window.updateItemCounts) { window.updateItemCounts(" + itemCountsJson + L"); }";
     UIBridge::Instance().ExecuteJS(script);
     
     // 更新UI
     wchar_t msg[128];
-    swprintf_s(msg, L"背包数据已更新，共 %zu 个物品", g_packItems.size());
+    swprintf_s(msg, L"背包数据已更新，共 %zu 个物品", itemTotal);
     UIBridge::Instance().UpdateHelperText(msg);
 }
 
@@ -441,6 +453,7 @@ BOOL SendBuyGoodsPacket(uint32_t itemId, uint32_t count) {
 BOOL SendUseItemInBattlePacket(uint32_t itemId, uint32_t position) {
     // 如果未指定位置，从映射表中查找
     if (position == 0) {
+        std::lock_guard<std::mutex> packLock(g_packItemsMutex);
         auto it = g_itemPositionMap.find(itemId);
         if (it == g_itemPositionMap.end()) {
             return FALSE;
@@ -497,6 +510,7 @@ BOOL SendUsePropsPacket(uint32_t itemId, uint32_t spiritId,
  * @return 物品位置索引
  */
 uint32_t GetItemPosition(uint32_t itemId) {
+    std::lock_guard<std::mutex> packLock(g_packItemsMutex);
     auto it = g_itemPositionMap.find(itemId);
     if (it != g_itemPositionMap.end()) {
         return it->second;
