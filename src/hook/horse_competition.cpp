@@ -525,8 +525,14 @@ int ExtractJsonInt(const std::string& json, const std::string& key) {
 uint32_t ExtractJsonUInt(const std::string& json, const std::string& key) {
     const size_t pos = json.find("\"" + key + "\":");
     if (pos != std::string::npos) {
+        size_t valuePos = pos + key.length() + 3;  // 跳过 `"key":`
+        // 服务器可能序列化成 `"player_id": 123`（冒号后带空格）。不跳过空白就会
+        // 解析失败、把 0 当成「字段不存在」，成员自检与排名查找都会找不到自己。
+        while (valuePos < json.size() && (json[valuePos] == ' ' || json[valuePos] == '\t')) {
+            ++valuePos;
+        }
         uint32_t value = 0;
-        if (TryParseUInt32Decimal(json.substr(pos + key.length() + 3), value)) {
+        if (TryParseUInt32Decimal(json.substr(valuePos), value)) {
             return value;
         }
     }
@@ -838,18 +844,50 @@ bool IsStaleHorseRoomPacket(const HorseCompetitionState& state, int packetRoomId
     return packetRoomId != currentRoomId;
 }
 
+// 判断一份 JSON 里是否出现过指定 player_id（包括嵌在 members 数组里的那几份）。
+//
+// 不能用 ExtractJsonObjectByPlayerId 来做这件事：它依赖 SliceNextJsonObject，而那个
+// 切片器只产出最外层的 {...}。对 start_game 这种 `{"id":..,"members":[{..},{..}]}`
+// 的包，它只能切出最外层对象，ExtractJsonUInt 又只取第一个 "player_id"，于是判定
+// 结果等价于「我的 player_id 是不是成员表里第一个」——只要别人先进房，自检就恒为
+// false，整个开局包被丢弃：本地一直"等待其他玩家加入"，服务器却已经开局，此时退房
+// 会被拒绝（游戏里那句「游戏开始无法退出房间」），流程就锁死在进不去也退不出。
+bool JsonHasPlayerId(const std::string& json, uint32_t playerId) {
+    if (playerId == 0) {
+        return false;
+    }
+    static const std::string kKey = "\"player_id\":";
+    size_t searchPos = 0;
+    while (true) {
+        const size_t pos = json.find(kKey, searchPos);
+        if (pos == std::string::npos) {
+            return false;
+        }
+        size_t valuePos = pos + kKey.length();
+        while (valuePos < json.size() && (json[valuePos] == ' ' || json[valuePos] == '\t')) {
+            ++valuePos;
+        }
+        uint32_t value = 0;
+        if (TryParseUInt32Decimal(json.substr(valuePos), value) && value == playerId) {
+            return true;
+        }
+        searchPos = pos + kKey.length();
+    }
+}
+
 // START_GAME 的 members 是房间成员数组，每项带 player_id（RoomInfoData.as:149）。
 // 我们的 player_id 在里面，说明这一局确实在房间里；不在里面说明这是上一局
 // （已被 EXIT_ROOM 移出）的迟到包，采纳它就会起一个往死房间发 PLAY_GAME 的幽灵局。
 //
 // 这是比房间号、比「是否收到过 JOIN 回包」都可靠的判据：不受服务器复用房间号影响，
-// 也不受 JOIN 回包与 START_GAME 到达顺序影响。
+// 也不受 JOIN 回包与 START_GAME 到达顺序影响。判据本身必须扫全文（见 JsonHasPlayerId），
+// 不能只扫最外层对象，否则房里有别人时会误杀正常开局。
 bool HorseStartGameHasSelf(const std::string& json) {
     const uint32_t myId = g_userId.load();
     if (myId == 0) {
         return true;  // 拿不到自己的 id 时不做判断，宁可放过也不误杀正常开局
     }
-    return !ExtractJsonObjectByPlayerId(json, myId).empty();
+    return JsonHasPlayerId(json, myId);
 }
 
 void HandleHorseRoomInfoResponse(HorseCompetitionState& state, const std::string& json) {
@@ -999,6 +1037,26 @@ void HandleHorseRoomStatusResponse(HorseCompetitionState& state, const std::stri
             state.roomGone = true;
             state.inRoom = false;
         }
+    } else if (state.roomStatus == HORSE_ROOM_GAMESTART || state.roomStatus == HORSE_ROOM_INGAME) {
+        // 服务器已经开局，本地却还没起跑：说明 start_game 没被采纳（迟到包判定、
+        // 成员自检、或者根本没收到）。这正是「本地一直等待其他玩家加入、服务器却在
+        // 比赛中」的错位——此时退房会被服务器以「游戏开始无法退出房间」拒绝，流程
+        // 就锁死在进不去也退不出。这里按房间状态补一次起跑作为兜底：
+        // 坐骑属性来自上一份 room_info / join_game 的成员对象，不需要这份成员表。
+        // 宁可多跑一局，也不要原地干等到 10 分钟上限。
+        //
+        // 必须同时要求 inRoom：awaitingStart 在发出 JOIN_GAME 之前就已经置真，那个窗口
+        // 里 phase 还是 JOINING_ROOM、roomId 已被 Reset 清 0（迟到包判定一律放行），
+        // 上一局残留的 ROOM_STATUS=INGAME 会在这里触发一次「幽灵起跑」——myInfo 刚被
+        // 清空，起跑必然失败并置 raceAborted，白丢一轮。
+        if (!state.isGaming && state.awaitingStart && state.inRoom && !state.roomGone) {
+            NotifyHorseProgress(L"房间状态显示比赛已开始，直接进入比赛");
+            if (!StartHorseCompetitionGame()) {
+                // 属性没拿到（拿不到时 Start 会置 raceAborted）：交给外层按本轮放弃处理，
+                // 不要在这里补什么自造速度。
+                NotifyHorseProgress(L"房间已开局但本地缺少坐骑属性，本轮放弃");
+            }
+        }
     } else if (state.roomStatus == HORSE_ROOM_SETTLE) {
         // 这里只能置「结算中」标记，绝不能走 SetHorsePhase(SETTLING)。
         // AS3 对 ROOM_STATUS=SETTLE 只派发 HORSE_FINISH（HorseModel.as:207-210），
@@ -1051,14 +1109,38 @@ void HandleHorseEndGameResponse(HorseCompetitionState& state, const GamePacket& 
         return;
     }
 
-    // 只在本局确实处于「比赛中/结算中」时采纳。超时退房后服务器补推的 END_GAME
+    // 只在本局处于「等开局/比赛中/结算中」时采纳。超时退房后服务器补推的 END_GAME
     // 若在这里被采纳，会 SetHorsePhase(FINISHED)：isGaming 被打回 false（游戏线程
-    // 当场退出）、isFinished 置真（外层立刻判定本局完成），实际一帧都没骑，
-    // 而 result==0 时还会把失败计数清零。
-    if (state.phase < HORSE_PHASE_GAMING || state.phase >= HORSE_PHASE_FINISHED) {
+    // 当场退出）、isFinished 置真（外层立刻判定本局完成），实际一帧都没骑。
+    // 但「等开局」阶段必须放进来：错过 start_game 时服务器照样会把这一局跑完并发结算，
+    // 若此时把包丢掉，本地就会白等满 10 分钟开局上限，房间还一直挂在服务器那里。
+    // phase 只读一次：读两次的话，中间若被补起跑推成 GAMING，真正的结算包会掉进
+    // 下面「本地没参赛」的分支，外层空转到整段比赛预算才收场。
+    const int phaseNow = state.phase.load();
+    if (phaseNow < HORSE_PHASE_WAITING_START || phaseNow >= HORSE_PHASE_FINISHED) {
         return;
     }
     if (state.receivedEndGame) {
+        return;
+    }
+
+    // 本机还没起跑就收到结算：只记标记、不动 phase。比赛线程此刻没在跑，改 phase 只会
+    // 让外层误以为「本局已经正常完成」；外层等待循环见到 receivedEndGame 会自己收尾。
+    //
+    // 但这条分支必须自带迟到包判据——END_GAME 没有房号可校（对比 room_status）。
+    // 新房间在入房/准备阶段的 roomStatus 只可能是 FREE/READY，只有服务器真把这一局
+    // 开起来过（GAMESTART/INGAME/SETTLE），这份结算才可能是本房间的；否则就是上一局
+    // 退房后补推的迟到包，采纳它只会白丢一轮。
+    if (phaseNow < HORSE_PHASE_GAMING && !state.isGaming) {
+        const int roomStatus = state.roomStatus.load();
+        const bool serverRanThisRoom = roomStatus == HORSE_ROOM_GAMESTART ||
+                                       roomStatus == HORSE_ROOM_INGAME ||
+                                       roomStatus == HORSE_ROOM_SETTLE;
+        if (!serverRanThisRoom) {
+            return;
+        }
+        state.receivedEndGame = true;
+        NotifyHorseProgress(L"服务器已结算本局（本地未能参赛），进入下一轮");
         return;
     }
 
@@ -1472,7 +1554,15 @@ BOOL StartOneKeyHorseCompetitionPacket() {
         NotifyHorseProgress(reason);
         StopHorseCompetitionGame();
         if (!alreadyLeft) {
-            LeaveHorseRoomAndConfirm(400);
+            if (!LeaveHorseRoomAndConfirm(400)) {
+                // 服务器拒绝退房（比赛阶段里会这样，游戏内提示「游戏开始无法退出房间」）。
+                // 这时房间在服务器侧还留着我们，下次启动会先补一次 EXIT_ROOM 清理；
+                // 必须提示出来，否则用户只看到游戏内那句报错，不知道工具已经停了。
+                // 文案要写实际行为：下一轮首轮不会再补发 EXIT_ROOM（everJoined 是 false），
+                // 真正的兜底是「入房 6 秒超时 → 标记 everJoined → 退房后重试」。
+                NotifyHorseProgress(
+                    L"退房确认未收到，服务器可能仍认为你在房间里；下次入房超时会自动清房重试");
+            }
         }
         state.isRunning = false;
         state.stopRequested = false;
@@ -1645,6 +1735,11 @@ BOOL StartOneKeyHorseCompetitionPacket() {
             if (state.raceAborted) {
                 break;
             }
+            // 服务器把这一局跑完并推了结算（我们错过了 start_game，本地没参赛）。
+            // 继续等只会在房间已结算后白等，交给下面的收尾分支进下一轮。
+            if (state.receivedEndGame) {
+                break;
+            }
             if (waitedMs >= kStartGiveUpMs) {
                 break;
             }
@@ -1667,6 +1762,20 @@ BOOL StartOneKeyHorseCompetitionPacket() {
             state.awaitingStart = false;
             if (state.stopRequested) {
                 return stopAndReturn(L"坐骑大赛已按请求停止");
+            }
+            if (state.receivedEndGame) {
+                // 本局在我们起跑之前就被服务器结算掉了（见 HandleHorseEndGameResponse：
+                // 错过 start_game 时服务器照样跑完并推结算）。这不属于本工具失败，不能
+                // 走下面的"长时间未开局"重试分支——那会记一次失败退避，还可能重复发
+                // EXIT_ROOM 撞「游戏开始无法退出房间」。
+                NotifyHorseProgress(L"本局已由服务器结算，退房后重新匹配");
+                StopHorseCompetitionGame();
+                lastExitConfirmed = LeaveHorseRoomAndConfirm(400);
+                pendingDayPoint = -1;
+                needUiInfo = true;
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(HorseRetryBackoffMs(consecutiveFailures)));
+                continue;
             }
             if (missedHorseInfo) {
                 retryAndContinue(L"开局包缺少坐骑属性，退房后重新匹配");
