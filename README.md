@@ -77,17 +77,6 @@ kbwebui/
 └─ README.md
 ```
 
-以下目录/文件属**本机资料，不入库**（已在 `.gitignore` 中）：
-
-```text
-data/            # 从游戏 data.zip 导出的 XML，仅供 scripts 生成代码
-docs/            # 逆向分析笔记
-.agents/         # 本地技能库
-swf_cache/       # 下载的 SWF 与反编译输出
-backups/         # 改动前的原文件备份
-build_new/       # 构建输出
-```
-
 ## 代码结构
 
 ### `src/app/`
