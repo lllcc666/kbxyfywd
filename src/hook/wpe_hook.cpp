@@ -33,6 +33,7 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 #include "hook_shared.h"
+#include "managed_thread.h"
 #include "story_task_internal.h"
 #include "task_zone_internal.h"
 #include "activity_states_internal.h"
@@ -395,6 +396,10 @@ bool IsWpeHookInitialized() {
 }
 
 VOID CleanupWpeHook() {
+    // 先让受管线程收尾，再拆 hook：否则线程还在跑的时候钩子函数就没了。
+    ManagedThread::RequestStopAll();
+    ManagedThread::JoinAll(3000);
+
     if (!g_bInitialized) return;
 
     // 停止拦截并标记为未初始化

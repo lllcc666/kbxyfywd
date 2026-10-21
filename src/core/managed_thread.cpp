@@ -1,5 +1,6 @@
 #include "managed_thread.h"
 
+#include <exception>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -41,7 +42,11 @@ bool ManagedThread::Start(const std::wstring& name, std::function<void()> body) 
     std::shared_ptr<ThreadState> holder = state;
     state->thread = std::thread([holder, body]() {
         t_currentThread = holder.get();
-        body();
+        // 线程体里抛出的异常必须就地吃掉：让它跑出 std::thread 会直接 terminate 整个进程。
+        try {
+            body();
+        } catch (...) {
+        }
         holder->finished.store(true);
         t_currentThread = nullptr;
     });

@@ -1,5 +1,7 @@
 #include "latest_activities.h"
 
+#include "managed_thread.h"
+
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -1142,24 +1144,23 @@ BOOL StartOneKeyLatestActivitiesPacket(const std::vector<uint32_t>& activityIds)
         return FALSE;
     }
 
-    try {
-        std::thread worker([targets]() {
-            for (const LatestActDesc* desc : targets) {
-                if (!g_latestBatchRunning.load()) {
-                    break;
-                }
-                RunOneActivityUntilDone(*desc);
+    // 走受管线程：退出时 CleanupWpeHook 会 RequestStopAll/JoinAll，不再是一条没人等的裸线程。
+    const bool started = ManagedThread::Start(L"latest_activities", [targets]() {
+        for (const LatestActDesc* desc : targets) {
+            if (!g_latestBatchRunning.load() || ManagedThread::StopRequested()) {
+                break;
             }
-            const bool cancelled = !g_latestBatchRunning.load();
-            g_latestBatchRunning = false;
-            if (cancelled) {
-                UIBridge::Instance().UpdateHelperText(L"最新活动：一键执行已停止");
-            } else {
-                UIBridge::Instance().UpdateHelperText(L"最新活动：一键执行完成");
-            }
-        });
-        worker.detach();
-    } catch (...) {
+            RunOneActivityUntilDone(*desc);
+        }
+        const bool cancelled = !g_latestBatchRunning.load() || ManagedThread::StopRequested();
+        g_latestBatchRunning = false;
+        if (cancelled) {
+            UIBridge::Instance().UpdateHelperText(L"最新活动：一键执行已停止");
+        } else {
+            UIBridge::Instance().UpdateHelperText(L"最新活动：一键执行完成");
+        }
+    });
+    if (!started) {
         g_latestBatchRunning = false;
         UIBridge::Instance().UpdateHelperText(L"最新活动：启动线程失败");
         return FALSE;
