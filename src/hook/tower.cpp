@@ -435,9 +435,8 @@ BOOL StartOneKeyTowerPacket() {
     }
 
     // 启动玄塔线程
-    HANDLE hThread = CreateThread(nullptr, 0, TowerAutoThreadProc, pStatus, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
+    // 走受管线程：退出时能收住，CleanupTowerState 才敢删 g_towerCS。
+    if (StartManagedThreadOnce(L"tower_auto", TowerAutoThreadProc, pStatus)) {
         return TRUE;
     }
 
@@ -578,5 +577,11 @@ void InitializeTowerState() {
 }
 
 void CleanupTowerState() {
+    if (ManagedThread::ActiveCount() > 0) {
+        // 还有受管线程没退（玄塔线程持有 g_towerCS）：删掉临界区会让它进已删除的锁。
+        // 进程马上就要退出，留着不删没有代价。
+        OutputDebugStringW(L"CleanupTowerState: 仍有活动线程，跳过删除 g_towerCS\n");
+        return;
+    }
     DeleteCriticalSection(&g_towerCS);
 }

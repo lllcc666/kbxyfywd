@@ -1332,6 +1332,11 @@ CRITICAL_SECTION ResponseWaiter::s_cs;
 CONDITION_VARIABLE ResponseWaiter::s_cv;
 uint64_t ResponseWaiter::s_responseSerial = 0;
 std::atomic<long> ResponseWaiter::s_waitingCount{0};  // 等待线程计数（真正的原子操作）
+
+namespace {
+// 停机中：新的等待直接失败，避免线程在被拆除的等待器上继续 Sleep。
+std::atomic<bool> g_responseWaitShutdown{false};
+}  // namespace
 std::atomic<uint64_t> ResponseWaiter::s_cancelSerial{0};
 
 void ResponseWaiter::Initialize() {
@@ -1344,6 +1349,8 @@ void ResponseWaiter::Initialize() {
 }
 
 void ResponseWaiter::Cleanup() {
+    // 先立停机标志：此后 BeginWait 直接返回，不会被已拆除的等待器收进来。
+    g_responseWaitShutdown.store(true);
     CancelWait();
 
     const DWORD startTick = GetTickCount();
@@ -1357,10 +1364,14 @@ void ResponseWaiter::Cleanup() {
     EnterCriticalSection(&s_cs);
     g_responseQueue.clear();
     LeaveCriticalSection(&s_cs);
-    DeleteCriticalSection(&s_cs);
+    // 这里不再 DeleteCriticalSection：等满超时被 detach 的等待线程可能随后
+    // 才进入 BeginWait/EndWait，删掉临界区的代价（UB）远大于留到进程退出。
 }
 
 uint64_t ResponseWaiter::BeginWait() {
+    if (g_responseWaitShutdown.load()) {
+        return 0;  // 停机中：让调用方立刻超时返回，不要再登记等待
+    }
     EnterCriticalSection(&s_cs);
 
     const long previousWaiting = s_waitingCount.fetch_add(1);
@@ -1587,17 +1598,26 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
                     unsigned long long battleSession;
                 };
                 ReadyThreadData* threadData = new ReadyThreadData{battleSession};
-                HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
-                    std::unique_ptr<ReadyThreadData> data(static_cast<ReadyThreadData*>(lpParam));
-                    Sleep(800);
-                    if (g_battleSixBattleSession.load() == data->battleSession && g_battleSixAuto.IsInBattle()) {
-                        SendBattleReadyPacket();
-                    }
-                    return 0;
-                }, threadData, 0, nullptr);
-                if (hThread) {
-                    CloseHandle(hThread);
-                } else {
+                // 走受管线程：延时期间被要求退出就不再发包。
+                const bool readyThreadStarted = StartManagedThreadOnce(
+                    L"battle_six_ready_delay",
+                    [](LPVOID lpParam) -> DWORD {
+                        std::unique_ptr<ReadyThreadData> data(static_cast<ReadyThreadData*>(lpParam));
+                        if (!ManagedThread::SleepCancellable(800)) {
+                            g_battleSixReadySupplementSent = false;
+                            return 0;
+                        }
+                        if (g_battleSixBattleSession.load() == data->battleSession &&
+                            g_battleSixAuto.IsInBattle()) {
+                            SendBattleReadyPacket();
+                        } else {
+                            // 这一局没发出去：放开标志，别让后续战斗永远不发 ready。
+                            g_battleSixReadySupplementSent = false;
+                        }
+                        return 0;
+                    },
+                    threadData);
+                if (!readyThreadStarted) {
                     delete threadData;
                     g_battleSixReadySupplementSent = false;
                 }

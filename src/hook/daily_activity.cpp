@@ -202,7 +202,7 @@ DWORD WINAPI DailyTaskThreadProc(LPVOID lpParam) {
             };
             SendPacket(0, startPacket, sizeof(startPacket), Opcode::DEEP_DIG_BACK, 5000);
             
-            Sleep(500);
+            ManagedThread::SleepCancellable(500);
             
             // 发送结束游戏封包
             if (g_deepDigState.sessionId > 0) {
@@ -224,42 +224,42 @@ DWORD WINAPI DailyTaskThreadProc(LPVOID lpParam) {
                 SendPacket(0, endPacket, sizeof(endPacket));
             }
             
-            Sleep(800);
+            ManagedThread::SleepCancellable(800);
         }
         
         g_deepDigState.autoMode = false;
         completedCount++;
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
     }
     if (!ManagedThread::StopRequested() && (flags & 0x02)) {  // 每日卡牌
         SendDailyCardPacket();
         completedCount++;
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
     }
     if (!ManagedThread::StopRequested() && (flags & 0x04)) {  // 每日礼包
         SendDailyGiftPacket();
         completedCount++;
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
     }
     if (!ManagedThread::StopRequested() && (flags & 0x08)) {  // 每周礼包
         SendWeeklyGiftPacket();
         completedCount++;
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
     }
     if (!ManagedThread::StopRequested() && (flags & 0x10)) {  // 家族考勤
         SendFamilyCheckinPacket();
         completedCount++;
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
     }
     if (!ManagedThread::StopRequested() && (flags & 0x20)) {  // 家族报道
         SendFamilyReportPacket();
         completedCount++;
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
     }
     if (!ManagedThread::StopRequested() && (flags & 0x40)) {  // 家族保卫
         SendFamilyDefendPacket();
         completedCount++;
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
     }
     if (!ManagedThread::StopRequested() && (flags & 0x80)) {  // 商城惊喜
         SendShopSurprisePacket();
@@ -268,17 +268,17 @@ DWORD WINAPI DailyTaskThreadProc(LPVOID lpParam) {
     if (!ManagedThread::StopRequested() && (flags & 0x100)) {  // 跳舞大赛
         SendDanceContestPacket();
         completedCount++;
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
     }
     if (!ManagedThread::StopRequested() && (flags & 0x200)) {  // 火风试炼
         SendFireWindTrialPacket();
         completedCount++;
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
     }
     if (!ManagedThread::StopRequested() && (flags & 0x400)) {  // 火焰试炼
         SendFireTrialPacket();
         completedCount++;
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
     }
     if (!ManagedThread::StopRequested() && (flags & 0x800)) {  // 风暴试炼
         SendStormTrialPacket();

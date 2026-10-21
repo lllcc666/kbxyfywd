@@ -199,14 +199,14 @@ DWORD WINAPI Act685ThreadProc(LPVOID lpParam) {
 
     auto waitForResponse = []() -> bool {
         for (int i = 0; i < 30 && ACT685_STATE.waitingResponse; ++i) {
-            Sleep(100);
+            ManagedThread::SleepCancellable(100);
         }
         const bool received = !ACT685_STATE.waitingResponse.load();
         ACT685_STATE.waitingResponse = false;
         return received;
     };
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"航海大挑战：正在获取活动信息...");
 
     SendAct685OpenUIPacket();
@@ -230,17 +230,17 @@ DWORD WINAPI Act685ThreadProc(LPVOID lpParam) {
         ACT685_STATE.maxScore.load(),
         Act685::MAX_SCORE);
     if (autoSweep) {
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
         UIBridge::Instance().UpdateHelperText(L"航海大挑战：正在获取扫荡信息...");
 
         SendAct685SweepInfoPacket();
         if (waitForResponse() && ACT685_STATE.sweepAvailable.load()) {
-            Sleep(300);
+            ManagedThread::SleepCancellable(300);
             UIBridge::Instance().UpdateHelperText(L"航海大挑战：执行扫荡...");
             ACT685_STATE.endResult = -1;
             SendAct685SweepPacket();
             if (waitForResponse() && ACT685_STATE.endResult.load() != 3) {
-                Sleep(300);
+                ManagedThread::SleepCancellable(300);
                 SendAct685OpenUIPacket();
                 waitForResponse();
                 UIBridge::Instance().UpdateHelperText(L"航海大挑战：扫荡完成");
@@ -251,7 +251,7 @@ DWORD WINAPI Act685ThreadProc(LPVOID lpParam) {
         UIBridge::Instance().UpdateHelperText(L"航海大挑战：扫荡失败，改为直接完成");
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"航海大挑战：开始游戏...");
 
     int ruleFlag = ACT685_STATE.ruleFlag.load();
@@ -287,7 +287,7 @@ DWORD WINAPI Act685ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    Sleep(500);
+    ManagedThread::SleepCancellable(500);
     UIBridge::Instance().UpdateHelperText(L"航海大挑战：直接提交结算...");
     SendAct685EndGamePacket(Act685::MAX_SCORE);
     if (!waitForResponse()) {
@@ -300,7 +300,7 @@ DWORD WINAPI Act685ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     SendAct685OpenUIPacket();
     waitForResponse();
     UIBridge::Instance().UpdateHelperText(L"航海大挑战：结算完成");
@@ -499,14 +499,14 @@ DWORD WINAPI Act666ThreadProc(LPVOID lpParam) {
 
     auto waitForResponse = []() -> bool {
         for (int i = 0; i < 30 && ACT666_STATE.waitingResponse; ++i) {
-            Sleep(100);
+            ManagedThread::SleepCancellable(100);
         }
         const bool received = !ACT666_STATE.waitingResponse.load();
         ACT666_STATE.waitingResponse = false;
         return received;
     };
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：正在获取活动信息...");
 
     SendAct666OpenUIPacket();
@@ -528,13 +528,13 @@ DWORD WINAPI Act666ThreadProc(LPVOID lpParam) {
     if (useSweep && ACT666_STATE.bestFlag.load() > 0) {
         UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：正在获取扫荡信息...");
 
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
         SendAct666SweepInfoPacket();
         if (waitForResponse()) {
-            Sleep(300);
+            ManagedThread::SleepCancellable(300);
             SendAct666SweepPacket();
             if (waitForResponse()) {
-                Sleep(300);
+                ManagedThread::SleepCancellable(300);
                 SendAct666OpenUIPacket();
                 waitForResponse();
                 UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：扫荡完成");
@@ -545,7 +545,7 @@ DWORD WINAPI Act666ThreadProc(LPVOID lpParam) {
         UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：扫荡失败，改为直接完成");
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：开始游戏...");
     SendAct666StartGamePacket(0, 0);
     if (!waitForResponse()) {
@@ -566,7 +566,7 @@ DWORD WINAPI Act666ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    Sleep(500);
+    ManagedThread::SleepCancellable(500);
     UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：直接提交结算...");
     SendAct666EndGamePacket(1, true);
     if (!waitForResponse()) {
@@ -574,7 +574,7 @@ DWORD WINAPI Act666ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     SendAct666OpenUIPacket();
     waitForResponse();
     UIBridge::Instance().UpdateHelperText(L"天之骄子的特训：结算完成");
@@ -820,7 +820,7 @@ DWORD WINAPI Act822ThreadProc(LPVOID lpParam) {
     ACT822_STATE.useSweep = useSweep;
     g_act822UseSweep = useSweep;
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：正在获取活动信息...");
 
     SendAct822OpenUIPacket();
@@ -842,11 +842,11 @@ DWORD WINAPI Act822ThreadProc(LPVOID lpParam) {
     // 自动判定：可扫荡且扫荡成绩 >= 游戏流程成绩时才扫荡
     if (ShouldAutoSweep(g_act822HistoryBestScore.load(),
                         Act822::PASS_SCORE)) {
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
         UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：正在获取扫荡信息...");
         SendAct822SweepInfoPacket();
         if (WaitForAct822Response() && g_act822SweepAvailable.load()) {
-            Sleep(300);
+            ManagedThread::SleepCancellable(300);
             UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：执行扫荡...");
             SendAct822SweepPacket();
             // 必须在等待之后读取结果：原先在 WaitForAct822Response() 之前快照，
@@ -854,7 +854,7 @@ DWORD WINAPI Act822ThreadProc(LPVOID lpParam) {
             const bool sweepWaited = WaitForAct822Response();
             const int sweepResult = g_act822SweepResult.load();
             if (sweepWaited && (sweepResult == 0 || sweepResult == 4)) {
-                Sleep(300);
+                ManagedThread::SleepCancellable(300);
                 SendAct822OpenUIPacket();
                 WaitForAct822Response();
                 std::vector<std::pair<int, int>> resultAwards;
@@ -880,7 +880,7 @@ DWORD WINAPI Act822ThreadProc(LPVOID lpParam) {
         UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：扫荡失败，改为直接完成");
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：开始游戏...");
     SendAct822StartGamePacket(g_act822IsPop.load());
     if (!WaitForAct822Response()) {
@@ -912,7 +912,7 @@ DWORD WINAPI Act822ThreadProc(LPVOID lpParam) {
     const int finalScore = Act822::PASS_SCORE;
     g_act822LastScore = finalScore;
     ACT822_STATE.lastScore = finalScore;
-    Sleep(500);
+    ManagedThread::SleepCancellable(500);
     UIBridge::Instance().UpdateHelperText(L"光辉穿梭大考验：直接提交结算...");
     SendAct822EndGamePacket(finalScore, true);
     if (!WaitForAct822Response()) {
@@ -925,7 +925,7 @@ DWORD WINAPI Act822ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     SendAct822OpenUIPacket();
     WaitForAct822Response();
 
@@ -1270,7 +1270,7 @@ DWORD WINAPI Act826ThreadProc(LPVOID lpParam) {
     ACT826_STATE.Reset();
     ACT826_STATE.useSweep = useSweep;
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"圣石之战：正在获取活动信息...");
 
     SendAct826OpenUIPacket();
@@ -1292,16 +1292,16 @@ DWORD WINAPI Act826ThreadProc(LPVOID lpParam) {
     // 自动判定：可扫荡且扫荡成绩 >= 游戏流程成绩时才扫荡
     if (ShouldAutoSweep(ACT826_STATE.maxScore.load(),
                         Act826::PASS_SCORE)) {
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
         UIBridge::Instance().UpdateHelperText(L"圣石之战：正在获取扫荡信息...");
         SendAct826SweepInfoPacket();
         if (WaitForAct826Response() && ACT826_STATE.sweepAvailable.load()) {
-            Sleep(300);
+            ManagedThread::SleepCancellable(300);
             UIBridge::Instance().UpdateHelperText(L"圣石之战：执行扫荡...");
             ACT826_STATE.sweepResult = -1;
             SendAct826SweepPacket();
             if (WaitForAct826Response() && (ACT826_STATE.sweepResult.load() == 0 || ACT826_STATE.sweepResult.load() == 4)) {
-                Sleep(300);
+                ManagedThread::SleepCancellable(300);
                 SendAct826OpenUIPacket();
                 WaitForAct826Response();
                 wchar_t msg[256];
@@ -1319,7 +1319,7 @@ DWORD WINAPI Act826ThreadProc(LPVOID lpParam) {
         UIBridge::Instance().UpdateHelperText(L"圣石之战：扫荡失败，改为直接完成");
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"圣石之战：开始游戏...");
     SendAct826StartGamePacket(ACT826_STATE.ruleFlag.load());
     if (!WaitForAct826Response()) {
@@ -1348,7 +1348,7 @@ DWORD WINAPI Act826ThreadProc(LPVOID lpParam) {
 
     const int finalScore = Act826::PASS_SCORE;
     ACT826_STATE.lastScore = finalScore;
-    Sleep(500);
+    ManagedThread::SleepCancellable(500);
     UIBridge::Instance().UpdateHelperText(L"圣石之战：直接提交结算...");
     const int clientCheckCode = BuildAct826ClientCheckCode();
     if (clientCheckCode == 0) {
@@ -1376,7 +1376,7 @@ DWORD WINAPI Act826ThreadProc(LPVOID lpParam) {
         UIBridge::Instance().UpdateHelperText(msg);
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     SendAct826OpenUIPacket();
     WaitForAct826Response();
     return 0;
@@ -1585,7 +1585,7 @@ DWORD WINAPI Act827ThreadProc(LPVOID lpParam) {
     ACT827_STATE.Reset();
     ACT827_STATE.useSweep = useSweep;
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"齐心协力大挑战：正在获取活动信息...");
 
     SendAct827OpenUIPacket();
@@ -1607,16 +1607,16 @@ DWORD WINAPI Act827ThreadProc(LPVOID lpParam) {
     // 自动判定：可扫荡且扫荡成绩 >= 游戏流程成绩时才扫荡
     if (ShouldAutoSweep(ACT827_STATE.bestRecord.load(),
                         Act827::TARGET_SCORE)) {
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
         UIBridge::Instance().UpdateHelperText(L"齐心协力大挑战：正在获取扫荡信息...");
         SendAct827SweepInfoPacket();
         if (WaitForAct827Response() && ACT827_STATE.sweepAvailable.load()) {
-            Sleep(300);
+            ManagedThread::SleepCancellable(300);
             UIBridge::Instance().UpdateHelperText(L"齐心协力大挑战：执行扫荡...");
             ACT827_STATE.sweepResult = -1;
             SendAct827SweepPacket();
             if (WaitForAct827Response() && (ACT827_STATE.sweepResult.load() == 0 || ACT827_STATE.sweepResult.load() == 4)) {
-                Sleep(300);
+                ManagedThread::SleepCancellable(300);
                 SendAct827OpenUIPacket();
                 WaitForAct827Response();
                 wchar_t msg[256];
@@ -1635,7 +1635,7 @@ DWORD WINAPI Act827ThreadProc(LPVOID lpParam) {
         UIBridge::Instance().UpdateHelperText(L"齐心协力大挑战：扫荡失败，改为直接完成");
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"齐心协力大挑战：开始游戏...");
     SendAct827StartGamePacket(ACT827_STATE.promptFlag.load());
     if (!WaitForAct827Response()) {
@@ -1664,7 +1664,7 @@ DWORD WINAPI Act827ThreadProc(LPVOID lpParam) {
 
     const int finalScore = (std::max)(ACT827_STATE.bestRecord.load(), Act827::TARGET_SCORE);
     ACT827_STATE.lastScore = finalScore;
-    Sleep(500);
+    ManagedThread::SleepCancellable(500);
     UIBridge::Instance().UpdateHelperText(L"齐心协力大挑战：直接提交结算...");
     const int clientCheckCode = BuildAct827ClientCheckCode();
     if (clientCheckCode == 0) {
@@ -1692,7 +1692,7 @@ DWORD WINAPI Act827ThreadProc(LPVOID lpParam) {
         UIBridge::Instance().UpdateHelperText(msg);
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     SendAct827OpenUIPacket();
     WaitForAct827Response();
     return 0;
@@ -1880,14 +1880,14 @@ DWORD WINAPI Act641ThreadProc(LPVOID lpParam) {
 
     auto waitForResponse = []() -> bool {
         for (int i = 0; i < 30 && ACT641_STATE.waitingResponse; ++i) {
-            Sleep(100);
+            ManagedThread::SleepCancellable(100);
         }
         const bool received = !ACT641_STATE.waitingResponse.load();
         ACT641_STATE.waitingResponse = false;
         return received;
     };
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"清除煞气：正在获取活动信息...");
 
     SendAct641OpenUIPacket();
@@ -1911,14 +1911,14 @@ DWORD WINAPI Act641ThreadProc(LPVOID lpParam) {
                         std::clamp(targetScore, 1, Act641::MAX_SCORE))) {
         UIBridge::Instance().UpdateHelperText(L"清除煞气：正在获取扫荡信息...");
 
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
         SendAct641SweepInfoPacket();
         if (waitForResponse() && ACT641_STATE.sweepSuccess.load()) {
-            Sleep(300);
+            ManagedThread::SleepCancellable(300);
             UIBridge::Instance().UpdateHelperText(L"清除煞气：执行扫荡...");
             SendAct641SweepPacket();
             if (waitForResponse() && ACT641_STATE.sweepSuccess.load()) {
-                Sleep(300);
+                ManagedThread::SleepCancellable(300);
                 SendAct641OpenUIPacket();
                 waitForResponse();
                 UIBridge::Instance().UpdateHelperText(L"清除煞气：扫荡完成");
@@ -1929,7 +1929,7 @@ DWORD WINAPI Act641ThreadProc(LPVOID lpParam) {
         UIBridge::Instance().UpdateHelperText(L"清除煞气：扫荡失败，改为直接完成");
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"清除煞气：开始游戏...");
     SendAct641StartGamePacket();
     if (!waitForResponse()) {
@@ -1958,7 +1958,7 @@ DWORD WINAPI Act641ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    Sleep(500);
+    ManagedThread::SleepCancellable(500);
     UIBridge::Instance().UpdateHelperText(L"清除煞气：直接提交结算...");
     SendAct641EndGamePacket(std::clamp(targetScore, 1, Act641::MAX_SCORE));
     if (!waitForResponse()) {
@@ -1971,7 +1971,7 @@ DWORD WINAPI Act641ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     SendAct641OpenUIPacket();
     waitForResponse();
     UIBridge::Instance().UpdateHelperText(L"清除煞气：结算完成");
@@ -2210,14 +2210,14 @@ DWORD WINAPI Act810ThreadProc(LPVOID lpParam) {
 
     auto waitForResponse = []() -> bool {
         for (int i = 0; i < 30 && g_act810WaitingResponse.load(); ++i) {
-            Sleep(100);
+            ManagedThread::SleepCancellable(100);
         }
         const bool received = !g_act810WaitingResponse.load();
         g_act810WaitingResponse = false;
         return received;
     };
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"疾速特训：正在获取活动信息...");
 
     SendAct810OpenUIPacket();
@@ -2238,17 +2238,17 @@ DWORD WINAPI Act810ThreadProc(LPVOID lpParam) {
 
     if (useSweep) {
         UIBridge::Instance().UpdateHelperText(L"疾速特训：正在获取扫荡信息...");
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
         SendAct810SweepInfoPacket();
         if (waitForResponse() && g_act810SweepAvailable.load()) {
-            Sleep(300);
+            ManagedThread::SleepCancellable(300);
             UIBridge::Instance().UpdateHelperText(L"疾速特训：执行扫荡...");
             g_act810RewardMedalCount = 0;
             g_act810RewardExp = 0;
             g_act810RewardCoin = 0;
             SendAct810SweepPacket();
             if (waitForResponse()) {
-                Sleep(300);
+                ManagedThread::SleepCancellable(300);
                 SendAct810OpenUIPacket();
                 waitForResponse();
                 UIBridge::Instance().UpdateHelperText(L"疾速特训：扫荡完成");
@@ -2259,7 +2259,7 @@ DWORD WINAPI Act810ThreadProc(LPVOID lpParam) {
         UIBridge::Instance().UpdateHelperText(L"疾速特训：扫荡失败，改为直接完成");
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"疾速特训：开始游戏...");
     SendAct810StartGamePacket(g_act810RuleFlag.load());
     if (!waitForResponse()) {
@@ -2300,7 +2300,7 @@ DWORD WINAPI Act810ThreadProc(LPVOID lpParam) {
 
     const int progressSteps = std::clamp(awardTotal / 2, 3, 8);
     for (int i = 0; i < progressSteps; ++i) {
-        Sleep(250);
+        ManagedThread::SleepCancellable(250);
         if (i == 0) {
             UIBridge::Instance().UpdateHelperText(L"疾速特训：游戏进行中...");
         } else if (i == progressSteps - 1) {
@@ -2308,7 +2308,7 @@ DWORD WINAPI Act810ThreadProc(LPVOID lpParam) {
         }
     }
 
-    Sleep(500);
+    ManagedThread::SleepCancellable(500);
     UIBridge::Instance().UpdateHelperText(L"疾速特训：直接提交结算...");
     SendAct810EndGamePacket(50);
     if (!waitForResponse()) {
@@ -2316,7 +2316,7 @@ DWORD WINAPI Act810ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     SendAct810OpenUIPacket();
     waitForResponse();
 
@@ -2517,14 +2517,14 @@ DWORD WINAPI Act684ThreadProc(LPVOID lpParam) {
 
     auto waitForResponse = []() -> bool {
         for (int i = 0; i < 30 && ACT684_STATE.waitingResponse; ++i) {
-            Sleep(100);
+            ManagedThread::SleepCancellable(100);
         }
         const bool received = !ACT684_STATE.waitingResponse.load();
         ACT684_STATE.waitingResponse = false;
         return received;
     };
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"土幻的曙光：正在获取活动信息...");
 
     SendAct684OpenUIPacket();
@@ -2546,16 +2546,16 @@ DWORD WINAPI Act684ThreadProc(LPVOID lpParam) {
     // 自动判定：可扫荡且扫荡成绩 >= 本次游戏流程提交分时才扫荡
     if (ShouldAutoSweep(ACT684_STATE.maxScore.load(),
                         targetScore)) {
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
         UIBridge::Instance().UpdateHelperText(L"土幻的曙光：正在获取扫荡信息...");
         ACT684_STATE.sweepSuccess = false;
 
         if (SendAct684SweepInfoPacket() && waitForResponse() && ACT684_STATE.sweepSuccess.load()) {
-            Sleep(300);
+            ManagedThread::SleepCancellable(300);
             UIBridge::Instance().UpdateHelperText(L"土幻的曙光：执行扫荡...");
 
             if (SendAct684SweepPacket() && waitForResponse() && ACT684_STATE.sweepSuccess.load()) {
-                Sleep(300);
+                ManagedThread::SleepCancellable(300);
                 SendAct684OpenUIPacket();
                 waitForResponse();
                 UIBridge::Instance().UpdateHelperText(L"土幻的曙光：扫荡完成");
@@ -2566,7 +2566,7 @@ DWORD WINAPI Act684ThreadProc(LPVOID lpParam) {
         UIBridge::Instance().UpdateHelperText(L"土幻的曙光：扫荡失败，改为直接完成");
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"土幻的曙光：开始游戏...");
 
     int ruleFlag = ACT684_STATE.ruleFlag.load();
@@ -2600,7 +2600,7 @@ DWORD WINAPI Act684ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    Sleep(500);
+    ManagedThread::SleepCancellable(500);
     UIBridge::Instance().UpdateHelperText(L"土幻的曙光：直接提交结算...");
 
     if (!SendAct684EndGamePacket(targetScore) || !waitForResponse()) {
@@ -2613,7 +2613,7 @@ DWORD WINAPI Act684ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     SendAct684OpenUIPacket();
     waitForResponse();
     UIBridge::Instance().UpdateHelperText(L"土幻的曙光：完成");
@@ -2764,14 +2764,14 @@ DWORD WINAPI Act717ThreadProc(LPVOID lpParam) {
 
     auto waitForResponse = []() -> bool {
         for (int i = 0; i < 30 && ACT717_STATE.waitingResponse; ++i) {
-            Sleep(100);
+            ManagedThread::SleepCancellable(100);
         }
         const bool received = !ACT717_STATE.waitingResponse.load();
         ACT717_STATE.waitingResponse = false;
         return received;
     };
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：正在获取活动信息...");
 
     SendAct717OpenUIPacket();
@@ -2794,16 +2794,16 @@ DWORD WINAPI Act717ThreadProc(LPVOID lpParam) {
     // 无法判断扫荡是否优于游戏流程；此处按“可扫荡即扫荡”处理，扫荡由服务端
     // 重放其保存的最好成绩。其余活动均按 ShouldAutoSweep 比较成绩后再决定。
     if (ACT717_STATE.sweepAvailable.load()) {
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
         UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：正在获取扫荡信息...");
         ACT717_STATE.sweepSuccess = false;
 
         if (SendAct717SweepInfoPacket() && waitForResponse() && ACT717_STATE.sweepSuccess.load()) {
-            Sleep(300);
+            ManagedThread::SleepCancellable(300);
             UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：执行扫荡...");
 
             if (SendAct717SweepPacket() && waitForResponse() && ACT717_STATE.sweepSuccess.load()) {
-                Sleep(300);
+                ManagedThread::SleepCancellable(300);
                 SendAct717OpenUIPacket();
                 waitForResponse();
                 UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：扫荡完成");
@@ -2814,7 +2814,7 @@ DWORD WINAPI Act717ThreadProc(LPVOID lpParam) {
         UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：扫荡失败，改为直接完成");
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：开始游戏...");
 
     if (!SendAct717StartGamePacket(ACT717_STATE.promptFlag.load()) || !waitForResponse()) {
@@ -2839,7 +2839,7 @@ DWORD WINAPI Act717ThreadProc(LPVOID lpParam) {
     }
 
     const int finalScore = std::clamp(targetScore, 0, Act717::TARGET_SCORE);
-    Sleep(500);
+    ManagedThread::SleepCancellable(500);
     UIBridge::Instance().UpdateHelperText(L"驱赶毒蚊：直接提交结算...");
 
     if (!SendAct717EndGamePacket(finalScore) || !waitForResponse()) {
@@ -2852,7 +2852,7 @@ DWORD WINAPI Act717ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     SendAct717OpenUIPacket();
     waitForResponse();
 
@@ -3031,14 +3031,14 @@ DWORD WINAPI Act805ThreadProc(LPVOID lpParam) {
 
     auto waitForResponse = []() -> bool {
         for (int i = 0; i < 30 && ACT805_STATE.waitingResponse; ++i) {
-            Sleep(100);
+            ManagedThread::SleepCancellable(100);
         }
         const bool received = !ACT805_STATE.waitingResponse.load();
         ACT805_STATE.waitingResponse = false;
         return received;
     };
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"守护梦境：正在获取活动信息...");
 
     SendAct805GameInfoPacket();
@@ -3061,13 +3061,13 @@ DWORD WINAPI Act805ThreadProc(LPVOID lpParam) {
         UIBridge::Instance().UpdateHelperText(L"守护梦境：正在获取扫荡信息...");
         ACT805_STATE.sweepSuccess = false;
 
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
         SendAct805SweepInfoPacket();
         if (waitForResponse()) {
-            Sleep(300);
+            ManagedThread::SleepCancellable(300);
             SendAct805SweepPacket();
             if (waitForResponse() && ACT805_STATE.sweepSuccess.load()) {
-                Sleep(300);
+                ManagedThread::SleepCancellable(300);
                 SendAct805GameInfoPacket();
                 waitForResponse();
                 UIBridge::Instance().UpdateHelperText(L"守护梦境：扫荡完成");
@@ -3078,7 +3078,7 @@ DWORD WINAPI Act805ThreadProc(LPVOID lpParam) {
         UIBridge::Instance().UpdateHelperText(L"守护梦境：扫荡失败，改为直接结算");
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"守护梦境：开始游戏...");
     SendAct805StartGamePacket();
     if (!waitForResponse()) {
@@ -3096,7 +3096,7 @@ DWORD WINAPI Act805ThreadProc(LPVOID lpParam) {
     }
 
     const int finalScore = std::clamp(targetScore, 1, Act805::TARGET_SCORE);
-    Sleep(500);
+    ManagedThread::SleepCancellable(500);
     UIBridge::Instance().UpdateHelperText(L"守护梦境：直接提交结算...");
     SendAct805EndGamePacket(finalScore);
     if (!waitForResponse()) {
@@ -3104,7 +3104,7 @@ DWORD WINAPI Act805ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     SendAct805GameInfoPacket();
     waitForResponse();
 
@@ -3314,7 +3314,7 @@ static void ResetAct757State() {
 
 static bool WaitForAct757Response() {
     for (int i = 0; i < 30 && g_act757WaitingResponse.load(); ++i) {
-        Sleep(100);
+        ManagedThread::SleepCancellable(100);
     }
     const bool received = !g_act757WaitingResponse.load();
     g_act757WaitingResponse = false;
@@ -3330,7 +3330,7 @@ DWORD WINAPI Act757ThreadProc(LPVOID lpParam) {
     g_act757UseSweep = useSweep;
     ACT757_STATE.useSweep = useSweep;
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"果宝救援：正在获取活动信息...");
 
     SendAct757OpenUIPacket();
@@ -3350,15 +3350,15 @@ DWORD WINAPI Act757ThreadProc(LPVOID lpParam) {
     }
 
     if (useSweep && g_act757HistoryBestScore.load() > 0) {
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
         UIBridge::Instance().UpdateHelperText(L"果宝救援：正在获取扫荡信息...");
         SendAct757SweepInfoPacket();
         if (WaitForAct757Response() && g_act757SweepAvailable.load()) {
-            Sleep(300);
+            ManagedThread::SleepCancellable(300);
             UIBridge::Instance().UpdateHelperText(L"果宝救援：执行扫荡...");
             SendAct757SweepPacket();
             if (WaitForAct757Response() && g_act757SweepResult.load() == 0) {
-                Sleep(300);
+                ManagedThread::SleepCancellable(300);
                 SendAct757OpenUIPacket();
                 WaitForAct757Response();
                 UIBridge::Instance().UpdateHelperText(L"果宝救援：扫荡完成");
@@ -3371,7 +3371,7 @@ DWORD WINAPI Act757ThreadProc(LPVOID lpParam) {
         UIBridge::Instance().UpdateHelperText(L"果宝救援：需要成功进行一局游戏才可以扫荡哦！");
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"果宝救援：开始游戏...");
     SendAct757StartGamePacket(g_act757IsPop.load());
     if (!WaitForAct757Response()) {
@@ -3389,7 +3389,7 @@ DWORD WINAPI Act757ThreadProc(LPVOID lpParam) {
     }
 
     const int finalScore = Act757::MAX_SCORE;
-    Sleep(500);
+    ManagedThread::SleepCancellable(500);
     UIBridge::Instance().UpdateHelperText(L"果宝救援：直接提交结算...");
     SendAct757EndGamePacket(finalScore);
     if (!WaitForAct757Response()) {
@@ -3397,7 +3397,7 @@ DWORD WINAPI Act757ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     SendAct757OpenUIPacket();
     WaitForAct757Response();
 
@@ -3702,7 +3702,7 @@ DWORD WINAPI Act631ThreadProc(LPVOID lpParam) {
 
     auto waitForResponse = []() -> bool {
         for (int i = 0; i < 30 && ACT631_STATE.waitingResponse; ++i) {
-            Sleep(100);
+            ManagedThread::SleepCancellable(100);
         }
         const bool received = !ACT631_STATE.waitingResponse.load();
         ACT631_STATE.waitingResponse = false;
@@ -3711,14 +3711,14 @@ DWORD WINAPI Act631ThreadProc(LPVOID lpParam) {
 
     auto waitForSettlementResponse = []() -> bool {
         for (int i = 0; i < 60 && ACT631_STATE.waitingResponse; ++i) {
-            Sleep(100);
+            ManagedThread::SleepCancellable(100);
         }
         const bool received = !ACT631_STATE.waitingResponse.load();
         ACT631_STATE.waitingResponse = false;
         return received;
     };
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"妖力考验：正在获取活动信息...");
 
     SendAct631OpenUIPacket();
@@ -3740,16 +3740,16 @@ DWORD WINAPI Act631ThreadProc(LPVOID lpParam) {
     // 自动判定：可扫荡且扫荡成绩 >= 游戏流程提交分（PASS_SCORE）时才扫荡
     if (ShouldAutoSweep(ACT631_STATE.maxScore.load(),
                         Act631::PASS_SCORE)) {
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
         UIBridge::Instance().UpdateHelperText(L"妖力考验：正在获取扫荡信息...");
         ACT631_STATE.sweepSuccess = false;
 
         if (SendAct631SweepInfoPacket() && waitForResponse() && ACT631_STATE.sweepSuccess.load()) {
-            Sleep(300);
+            ManagedThread::SleepCancellable(300);
             UIBridge::Instance().UpdateHelperText(L"妖力考验：执行扫荡...");
 
             if (SendAct631SweepPacket() && waitForResponse()) {
-                Sleep(300);
+                ManagedThread::SleepCancellable(300);
                 SendAct631OpenUIPacket();
                 waitForResponse();
                 UIBridge::Instance().UpdateHelperText(L"妖力考验：扫荡完成");
@@ -3760,7 +3760,7 @@ DWORD WINAPI Act631ThreadProc(LPVOID lpParam) {
         UIBridge::Instance().UpdateHelperText(L"妖力考验：扫荡失败，改为直接完成");
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     UIBridge::Instance().UpdateHelperText(L"妖力考验：开始游戏...");
 
     int ruleFlag = ACT631_STATE.ruleFlag.load();
@@ -3801,7 +3801,7 @@ DWORD WINAPI Act631ThreadProc(LPVOID lpParam) {
         + isPass
         + score;
 
-    Sleep(500);
+    ManagedThread::SleepCancellable(500);
     UIBridge::Instance().UpdateHelperText(L"妖力考验：直接提交结算...");
     (void)SendAct631EndGamePacket(isPass, clientCheckCode, score);
     if (!waitForSettlementResponse()) {
@@ -3809,7 +3809,7 @@ DWORD WINAPI Act631ThreadProc(LPVOID lpParam) {
         return 0;
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     SendAct631OpenUIPacket();
     waitForResponse();
     UIBridge::Instance().UpdateHelperText(L"妖力考验：结算完成");

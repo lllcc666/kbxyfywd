@@ -422,14 +422,14 @@ static DWORD WINAPI CollectThreadProc(LPVOID lpParam) {
             }
         }
         
-        Sleep(500);
+        ManagedThread::SleepCancellable(500);
     }
     
     // 采集完成，返回地图
     // 易语言封包: 445300003912120086030000
     // 地图ID: 86 03 00 00 → 小端序 0x00000386 = 902
     SendEnterScenePacket(902);
-    Sleep(500);
+    ManagedThread::SleepCancellable(500);
     
     UIBridge::Instance().UpdateHelperText(L"一键采集完成！");
     g_collectAutoMode = false;

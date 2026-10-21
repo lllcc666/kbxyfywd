@@ -247,7 +247,7 @@ DWORD WINAPI TrialThreadProc(LPVOID lpParam) {
     const TrialConfig& config = GetTrialConfig(param->type);
     
     // 延时300ms（模拟游戏时间）
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     
     // 发送结束游戏封包: [endOp, -1, award, checkCode]
     SendEndTrialPacket(param->type, -1, config.award, checkCode);
