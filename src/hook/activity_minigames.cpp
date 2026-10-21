@@ -2900,7 +2900,11 @@ void ProcessAct717Response(const GamePacket& packet) {
         }
 
         const int len = ReadInt32LE(body, currentOffset);
-        rewardList.reserve(len);
+        if (len <= 0) {
+            return rewardList;
+        }
+        // 每条 8 字节，按包内剩余字节收紧，避免异常 len 触发巨额分配。
+        rewardList.reserve((std::min)(static_cast<size_t>(len), packet.body.size() / 8));
         for (int i = 0; i < len && currentOffset + 8 <= packet.body.size(); ++i) {
             const int id = ReadInt32LE(body, currentOffset);
             const int num = ReadInt32LE(body, currentOffset);

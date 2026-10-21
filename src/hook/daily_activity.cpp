@@ -298,10 +298,11 @@ void StartDailyTasksAsync(DWORD flags) {
     taskData->flags = flags;
     taskData->hwnd = g_hWnd;
     
-    HANDLE hThread = CreateThread(NULL, 0, DailyTaskThreadProc, taskData, 0, NULL);
-    if (hThread) {
-        CloseHandle(hThread);
-    } else {
+    // 走受管线程：进程退出时能统一 RequestStopAll/JoinAll，不再是一条没人等的裸线程。
+    const bool started = ManagedThread::Start(L"daily_tasks", [taskData]() {
+        DailyTaskThreadProc(taskData);
+    });
+    if (!started) {
         delete taskData;
     }
 }

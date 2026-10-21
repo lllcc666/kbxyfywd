@@ -90,7 +90,8 @@ PacketBuilder& PacketBuilder::WriteByte(uint8_t value) {
 }
 
 PacketBuilder& PacketBuilder::WriteBytes(const std::vector<uint8_t>& data) {
-    if (data.size() > std::numeric_limits<uint16_t>::max() - m_body.size()) {
+    if (m_body.size() > std::numeric_limits<uint16_t>::max() ||
+        data.size() > std::numeric_limits<uint16_t>::max() - m_body.size()) {
         m_valid = false;
         return *this;
     }

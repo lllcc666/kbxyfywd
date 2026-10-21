@@ -207,9 +207,9 @@ bool g_bInitialized = false;                         ///< 初始化标志
 std::vector<std::tuple<BOOL, std::vector<BYTE>, DWORD, DWORD>> g_PendingPackets;
 
 // 拦截设置
-bool g_bInterceptSend = true;     ///< 是否拦截发送包
-bool g_bInterceptRecv = false;    ///< 是否拦截接收包
-bool g_bInterceptEnabled = false; ///< 是否启用拦截
+std::atomic<bool> g_bInterceptSend{true};    ///< 是否拦截发送包
+std::atomic<bool> g_bInterceptRecv{false};   ///< 是否拦截接收包
+std::atomic<bool> g_bInterceptEnabled{false};///< 是否启用拦截
 
 
 
@@ -224,7 +224,7 @@ bool g_bAutoSendEnabled = false;  ///< 是否启用自动发送
 // 定义在文件作用域；各活动模块通过 wpe_hook_internal.h 访问。
 // ============================================================================
 // 网络状态
-bool g_blockOpcodeSend = false;   ///< 是否阻止特定Opcode发送
+std::atomic<bool> g_blockOpcodeSend{false};  ///< 是否阻止特定Opcode发送
 // 劫持功能
 bool g_bHijackEnabled = false;    ///< 是否启用劫持功能
 CriticalSectionScope g_packetListCS;       ///< 封包列表临界区
@@ -232,7 +232,7 @@ CriticalSectionScope g_packetListCS;       ///< 封包列表临界区
 std::vector<PACKET> g_PacketList;
 std::vector<HijackRule> g_HijackRules;  ///< 劫持规则列表
 CriticalSectionScope g_hijackRulesCS;   ///< 劫持规则临界区
-volatile bool g_bStopAutoSend = false;  ///< 停止自动发送标志
+std::atomic<bool> g_bStopAutoSend{false};    ///< 停止自动发送标志
 EXECUTE_SCRIPT_FUNC g_ExecuteScriptFunc = nullptr;  ///< JS执行函数指针
 
 // ============================================================================
@@ -600,8 +600,6 @@ void SyncPacketsToUI() {
 }
 
 void AddPacketToUI(BOOL bSend, const BYTE* pData, DWORD dwSize, DWORD dwTime) {
-    (void)bSend;
-    (void)dwTime;
     if (!g_hWnd || !pData || dwSize == 0) return;
     if (!g_bInterceptEnabled) return;
 
@@ -611,17 +609,38 @@ void AddPacketToUI(BOOL bSend, const BYTE* pData, DWORD dwSize, DWORD dwTime) {
         packetIndex = g_PacketList.size();  // 封包已添加，直接使用size()，不加1
     }
 
-    // 如果窗口可见，同步整个列表到UI
+    // 窗口可见时只追加这一条。原来每来一个包就把整张列表清空重发，
+    // 挂机久了是 O(n²) 次 DOM 操作，几万条时界面直接卡死。
     if (AppHost::IsPacketWindowVisible()) {
-        SyncPacketsToUI();
-    } else {
-        // 窗口关闭时，只更新计数
-        std::wstring jsCountCode = 
-            L"if(window.updatePacketCount) { window.updatePacketCount(" 
-            + std::to_wstring(packetIndex) + L"); }";
-        
-        UIBridge::Instance().ExecuteJS(jsCountCode);
+        std::string hexStr = HexToString(pData, dwSize);
+        const std::wstring direction = bSend ? L"发送包" : L"接收包";
+
+        std::string labelUtf8;
+        if (dwSize >= PacketProtocol::HEADER_SIZE) {
+            size_t offset = 0;
+            const uint16_t magic = ReadUInt16LE(pData, offset);   // Magic: offset 0-1
+            (void)ReadUInt16LE(pData, offset);                    // Length: offset 2-3
+            if (magic == PacketProtocol::MAGIC_NORMAL || magic == PacketProtocol::MAGIC_COMPRESSED) {
+                const uint32_t opcode = ReadUInt32LE(pData, offset);  // Opcode: offset 4-7
+                labelUtf8 = GetPacketLabel(opcode, bSend);
+            }
+        }
+
+        wchar_t timeStr[64];
+        FormatPacketClock(dwTime, timeStr, _countof(timeStr));
+
+        std::wstring jsCode =
+            L"if(window.addPacketToList) { window.addPacketToList("
+            + std::to_wstring(packetIndex) + L", '" + direction + L"', '"
+            + Utf8ToWide(hexStr) + L"', '" + timeStr + L"', '" + Utf8ToWide(labelUtf8) + L"'); }";
+        UIBridge::Instance().ExecuteJS(jsCode);
     }
+
+    // 计数在窗口关闭时也要更新（原来只有关闭状态才刷）。
+    std::wstring jsCountCode =
+        L"if(window.updatePacketCount) { window.updatePacketCount("
+        + std::to_wstring(packetIndex) + L"); }";
+    UIBridge::Instance().ExecuteJS(jsCountCode);
 }
 
 // ============================================================================

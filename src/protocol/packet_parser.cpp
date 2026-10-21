@@ -1,4 +1,6 @@
 #include "packet_parser.h"
+
+#include "bounded_reader.h"
 #include <MemoryModule.h>
 #include "embedded/zlib_data.h"
 #include "battle_six.h"
@@ -48,6 +50,9 @@ static PFN_INFLATEEND g_inflateEnd = nullptr;
 // minizip module and functions
 BattleData PacketParser::g_currentBattle;
 std::mutex PacketParser::g_battleMutex;
+// 拼包缓冲上限：对端持续发数据却拼不出完整包时清空重来，避免无限增长。
+static constexpr size_t kMaxReceiveBufferBytes = 8u * 1024u * 1024u;
+
 std::vector<uint8_t> PacketParser::g_recvBuffer;
 std::mutex g_parserLifecycleMutex;
 
@@ -67,54 +72,6 @@ std::unordered_map<int, int> g_petElems;                       // 妖怪ID -> �
 static std::unordered_map<int, std::wstring> g_bufNames;       // Buff 名称映射 (从 bufInfo.xml)
 static std::unordered_map<int, std::wstring> g_bufDescs;       // Buff 描述映射
 
-class BoundedReader {
-public:
-    BoundedReader(const uint8_t* data, size_t size) : m_data(data), m_size(size), m_offset(0) {}
-
-    bool ReadI32(int32_t& value) {
-        if (!CanRead(sizeof(int32_t))) return false;
-        value = ReadInt32LE(m_data, m_offset);
-        return true;
-    }
-
-    bool ReadU32(uint32_t& value) {
-        if (!CanRead(sizeof(uint32_t))) return false;
-        value = ReadUInt32LE(m_data, m_offset);
-        return true;
-    }
-
-    bool ReadU16(uint16_t& value) {
-        if (!CanRead(sizeof(uint16_t))) return false;
-        value = ReadUInt16LE(m_data, m_offset);
-        return true;
-    }
-
-    bool Skip(size_t count) {
-        if (!CanRead(count)) return false;
-        m_offset += count;
-        return true;
-    }
-
-    bool CanRead(size_t count) const {
-        return count <= m_size - m_offset;
-    }
-
-    size_t Remaining() const { return m_size - m_offset; }
-    size_t Offset() const { return m_offset; }
-
-    bool ReadUtf8(std::wstring& value) {
-        uint16_t byteLength = 0;
-        if (!ReadU16(byteLength) || !CanRead(byteLength)) return false;
-        value = Utf8ToWide(std::string(reinterpret_cast<const char*>(m_data + m_offset), byteLength));
-        m_offset += byteLength;
-        return true;
-    }
-
-private:
-    const uint8_t* m_data;
-    size_t m_size;
-    size_t m_offset;
-};
 
 
 // BOSS列表结构体和全局变量
@@ -1130,6 +1087,11 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
 
 
     const size_t newSize = g_recvBuffer.size() + size;
+    if (newSize > kMaxReceiveBufferBytes) {
+        // 缓冲堆到上限说明失了包边界，清空重新对齐，别让进程一直吃内存。
+        g_recvBuffer.clear();
+        return false;
+    }
     if (g_recvBuffer.capacity() < newSize) {
         g_recvBuffer.reserve((std::max)(newSize, g_recvBuffer.capacity() * 2));
     }

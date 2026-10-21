@@ -46,6 +46,7 @@ constexpr uint32_t DECOMPOSE_RESPONSE = RESOLVE_SPIRIT_BACK;
 
 constexpr uint32_t MONSTER_LIST = 1318401;
 
+constexpr uint32_t DEEP_DIG_SEND = 1185525;  ///< 地宫挖宝请求（开始/结束共用）
 constexpr uint32_t DEEP_DIG_BACK = 1315861;
 constexpr uint32_t ACTIVITY_QUERY_BACK = 1316501;
 

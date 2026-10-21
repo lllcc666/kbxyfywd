@@ -1601,7 +1601,8 @@ void StoryTaskOnNpcListResponse(const GamePacket& packet) {
         return;
     }
     std::vector<uint32_t> npcIds;
-    npcIds.reserve(static_cast<size_t>(count));
+    // 按剩余字节数收紧 reserve，count 只是包里的字段，不能直接当分配量。
+    npcIds.reserve((std::min)(static_cast<size_t>(count), packet.body.size() / sizeof(uint32_t)));
     for (int i = 0; i < count; ++i) {
         if (offset + 4 > packet.body.size()) {
             break;

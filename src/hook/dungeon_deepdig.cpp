@@ -51,7 +51,7 @@ BOOL SendDeepDigPacket() {
     g_deepDigState.sessionId = 0;
     
     auto packet = PacketBuilder()
-        .SetOpcode(1185525)
+        .SetOpcode(Opcode::DEEP_DIG_SEND)
         .SetParams(12)
         .WriteInt32(0)
         .WriteInt32(0)
@@ -131,9 +131,9 @@ DWORD WINAPI DeepDigLoopThreadProc(LPVOID lpParam) {
         g_deepDigState.waitingResponse = true;
         g_deepDigState.sessionId = 0;
 
-        // 发送开始游戏封包: Opcode=1185525, Params=12, Body=6个int32(0)
+        // 发送开始游戏封包: Opcode=DEEP_DIG_SEND(1185525), Params=12, Body=6个int32(0)
         auto startPacket = PacketBuilder()
-            .SetOpcode(1185525)
+            .SetOpcode(Opcode::DEEP_DIG_SEND)
             .SetParams(12)
             .WriteInt32(0)
             .WriteInt32(0)
@@ -148,9 +148,9 @@ DWORD WINAPI DeepDigLoopThreadProc(LPVOID lpParam) {
         
         // 发送结束游戏封包
         if (g_deepDigState.sessionId > 0) {
-            // Opcode=1185525, Params=12, Body=[4, 0, 4, sessionId, 0, 0]
+            // Opcode=DEEP_DIG_SEND(1185525), Params=12, Body=[4, 0, 4, sessionId, 0, 0]
             auto endPacket = PacketBuilder()
-                .SetOpcode(1185525)
+                .SetOpcode(Opcode::DEEP_DIG_SEND)
                 .SetParams(12)
                 .WriteInt32(4)
                 .WriteInt32(0)
@@ -205,11 +205,11 @@ BOOL SendDeepDigPacketNTimes(int count) {
 }
 
 // 深度挖宝 - 发送结束游戏封包
-// Opcode: 1185525, Params: 12, Body: [4, 0, 4, sessionId, 0, 0]
+// Opcode: DEEP_DIG_SEND(1185525), Params: 12, Body: [4, 0, 4, sessionId, 0, 0]
 static BOOL SendDeepDigEndPacket(int sessionId, int score) {
     (void)score;
     auto packet = PacketBuilder()
-        .SetOpcode(1185525)
+        .SetOpcode(Opcode::DEEP_DIG_SEND)
         .SetParams(12)
         .WriteInt32(4)
         .WriteInt32(0)
