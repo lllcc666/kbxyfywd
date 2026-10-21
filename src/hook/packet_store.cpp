@@ -153,6 +153,59 @@ BOOL LoadPacketListFromFile(const std::wstring& filePath) {
 
 // 一键完成所有选中的日常活动
 
+// GetTickCount 基准 -> 本地时钟字符串，供封包列表显示。
+void FormatPacketClock(DWORD tick, wchar_t* out, size_t outCount) {
+    const ULONGLONG nowTick = GetTickCount64();
+    const ULONGLONG deltaMs = nowTick >= tick ? nowTick - tick : 0;
+
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    ULARGE_INTEGER value;
+    value.LowPart = ft.dwLowDateTime;
+    value.HighPart = ft.dwHighDateTime;
+    value.QuadPart -= deltaMs * 10000ULL;
+
+    FILETIME shifted;
+    shifted.dwLowDateTime = value.LowPart;
+    shifted.dwHighDateTime = value.HighPart;
+    FILETIME local;
+    FileTimeToLocalFileTime(&shifted, &local);
+
+    SYSTEMTIME st;
+    FileTimeToSystemTime(&local, &st);
+    swprintf_s(out, outCount, L"%02d:%02d:%02d", st.wHour, st.wMinute, st.wSecond);
+}
+
+// 追加封包：统一在这里做加锁与容量淘汰，避免各处 push_back 绕过上限。
+void AppendPacketToList(const PACKET& packet) {
+    if (!packet.pData || packet.dwSize == 0) {
+        return;
+    }
+    CriticalSectionLock lock(g_packetListCS.Get());
+    while (g_PacketList.size() >= kMaxPacketListSize) {
+        delete[] g_PacketList.front().pData;
+        g_PacketList.erase(g_PacketList.begin());
+    }
+    g_PacketList.push_back(packet);
+}
+
+std::vector<PacketSnapshot> SnapshotPacketList() {
+    std::vector<PacketSnapshot> snapshot;
+    CriticalSectionLock lock(g_packetListCS.Get());
+    snapshot.reserve(g_PacketList.size());
+    for (const auto& packet : g_PacketList) {
+        if (!packet.pData || packet.dwSize == 0) {
+            continue;
+        }
+        PacketSnapshot item;
+        item.bSend = packet.bSend != FALSE;
+        item.dwTime = packet.dwTime;
+        item.data.assign(packet.pData, packet.pData + packet.dwSize);
+        snapshot.push_back(std::move(item));
+    }
+    return snapshot;
+}
+
 VOID ClearPacketList() {
     if (!IsWpeHookInitialized()) return;
     

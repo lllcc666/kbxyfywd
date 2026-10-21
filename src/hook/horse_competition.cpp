@@ -710,7 +710,6 @@ void ApplyHorseRoomStateFromJson(HorseCompetitionState& state, const std::string
     if (TryExtractJsonInt(json, "status", newStatus)) {
         state.roomStatus = newStatus;
     }
-    state.updateTime = static_cast<double>(ExtractJsonInt(json, "update_time"));
     state.startTime = static_cast<double>(ExtractJsonInt(json, "start_time"));
 }
 

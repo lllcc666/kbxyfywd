@@ -527,16 +527,16 @@ void SetPacketCallback(PACKET_CALLBACK callback) {
 // ============================================================================
 
 void SyncPacketsToUI() {
-    // 拷贝数据，减少锁持有时间
-    std::vector<PACKET> packetsCopy;
-    {
-        CriticalSectionLock lock(g_packetListCS.Get());
-        if (!g_hWnd || g_PacketList.empty()) {
-            return;
-        }
-        packetsCopy = g_PacketList;
+    if (!g_hWnd) {
+        return;
     }
-    
+
+    // 深拷贝快照：锁外继续使用封包内容，避免别的线程清列表后读到已释放的内存。
+    const std::vector<PacketSnapshot> packetsCopy = SnapshotPacketList();
+    if (packetsCopy.empty()) {
+        return;
+    }
+
     // 检查窗口句柄有效性
     if (!IsWindow(g_hWnd)) {
         return;
@@ -559,30 +559,29 @@ void SyncPacketsToUI() {
     // 批量同步封包
     for (size_t i = 0; i < packetsCopy.size(); ++i) {
         const auto& packet = packetsCopy[i];
-        if (!packet.pData) continue;
+        if (packet.data.empty()) continue;
 
-        std::string hexStr = HexToString(packet.pData, packet.dwSize);
+        std::string hexStr = HexToString(packet.data.data(), static_cast<DWORD>(packet.data.size()));
         std::wstring wideHexStr = Utf8ToWide(hexStr);
         std::wstring direction = packet.bSend ? L"发送包" : L"接收包";
         
         // 获取封包标签
         std::string labelUtf8 = "";
-        if (packet.dwSize >= PacketProtocol::HEADER_SIZE) {
+        if (packet.data.size() >= PacketProtocol::HEADER_SIZE) {
             size_t offset = 0;
-            uint16_t magic = ReadUInt16LE(packet.pData, offset);  // Magic: offset 0-1
-            (void)ReadUInt16LE(packet.pData, offset);             // Length: offset 2-3
+            uint16_t magic = ReadUInt16LE(packet.data.data(), offset);  // Magic: offset 0-1
+            (void)ReadUInt16LE(packet.data.data(), offset);             // Length: offset 2-3
             if (magic == PacketProtocol::MAGIC_NORMAL || magic == PacketProtocol::MAGIC_COMPRESSED) {
-                uint32_t opcode = ReadUInt32LE(packet.pData, offset);  // Opcode: offset 4-7
+                uint32_t opcode = ReadUInt32LE(packet.data.data(), offset);  // Opcode: offset 4-7
                 labelUtf8 = GetPacketLabel(opcode, packet.bSend);
             }
         }
         std::wstring wideLabel = Utf8ToWide(labelUtf8);
         
-        // 创建时间戳
-        SYSTEMTIME st;
-        GetLocalTime(&st);
+        // 时间戳取自封包自身的时间（dwTime 是 GetTickCount 基准），
+        // 这样列表重建后显示的仍是封包到达时刻，而不是重建时刻。
         wchar_t timeStr[64];
-        swprintf_s(timeStr, L"%02d:%02d:%02d", st.wHour, st.wMinute, st.wSecond);
+        FormatPacketClock(packet.dwTime, timeStr, _countof(timeStr));
         
         std::wstring jsCode = 
             L"if(window.addPacketToList) { window.addPacketToList(" 
@@ -697,10 +696,7 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
                     memcpy(packet.pData, modifiedData.data(), dwSize);
                     packet.dwTime = GetTickCount();
 
-                    {
-                        CriticalSectionLock lock(g_packetListCS.Get());
-                        g_PacketList.push_back(packet);
-                    }
+                    AppendPacketToList(packet);
                     // 锁外调用 UI 更新，避免死锁
                     AddPacketToUI(TRUE, packet.pData, packet.dwSize, packet.dwTime);
 
@@ -750,10 +746,7 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
             memcpy(packet.pData, pData, dwSize);
             packet.dwTime = GetTickCount();
 
-            {
-                CriticalSectionLock lock(g_packetListCS.Get());
-                g_PacketList.push_back(packet);
-            }
+            AppendPacketToList(packet);
             // 锁外调用 UI 更新，避免死锁
             AddPacketToUI(TRUE, packet.pData, packet.dwSize, packet.dwTime);
 
@@ -1183,10 +1176,7 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
             memcpy(packet.pData, packetData.data(), packetData.size());
             packet.dwTime = GetTickCount();
 
-            {
-                CriticalSectionLock lock(g_packetListCS.Get());
-                g_PacketList.push_back(packet);
-            }
+            AppendPacketToList(packet);
             // 锁外调用 UI 更新，避免死锁
             AddPacketToUI(FALSE, packet.pData, packet.dwSize, packet.dwTime);
 

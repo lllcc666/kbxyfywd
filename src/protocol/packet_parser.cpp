@@ -66,8 +66,6 @@ static std::unordered_map<int, std::wstring> g_aptitudeNames;  // 资质名称�
 std::unordered_map<int, int> g_petElems;                       // 妖怪ID -> 系别ID映射
 static std::unordered_map<int, std::wstring> g_bufNames;       // Buff 名称映射 (从 bufInfo.xml)
 static std::unordered_map<int, std::wstring> g_bufDescs;       // Buff 描述映射
-static std::wstring g_lastItemName;
-static std::wstring g_pendingRoundTip;
 
 class BoundedReader {
 public:
@@ -117,12 +115,6 @@ private:
     size_t m_size;
     size_t m_offset;
 };
-
-static bool IsBattleObserver() {
-    // AS3 uses GameData.lookBattle == 1. userId==0 is not spectator mode;
-    // treating it as observer mis-parses the player mNum layout.
-    return false;
-}
 
 
 // BOSS列表结构体和全局变量
@@ -1022,8 +1014,6 @@ void PacketParser::Cleanup() {
         std::lock_guard<std::mutex> lock(g_battleMutex);
         g_currentBattle = BattleData{};
     }
-    g_pendingRoundTip.clear();
-    g_lastItemName.clear();
     g_battleStarted = false;
     if (g_zlibModule) {
         MemoryFreeLibrary(g_zlibModule);
@@ -1456,7 +1446,8 @@ void PacketParser::UpdateUIBattleData() {
     jsData += L"\"battleType\":" + std::to_wstring(g_currentBattle.battleType) + L",";
     jsData += L"\"escape\":" + std::to_wstring(g_currentBattle.escape) + L",";
     jsData += L"\"round\":" + std::to_wstring(g_currentBattle.round) + L",";
-    jsData += L"\"lastItemName\":\"" + UIBridge::EscapeJsonString(g_lastItemName) + L"\"";
+    // 原实现的 lastItemName 从未被赋值，键保留为空串以兼容前端。
+    jsData += L"\"lastItemName\":\"\"";
     jsData += L"}";
 
     std::wstring jsCode = L"if(window.updateBattleUI) { window.updateBattleUI(" + jsData + L"); }";
@@ -1585,12 +1576,6 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         const auto it = g_skillNames.find(skillId);
         return it != g_skillNames.end() ? it->second : (std::wstring(L"技能") + std::to_wstring(skillId));
     };
-    auto flushPendingTip = []() {
-        if (!g_pendingRoundTip.empty()) {
-            PacketParser::SendToUI(L"回合", g_pendingRoundTip);
-            g_pendingRoundTip.clear();
-        }
-    };
     auto sendJson = [](const wchar_t* type, const std::wstring& json) {
         PacketParser::SendToUI(type, json);
     };
@@ -1606,7 +1591,8 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         if (params < 0) return;
 
         const int32_t localUserId = static_cast<int32_t>(g_userId.load());
-        const bool observer = IsBattleObserver();
+        // 观战模式未实现（AS3 用 GameData.lookBattle == 1，这里的包没有该字段）。
+        const bool observer = false;
 
         BattleData parsedBattle;
         bool parsed = false;
@@ -1704,7 +1690,6 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         parsed = parseEntities(reader, firstState, std::move(initial));
         if (!parsed) return;
 
-        flushPendingTip();
         ReplaceCurrentBattle(std::move(parsedBattle));
         g_battleStarted = true;
         UpdateUIBattleData();
@@ -1983,7 +1968,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
 
             BattleEntity* oldEntity = FindBattleEntityBySid(next, round.sid);
             bool isMySide = oldEntity ? oldEntity->mySpirit : false;
-            if (round.sta == 1 && !IsBattleObserver()) {
+            if (round.sta == 1) {
                 int32_t rawState = 0;
                 if (!reader.ReadI32(rawState)) return;
                 if (!ReadBattleEntityAfterState(reader, rawState, round.switchEntity)) return;
@@ -2207,7 +2192,6 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
             }
         }
 
-        flushPendingTip();
         std::wstring event = L"{\"param\":" + std::to_wstring(params) + L",\"results\":[";
         for (size_t i = 0; i < results.size(); ++i) {
             if (i) event += L",";

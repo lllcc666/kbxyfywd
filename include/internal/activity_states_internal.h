@@ -575,7 +575,6 @@ struct HorseCompetitionState : ActivityState {
     // （ResetHorseRoundState）同时读写，必须是 atomic，否则是数据竞争（UB）。
     std::atomic<int> roomId{0};
     std::atomic<int> roomStatus{HORSE_ROOM_FREE};
-    double updateTime = 0.0;
     double startTime = 0.0;
 
     HorseMemberInfo myInfo;
@@ -634,7 +633,6 @@ struct HorseCompetitionState : ActivityState {
         useItems = false;
         stopRequested = false;
         roomStatus = HORSE_ROOM_FREE;
-        updateTime = 0.0;
         startTime = 0.0;
         myInfo.Reset();
         otherMembers.clear();

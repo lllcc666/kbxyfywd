@@ -84,6 +84,26 @@ DWORD GetPacketCount();
 
 BOOL GetPacket(DWORD index, PPACKET pPacket);
 
+/// 封包列表容量上限：超限后淘汰最旧的包，避免长时间挂机把内存吃满。
+constexpr std::size_t kMaxPacketListSize = 20000;
+
+/// 封包列表的深拷贝快照：脱离 g_packetListCS 之后继续使用封包内容，
+/// 避免直接持有裸 pData 而在别的线程清列表后读到已释放内存。
+struct PacketSnapshot {
+    bool bSend;
+    DWORD dwTime;
+    std::vector<BYTE> data;
+};
+
+/// 追加一条封包记录（内部加锁，超限淘汰最旧）。
+void AppendPacketToList(const PACKET& packet);
+
+/// 把封包时间（GetTickCount 基准）格式化成 hh:mm:ss。
+void FormatPacketClock(DWORD tick, wchar_t* out, std::size_t outCount);
+
+/// 取封包列表的深拷贝快照（内部加锁）。
+std::vector<PacketSnapshot> SnapshotPacketList();
+
 std::string HexToString(const BYTE* pData, DWORD dwSize);
 
 std::vector<BYTE> StringToHex(const std::string& str);
