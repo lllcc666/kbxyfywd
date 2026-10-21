@@ -50,3 +50,14 @@ int FindAwardAmount(const std::vector<std::pair<int, int>>& awardList, int itemI
 // hook 侧共享全局：最近的游戏套接字（SendPacket 传 0 时用它兜底）。
 // 定义在 wpe_hook.cpp，拆分后的模块只读不写。
 extern std::atomic<SOCKET> g_LastGameSocket;
+
+/// 把"延时一次动作"这类线程体放到受管线程上跑。
+///
+/// 等价于 `CreateThread(...)` + `CloseHandle(...)`，区别是线程会登记到
+/// ManagedThread：退出流程里 RequestStopAll/JoinAll 能收住它，不会出现
+/// 钩子卸载之后还有线程在发包。body 里原有的 Sleep 请自行换成
+/// ManagedThread::SleepCancellable，才能真正被中断。
+///
+/// @param name 线程名（日志/排查用），可为 nullptr
+/// @param body Win32 线程体，参数由 param 传入，所有权仍归 body 自己处理
+bool StartManagedThreadOnce(const wchar_t* name, LPTHREAD_START_ROUTINE body, LPVOID param);

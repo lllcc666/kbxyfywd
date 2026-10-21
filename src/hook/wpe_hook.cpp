@@ -841,14 +841,14 @@ void HandleDecomposeResponse() {
     
     if (currentTime - g_lastDecomposeTime >= 300) {
         g_lastDecomposeTime = currentTime;
-        HANDLE hThread = CreateThread(NULL, 0, [](LPVOID) -> DWORD {
-            Sleep(300);
+        // 走受管线程：退出流程能收住它；延时期间被要求停止就不再发包。
+        StartManagedThreadOnce(L"delay_query_bag", [](LPVOID) -> DWORD {
+            if (!ManagedThread::SleepCancellable(300)) {
+                return 0;
+            }
             SendQueryBagPacket();
             return 0;
-        }, NULL, 0, NULL);
-        if (hThread) {
-            CloseHandle(hThread); // 关闭线程句柄，避免资源泄漏
-        }
+        }, nullptr);
     }
 }
 
@@ -1077,23 +1077,28 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
             MD5ThreadData* threadData = new MD5ThreadData{ gp.body, gp.params };
             
             // 异步处理验证（需要下载图片，耗时操作）
-            CreateThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
+            StartManagedThreadOnce(L"delay_md5_check", [](LPVOID lpParam) -> DWORD {
                 MD5ThreadData* data = (MD5ThreadData*)lpParam;
-                Sleep(100);  // 延迟100ms
+                if (!ManagedThread::SleepCancellable(100)) {  // 延迟100ms
+                    delete data;                              // 被要求退出就别再发后台请求
+                    return 0;
+                }
                 ProcessMD5CheckAndReply(data->body, data->params);
                 delete data;
                 return 0;
-            }, threadData, 0, nullptr);
+            }, threadData);
         }
 
         // 3. 自动回血功能
         if (g_autoHeal && gp.opcode == Opcode::BATTLE_END && gp.params == 1) {
-            CreateThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
+            StartManagedThreadOnce(L"delay_auto_heal", [](LPVOID lpParam) -> DWORD {
                 (void)lpParam;
-                Sleep(100);
+                if (!ManagedThread::SleepCancellable(100)) {
+                    return 0;
+                }
                 SendBeibeiHealPacket();
                 return 0;
-            }, nullptr, 0, nullptr);
+            }, nullptr);
         }
 
         // 4. 劫持检测和修改（接收包）

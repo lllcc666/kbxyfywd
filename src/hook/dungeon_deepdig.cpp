@@ -193,15 +193,13 @@ BOOL SendDeepDigPacketNTimes(int count) {
     data->targetCount = count;
     data->hwnd = g_hWnd;
     
-    HANDLE hThread = CreateThread(NULL, 0, DeepDigLoopThreadProc, data, 0, NULL);
-    if (hThread) {
-        CloseHandle(hThread);
+    // 走受管线程：退出时能收住这条循环线程。
+    if (StartManagedThreadOnce(L"deep_dig_loop", DeepDigLoopThreadProc, data)) {
         return TRUE;
-    } else {
-        g_deepDigState.autoMode = false;
-        delete data;
-        return FALSE;
     }
+    g_deepDigState.autoMode = false;
+    delete data;
+    return FALSE;
 }
 
 // 深度挖宝 - 发送结束游戏封包
@@ -236,11 +234,13 @@ void ProcessDeepDigResponse(const GamePacket& packet) {
         g_deepDigState.sessionId = result;
         g_deepDigState.waitingResponse = false;
         
-        CreateThread(NULL, 0, [](LPVOID) -> DWORD {
-            Sleep(500);
+        StartManagedThreadOnce(L"delay_deep_dig_end", [](LPVOID) -> DWORD {
+            if (!ManagedThread::SleepCancellable(500)) {
+                return 0;
+            }
             SendDeepDigEndPacket(g_deepDigState.sessionId, 4);
             return 0;
-        }, NULL, 0, NULL);
+        }, nullptr);
     }
 }
 

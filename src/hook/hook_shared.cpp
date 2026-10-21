@@ -1,4 +1,5 @@
 #include "hook_shared.h"
+#include "managed_thread.h"
 
 #include <string>
 #include <utility>
@@ -117,4 +118,15 @@ int FindAwardAmount(const std::vector<std::pair<int, int>>& awardList, int itemI
         }
     }
     return 0;
+}
+
+bool StartManagedThreadOnce(const wchar_t* name, LPTHREAD_START_ROUTINE body, LPVOID param) {
+    if (body == nullptr) {
+        return false;
+    }
+    const std::wstring threadName = (name != nullptr) ? name : L"once";
+    // 启动失败时 param 由调用方负责（与原 CreateThread 失败路径一致）。
+    return ManagedThread::Start(threadName, [body, param]() {
+        body(param);
+    });
 }

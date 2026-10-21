@@ -138,7 +138,8 @@ void QueryActivityCountsAsync() {
         return;
     }
 
-    HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID) -> DWORD {
+    // 走受管线程：退出时能收住，不再是一条没人等的线程。
+    const bool threadStarted = StartManagedThreadOnce(L"activity_counts", [](LPVOID) -> DWORD {
         if (!IsWpeHookInitialized()) {
             g_activityCountRefreshing = false;
             return 0;
@@ -221,10 +222,9 @@ void QueryActivityCountsAsync() {
 
         g_activityCountRefreshing = false;
         return 0;
-    }, nullptr, 0, nullptr);
+    }, nullptr);
 
-    if (hThread) {
-        CloseHandle(hThread);
+    if (threadStarted) {
         return;
     }
 
