@@ -34,11 +34,7 @@ BOOL SendAct685StartGamePacket(int ruleFlag = 0);
 BOOL SendAct685EndGamePacket(int score);
 BOOL SendAct685SweepInfoPacket();
 BOOL SendAct685SweepPacket();
-void ProcessAct685Response(const GamePacket& packet);
 
-namespace Act666 {
-constexpr int ACTIVITY_ID = 666;
-}  // namespace Act666
 
 BOOL SendAct666Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
 BOOL SendAct666OpenUIPacket();
@@ -46,7 +42,6 @@ BOOL SendAct666StartGamePacket(int isPropt = 0, int type = 0);
 BOOL SendAct666EndGamePacket(int medalCount, bool isPass = true);
 BOOL SendAct666SweepInfoPacket();
 BOOL SendAct666SweepPacket();
-void ProcessAct666Response(const GamePacket& packet);
 
 namespace Act641 {
 constexpr int ACTIVITY_ID = 641;
@@ -60,7 +55,6 @@ BOOL SendAct641StartGamePacket();
 BOOL SendAct641EndGamePacket(int score);
 BOOL SendAct641SweepInfoPacket();
 BOOL SendAct641SweepPacket();
-void ProcessAct641Response(const GamePacket& packet);
 
 namespace Act684 {
 constexpr int ACTIVITY_ID = 684;
@@ -75,7 +69,6 @@ BOOL SendAct684StartGamePacket(int ruleFlag = 0);
 BOOL SendAct684EndGamePacket(int score);
 BOOL SendAct684SweepInfoPacket();
 BOOL SendAct684SweepPacket();
-void ProcessAct684Response(const GamePacket& packet);
 
 namespace Act717 {
 constexpr int ACTIVITY_ID = 717;
@@ -88,13 +81,7 @@ BOOL SendAct717StartGamePacket(int promptFlag = 0);
 BOOL SendAct717EndGamePacket(int score);
 BOOL SendAct717SweepInfoPacket();
 BOOL SendAct717SweepPacket();
-void ProcessAct717Response(const GamePacket& packet);
 
-namespace Act805 {
-constexpr int ACTIVITY_ID = 805;
-constexpr int TARGET_SCORE = 350;
-constexpr int DAILY_TASK_ID = 4039001;
-}  // namespace Act805
 
 BOOL SendAct805Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
 BOOL SendAct805GameInfoPacket();
@@ -102,13 +89,7 @@ BOOL SendAct805StartGamePacket();
 BOOL SendAct805EndGamePacket(int score);
 BOOL SendAct805SweepInfoPacket();
 BOOL SendAct805SweepPacket();
-void ProcessAct805Response(const GamePacket& packet);
 
-namespace Act757 {
-constexpr int ACTIVITY_ID = 757;
-constexpr int PASS_SCORE = 180;
-constexpr int MAX_SCORE = 250;
-}  // namespace Act757
 
 BOOL SendAct757Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
 BOOL SendAct757OpenUIPacket();
@@ -116,7 +97,6 @@ BOOL SendAct757StartGamePacket(int promptFlag = 0);
 BOOL SendAct757EndGamePacket(int score);
 BOOL SendAct757SweepInfoPacket();
 BOOL SendAct757SweepPacket();
-void ProcessAct757Response(const GamePacket& packet);
 
 namespace Act631 {
 constexpr int ACTIVITY_ID = 631;
@@ -130,7 +110,6 @@ BOOL SendAct631StartGamePacket(int ruleFlag = 0);
 BOOL SendAct631EndGamePacket(int isPass, int clientCheckCode, int score);
 BOOL SendAct631SweepInfoPacket();
 BOOL SendAct631SweepPacket();
-void ProcessAct631Response(const GamePacket& packet);
 
 namespace Act782 {
 constexpr int ACTIVITY_ID = 782;
@@ -159,9 +138,6 @@ BOOL SendAct804SweepInfoPacket();
 BOOL SendAct804SweepPacket();
 void ProcessAct804Response(const GamePacket& packet);
 
-namespace Act810 {
-constexpr int ACTIVITY_ID = 810;
-}  // namespace Act810
 
 BOOL SendAct810Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
 BOOL SendAct810OpenUIPacket();
@@ -169,7 +145,6 @@ BOOL SendAct810StartGamePacket(int ruleFlag = 1);
 BOOL SendAct810EndGamePacket(int medalCount);
 BOOL SendAct810SweepInfoPacket();
 BOOL SendAct810SweepPacket();
-void ProcessAct810Response(const GamePacket& packet);
 
 namespace Act811 {
 constexpr int ACTIVITY_ID = 811;
@@ -198,7 +173,6 @@ BOOL SendAct822StartGamePacket(int ruleFlag = 0);
 BOOL SendAct822EndGamePacket(int score, bool isPass = true);
 BOOL SendAct822SweepInfoPacket();
 BOOL SendAct822SweepPacket();
-void ProcessAct822Response(const GamePacket& packet);
 
 namespace Act826 {
 constexpr int ACTIVITY_ID = 826;
@@ -211,7 +185,6 @@ BOOL SendAct826StartGamePacket(int ruleFlag = 0);
 BOOL SendAct826EndGamePacket(int checkCode, int score);
 BOOL SendAct826SweepInfoPacket();
 BOOL SendAct826SweepPacket();
-void ProcessAct826Response(const GamePacket& packet);
 
 namespace Act827 {
 constexpr int ACTIVITY_ID = 827;
@@ -224,7 +197,6 @@ BOOL SendAct827StartGamePacket(int promptFlag = 0);
 BOOL SendAct827EndGamePacket(int checkCode, int score);
 BOOL SendAct827SweepInfoPacket();
 BOOL SendAct827SweepPacket();
-void ProcessAct827Response(const GamePacket& packet);
 
 namespace Act808 {
 constexpr int ACTIVITY_ID = 808;

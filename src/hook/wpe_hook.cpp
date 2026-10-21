@@ -1509,24 +1509,12 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerOpcode(Opcode::REQ_PACKAGE_DATA_BACK, ProcessPackageDataResponse);
 
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act778::ACTIVITY_ID, ProcessAct778Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act685::ACTIVITY_ID, ProcessAct685Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act666::ACTIVITY_ID, ProcessAct666Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act757::ACTIVITY_ID, ProcessAct757Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act641::ACTIVITY_ID, ProcessAct641Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act684::ACTIVITY_ID, ProcessAct684Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act717::ACTIVITY_ID, ProcessAct717Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act808::ACTIVITY_ID, ProcessAct808Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act805::ACTIVITY_ID, ProcessAct805Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act631::ACTIVITY_ID, ProcessAct631Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act782::ACTIVITY_ID, ProcessAct782Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act804::ACTIVITY_ID, ProcessAct804Response);
     registerParams(Opcode::ACTIVITY_LUA_V3_BACK, Act804::ACTIVITY_ID, ProcessAct804Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act810::ACTIVITY_ID, ProcessAct810Response);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, Act811::ACTIVITY_ID, ProcessAct811Response);
     registerParams(Opcode::ACTIVITY_LUA_V3_BACK, Act811::ACTIVITY_ID, ProcessAct811Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act822::ACTIVITY_ID, ProcessAct822Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act826::ACTIVITY_ID, ProcessAct826Response);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, Act827::ACTIVITY_ID, ProcessAct827Response);
     registerParams(Opcode::HORSE_COMPETITION_BACK, HORSE_COMPETITION_ACT_ID, ProcessHorseCompetitionResponse);
 
     // 最新活动（周活动小游戏）：按活动 ID 路由到统一处理器

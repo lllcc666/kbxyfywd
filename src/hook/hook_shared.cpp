@@ -51,61 +51,8 @@ void NotifySpiritConfirm(const std::wstring& playerName) {
                    UIBridge::EscapeJsonString(playerName) + L"\"}); }");
 }
 
-void BuildAct757AwardList(int medal, int exp, int coin,
-                          const std::vector<std::pair<int, int>>& rewards,
-                          std::vector<std::pair<int, int>>& awardList) {
-    int practiceNum = 0;
-    std::vector<std::pair<int, int>> tempList;
-    awardList.clear();
-    awardList.emplace_back(0, medal);
-    awardList.emplace_back(202, exp);
-    awardList.emplace_back(201, coin);
-    for (const auto& reward : rewards) {
-        const int id = reward.first;
-        const int num = reward.second;
-        if (num <= 0) {
-            continue;
-        }
-        switch (id) {
-            case 208:
-            case 209:
-            case 210:
-            case 211:
-            case 212:
-            case 213:
-                practiceNum += num;
-                break;
-            default:
-                tempList.emplace_back(id, num);
-                break;
-        }
-    }
-    awardList.emplace_back(203, practiceNum);
-    awardList.insert(awardList.end(), tempList.begin(), tempList.end());
-}
 
-void BuildAct822AwardList(int medal, int exp, int coin,
-                          const std::vector<std::pair<int, int>>& rewards,
-                          std::vector<std::pair<int, int>>& awardList) {
-    awardList.clear();
-    awardList.emplace_back(0, medal);
-    awardList.emplace_back(202, exp);
-    awardList.emplace_back(201, coin);
-    for (const auto& reward : rewards) {
-        if (reward.second > 0) {
-            awardList.emplace_back(reward.first, reward.second);
-        }
-    }
-}
 
-int FindAwardAmount(const std::vector<std::pair<int, int>>& awardList, int itemId) {
-    for (const auto& award : awardList) {
-        if (award.first == itemId) {
-            return award.second;
-        }
-    }
-    return 0;
-}
 
 bool StartManagedThreadOnce(const wchar_t* name, LPTHREAD_START_ROUTINE body, LPVOID param) {
     if (body == nullptr) {
