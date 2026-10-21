@@ -27,7 +27,6 @@ typedef struct _PACKET {
 
 } PACKET, *PPACKET;
 
-
 typedef HRESULT (*EXECUTE_SCRIPT_FUNC)(const WCHAR* script);
 
 namespace WpeHook {
@@ -319,10 +318,6 @@ void ProcessPackageDataResponse(const GamePacket& packet);
 BOOL SendBuyGoodsPacket(uint32_t itemId, uint32_t count);
 
 BOOL SendUseItemInBattlePacket(uint32_t itemId, uint32_t position = 0);
-
-BOOL SendUsePropsPacket(uint32_t itemId, uint32_t spiritId = 0,
-
-                        uint32_t param1 = 1, uint32_t param2 = 0, uint32_t param3 = 0);
 
 std::wstring GetItemName(uint32_t itemId);
 

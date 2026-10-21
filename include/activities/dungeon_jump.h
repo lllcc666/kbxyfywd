@@ -55,7 +55,6 @@ BOOL SendQueryDungeonInfoPacket();
 BOOL SendPrepareBattlePacket();
 BOOL SendDungeonActivityPacket(int activityId);
 BOOL SendCompleteJumpPacket();
-BOOL SendPutSpiritStorePacket(int monsterUniqueId);
 BOOL SendSetFirstSpiritPacket(int monsterUniqueId);
 BOOL StartOneKeyDungeonJumpPacket(int targetLayer);
 void StopDungeonJump();
