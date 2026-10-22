@@ -12,9 +12,11 @@
 
 #include "battle_six.h"
 #include "dungeon_jump.h"
+#include "activity_bus.h"
 #include "activity_minigames.h"
 #include "horse_competition.h"
 #include "latest_activities.h"
+#include "little_game.h"
 #include "shuangtai.h"
 #include "wpe_hook.h"
 #include "spirit_collect.h"
@@ -360,6 +362,40 @@ void HandleStartDailyTasksCommand(const std::wstring& msg) {
     const DWORD flags = GetJsonDWORDValue(msg, L"flags");
     HandleActionCommand([flags]() {
         StartDailyTasksAsync(flags);
+    });
+}
+
+// 障碍赛跑（Act810）：走新活动总线 1185429，扫荡路径不吃跑酷玩法。
+void HandleStartRunCompetitionCommand(const std::wstring& msg) {
+    const int sweepTimes = static_cast<int>(GetJsonDWORDValue(msg, L"times"));
+    HandleActionCommand([sweepTimes]() {
+        StartRunCompetitionAsync(sweepTimes);
+    });
+}
+
+// 金平府祈愿（activityId 688）：start → finish 往返。
+void HandleStartJinpingfuWishCommand(const std::wstring& msg) {
+    const int rounds = static_cast<int>(GetJsonDWORDValue(msg, L"times"));
+    const int holdMs = static_cast<int>(GetJsonDWORDValue(msg, L"hold_ms"));
+    HandleActionCommand([rounds, holdMs]() {
+        StartJinpingfuWishAsync(rounds, holdMs);
+    });
+}
+
+// 知识小天地（gameType 10003）：小游戏总线开局挂机再结算。
+void HandleStartKnowledgeGardenCommand(const std::wstring& msg) {
+    const int rounds = static_cast<int>(GetJsonDWORDValue(msg, L"times"));
+    const int holdMs = static_cast<int>(GetJsonDWORDValue(msg, L"hold_ms"));
+    HandleActionCommand([rounds, holdMs]() {
+        StartKnowledgeGardenAsync(rounds, holdMs);
+    });
+}
+
+// 五子棋大作战（activityId 22003 / 场景 1010 / NPC 18004）。
+void HandleStartGomokuCommand(const std::wstring& msg) {
+    const int rounds = static_cast<int>(GetJsonDWORDValue(msg, L"times"));
+    HandleActionCommand([rounds]() {
+        StartGomokuAsync(rounds);
     });
 }
 
@@ -1031,6 +1067,14 @@ public:
             HandleUseItemCommand(msg);
         } else if (msg.find(L"daily_tasks") != std::wstring::npos) {
             HandleStartDailyTasksCommand(msg);
+        } else if (msg.find(L"daily_run_competition") != std::wstring::npos) {
+            HandleStartRunCompetitionCommand(msg);
+        } else if (msg.find(L"daily_jinpingfu_wish") != std::wstring::npos) {
+            HandleStartJinpingfuWishCommand(msg);
+        } else if (msg.find(L"daily_knowledge_garden") != std::wstring::npos) {
+            HandleStartKnowledgeGardenCommand(msg);
+        } else if (msg.find(L"daily_gomoku") != std::wstring::npos) {
+            HandleStartGomokuCommand(msg);
         } else if (msg.find(L"query_huangcheng_weiji_task_progress") != std::wstring::npos) {
             HandleQueryHuangchengWeijiTaskProgressCommand(msg);
         } else if (msg.find(L"start_huangcheng_weiji_task") != std::wstring::npos) {

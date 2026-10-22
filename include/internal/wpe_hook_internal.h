@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <unordered_map>
 
@@ -31,14 +32,14 @@ void CleanupTowerState();
 void SetDanceMapEntered(bool entered);
 
 // 深层挖宝状态：日常任务收尾要发结束包，故跨模块可见。
+// 这些字段被收包线程和日常工作线程并发读写，必须是原子量：
+// 裸 int 在 x86 上虽然不撕裂，但编译器有权把轮询条件提升出循环。
 struct DeepDigState {
-    int sessionId = 0;           ///< 会话ID
-    int remainingCount = 0;      ///< 剩余次数
-    int targetCount = 0;         ///< 目标执行次数
-    int completedCount = 0;      ///< 已完成次数
-    bool waitingResponse = false;///< 等待开始响应
-    bool waitingQuery = false;   ///< 等待查询响应
-    bool autoMode = false;       ///< 自动循环模式
+    std::atomic<int> sessionId{0};             ///< 开局回包带回的会话ID
+    std::atomic<int> remainingCount{0};        ///< open_ui 查询到的剩余次数
+    std::atomic<int> completedCount{0};        ///< 已完成局数
+    std::atomic<bool> waitingResponse{false};  ///< 等待开局回包
+    std::atomic<bool> waitingQuery{false};     ///< 等待次数查询回包
 };
 extern DeepDigState g_deepDigState;
 
@@ -98,6 +99,15 @@ private:
     ResponseDispatcher& operator=(const ResponseDispatcher&) = delete;
 
     static uint64_t MakeKey(uint32_t opcode, uint32_t params);
+
+    // 无锁版本，仅供 InitializeDefaultHandlers 在启动期单线程调用。
+    // 启动期若走 std::mutex，MSVC 会生成 _Mtx_lock，失败时抛
+    // _Throw_Cpp_error(5)；WinMain 里没有 catch，Release 下直接
+    // std::terminate，用户侧表现为双击毫无反应。启动阶段无并发，
+    // 这里不需要锁。
+    void ClearUnlocked();
+    BOOL RegisterUnlocked(uint32_t opcode, ResponseHandler handler);
+    BOOL RegisterUnlocked(uint32_t opcode, uint32_t params, ResponseHandler handler);
 
     // Key为(opcode << 32 | params)，精确匹配优先于仅opcode匹配。
     std::unordered_map<uint64_t, ResponseHandler> m_handlers;

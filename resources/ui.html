@@ -2187,7 +2187,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 <!-- 子标签页内容 -->
                 <div id="sub-daily" class="sub-tab-content active">
                     <div class="fx-page">
-                        <!-- 功能模块横向布局：各面板等高，撑满可用高度 -->
+                        <!-- 功能模块横向布局：面板按 flex-basis 自动折行，窄窗口不会压成一条 -->
                         <div class="fx-row">
 
                             <!-- 每日模块 -->
@@ -2229,6 +2229,34 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                                 </div>
                                 <div class="fx-actions">
                                     <button id="complete-daily-tasks" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px; width: 100%;">一键完成</button>
+                                </div>
+                            </div>
+
+                            <!-- 活动小游戏模块 -->
+                            <!-- 活动小游戏模块：四项功能尚未验证通过，先整块隐藏。
+                                 恢复时把 style 里的 display: none 去掉即可。 -->
+                            <div class="fx-panel" style="display: none; flex: 1 1 300px; min-width: 250px;">
+                                <span class="fx-panel-title">活动</span>
+                                <div class="fx-checks" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+                                    <label class="fx-check">
+                                        <input type="checkbox" id="act-run-competition" checked style="width: 11px; height: 11px;">
+                                        <span>障碍赛跑</span>
+                                    </label>
+                                    <label class="fx-check">
+                                        <input type="checkbox" id="act-jinpingfu-wish" checked style="width: 11px; height: 11px;">
+                                        <span>金平府祈愿</span>
+                                    </label>
+                                    <label class="fx-check">
+                                        <input type="checkbox" id="act-knowledge-garden" checked style="width: 11px; height: 11px;">
+                                        <span>知识小天地</span>
+                                    </label>
+                                    <label class="fx-check">
+                                        <input type="checkbox" id="act-gomoku" style="width: 11px; height: 11px;">
+                                        <span>五子棋</span>
+                                    </label>
+                                </div>
+                                <div class="fx-actions">
+                                    <button id="complete-activity-tasks" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px; width: 100%;">一键活动</button>
                                 </div>
                             </div>
 
@@ -3542,6 +3570,11 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 danceBtn.disabled = isRunning;
                 danceBtn.textContent = isRunning ? '执行中...' : '一键跳舞';
             }
+            var activityBtn = document.getElementById('complete-activity-tasks');
+            if (activityBtn) {
+                activityBtn.disabled = isRunning;
+                activityBtn.textContent = isRunning ? '执行中...' : '一键活动';
+            }
         };
 
         // 一键完成日常活动
@@ -3575,6 +3608,74 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                     flags: flags
                 });
             }
+        };
+
+        // 一键活动：每个活动各自跑在独立的受管线程里，彼此不知道对方在做什么，
+        // 所以这里串行下发。间隔按各自真实耗时给足——金平府 3 轮是
+        // 3*(hold_ms + 1200) 秒，用固定 10 秒会让下一项在它还没跑完时就启动。
+        window.completeActivityTasks = function() {
+            if (window.isDailyTaskRunning) return;
+
+            var steps = [];
+
+            var runCompEl = document.getElementById('act-run-competition');
+            if (runCompEl && runCompEl.checked) {
+                steps.push({
+                    label: '障碍赛跑',
+                    msg: { type: 'daily_run_competition', times: 3 },
+                    waitMs: 4000
+                });
+            }
+            var jinpingfuEl = document.getElementById('act-jinpingfu-wish');
+            if (jinpingfuEl && jinpingfuEl.checked) {
+                steps.push({
+                    label: '金平府祈愿',
+                    msg: { type: 'daily_jinpingfu_wish', times: 3, hold_ms: 300 },
+                    waitMs: 7000
+                });
+            }
+            var knowledgeEl = document.getElementById('act-knowledge-garden');
+            if (knowledgeEl && knowledgeEl.checked) {
+                steps.push({
+                    label: '知识小天地',
+                    msg: { type: 'daily_knowledge_garden', times: 1, hold_ms: 300 },
+                    waitMs: 3000
+                });
+            }
+            var gomokuEl = document.getElementById('act-gomoku');
+            if (gomokuEl && gomokuEl.checked) {
+                steps.push({
+                    label: '五子棋',
+                    msg: { type: 'daily_gomoku', times: 1 },
+                    waitMs: 12000
+                });
+            }
+
+            if (steps.length === 0) {
+                window.updateDailyTaskStatus('请至少勾选一项活动', false);
+                window.updateHelperText('请至少勾选一项活动');
+                return;
+            }
+
+            var total = steps.length;
+            var index = 0;
+
+            function runNextStep() {
+                if (index >= total) {
+                    window.updateDailyTaskStatus('活动已全部执行完成（' + total + ' 项）', false);
+                    return;
+                }
+                var step = steps[index];
+                window.updateDailyTaskStatus('正在执行 ' + step.label + '（' + (index + 1) + '/' + total + '）...', true);
+                if (window.chrome && window.chrome.webview) {
+                    window.chrome.webview.postMessage(step.msg);
+                }
+                var delay = step.waitMs || 10000;
+                index++;
+                setTimeout(runNextStep, delay);
+            }
+
+            runNextStep();
         };
 
         // 一键完成试炼活动
@@ -4481,6 +4582,10 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             var danceBtn = document.getElementById('complete-dance-tasks');
             if (danceBtn) {
                 danceBtn.addEventListener('click', window.completeDanceTasks);
+            }
+            var activityBtn = document.getElementById('complete-activity-tasks');
+            if (activityBtn) {
+                activityBtn.addEventListener('click', window.completeActivityTasks);
             }
             var startTaskZoneBtn = document.getElementById('start-task-zone');
             if (startTaskZoneBtn) {

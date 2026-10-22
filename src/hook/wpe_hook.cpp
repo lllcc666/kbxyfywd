@@ -20,6 +20,7 @@
 #include <unordered_map>
 #include <thread>
 #include <cctype>
+#include <exception>
 
 // 第三方库
 #include <MemoryModule.h>
@@ -33,6 +34,7 @@
 #include "story_task_internal.h"
 #include "task_zone_internal.h"
 #include "activity_states_internal.h"
+#include "activity_bus.h"
 #include "activity_minigames.h"
 #include "battle_six.h"
 #include "dungeon_jump.h"
@@ -346,24 +348,74 @@ void SetExecuteScriptFunction(EXECUTE_SCRIPT_FUNC func) {
     g_ExecuteScriptFunc = func;
 }
 
+// 启动诊断：把关键步骤追加到 %TEMP%\kbwebui_boot.log。
+// 用户报「双击没反应」时，让他把该文件发回来，就能看到停在哪一步。
+static void BootLog(const char* stage) {
+    wchar_t tempPath[MAX_PATH] = {};
+    if (GetTempPathW(MAX_PATH, tempPath) == 0) {
+        return;
+    }
+    if (wcslen(tempPath) + 16 >= MAX_PATH) {
+        return;
+    }
+    wcscat_s(tempPath, L"kbwebui_boot.log");
+
+    HANDLE hFile = CreateFileW(tempPath, FILE_APPEND_DATA, FILE_SHARE_READ,
+                               nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        return;
+    }
+
+    SYSTEMTIME st = {};
+    GetLocalTime(&st);
+    char line[512] = {};
+    const int len = wsprintfA(line, "[%04d-%02d-%02d %02d:%02d:%02d] %s\r\n",
+                              st.wYear, st.wMonth, st.wDay,
+                              st.wHour, st.wMinute, st.wSecond, stage);
+    if (len > 0) {
+        DWORD written = 0;
+        WriteFile(hFile, line, static_cast<DWORD>(len), &written, nullptr);
+    }
+    CloseHandle(hFile);
+}
+
 BOOL InitializeWpeHook() {
     if (g_bInitialized) {
         return TRUE;
     }
 
+    BootLog("InitializeWpeHook: enter");
+
     // 初始化玄塔临界区
     InitializeTowerState();
 
-    // 初始化解析器
-    if (!PacketParser::Initialize()) {
-        CleanupTowerState();
+    // 整段兜住 C++ 异常。PacketParser / ResponseDispatcher 里任何
+    // std::system_error、std::bad_alloc 在 WinMain 里都没人接，Release 下
+    // 直接 std::terminate，用户看到的就是「双击毫无反应」。这里降级为
+    // 「hook 没装上，但窗口照开」。
+    try {
+        // 初始化解析器
+        if (!PacketParser::Initialize()) {
+            BootLog("InitializeWpeHook: PacketParser::Initialize returned false");
+            CleanupTowerState();
+            return FALSE;
+        }
+        BootLog("InitializeWpeHook: after PacketParser::Initialize");
+
+        // 初始化响应处理器（启动期单线程，内部走无锁版本）
+        ResponseDispatcher::Instance().InitializeDefaultHandlers();
+        BootLog("InitializeWpeHook: after InitializeDefaultHandlers");
+    } catch (const std::exception& e) {
+        BootLog(e.what());
+        BootLog("InitializeWpeHook: std::exception caught, hook disabled");
+        return FALSE;
+    } catch (...) {
+        BootLog("InitializeWpeHook: unknown exception caught, hook disabled");
         return FALSE;
     }
 
-    // 初始化响应处理器
-    ResponseDispatcher::Instance().InitializeDefaultHandlers();
-
     g_bInitialized = true;
+    BootLog("InitializeWpeHook: done");
     return TRUE;
 }
 
@@ -1281,20 +1333,30 @@ uint64_t ResponseDispatcher::MakeKey(uint32_t opcode, uint32_t params) {
     return (static_cast<uint64_t>(opcode) << 32) | static_cast<uint64_t>(params);
 }
 
+BOOL ResponseDispatcher::RegisterUnlocked(uint32_t opcode, ResponseHandler handler) {
+    if (!handler) return FALSE;
+    m_opcodeOnlyHandlers[opcode] = handler;
+    return TRUE;
+}
+
+BOOL ResponseDispatcher::RegisterUnlocked(uint32_t opcode, uint32_t params, ResponseHandler handler) {
+    if (!handler) return FALSE;
+    m_handlers[MakeKey(opcode, params)] = handler;
+    return TRUE;
+}
+
 BOOL ResponseDispatcher::Register(uint32_t opcode, ResponseHandler handler) {
     if (!handler) return FALSE;
 
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_opcodeOnlyHandlers[opcode] = handler;
-    return TRUE;
+    return RegisterUnlocked(opcode, handler);
 }
 
 BOOL ResponseDispatcher::Register(uint32_t opcode, uint32_t params, ResponseHandler handler) {
     if (!handler) return FALSE;
 
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_handlers[MakeKey(opcode, params)] = handler;
-    return TRUE;
+    return RegisterUnlocked(opcode, params, handler);
 }
 
 void ResponseDispatcher::Unregister(uint32_t opcode, uint32_t params) {
@@ -1339,14 +1401,20 @@ BOOL ResponseDispatcher::Dispatch(const GamePacket& packet) {
     return TRUE;
 }
 
-void ResponseDispatcher::Clear() {
-    std::lock_guard<std::mutex> lock(m_mutex);
+void ResponseDispatcher::ClearUnlocked() {
     m_handlers.clear();
     m_opcodeOnlyHandlers.clear();
 }
 
+void ResponseDispatcher::Clear() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ClearUnlocked();
+}
+
 void ResponseDispatcher::InitializeDefaultHandlers() {
-    Clear();
+    // 启动期单线程调用，走无锁版本：避免 _Mtx_lock 失败触发
+    // _Throw_Cpp_error(5) 把启动流程打断（WinMain 里无人 catch）。
+    ClearUnlocked();
 
     const ResponseHandler processBattle = [](const GamePacket& gp) {
         // 共享战斗包统一由通用解析维护公共战斗态/UI。
@@ -1459,11 +1527,12 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
         g_storyTaskMapEnterSession = g_storyTaskSession.load();
     };
 
+    // 同上：启动期无并发，直接写 map，不走 std::mutex。
     const auto registerOpcode = [this](uint32_t opcode, const ResponseHandler& handler) {
-        Register(opcode, handler);
+        RegisterUnlocked(opcode, handler);
     };
     const auto registerParams = [this](uint32_t opcode, uint32_t params, const ResponseHandler& handler) {
-        Register(opcode, params, handler);
+        RegisterUnlocked(opcode, params, handler);
     };
 
     registerOpcode(Opcode::BATTLE_START, processBattle);
@@ -1520,6 +1589,10 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
 
     registerParams(Opcode::HEAVEN_FURUI_BACK, HeavenFurui::ACTIVITY_ID, ProcessHeavenFuruiResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, HeavenFurui::ACTIVITY_ID, ProcessHeavenFuruiResponse);
+
+    // 障碍赛跑（Act810）：新活动总线回包，params 是活动 ID。
+    registerParams(Opcode::ACTIVITY_ACTION_BACK, Opcode::ACT_RUN_COMPETITION,
+                   ProcessRunCompetitionResponse);
 
     registerOpcode(Opcode::BATTLESIX_COMBAT_INFO_BACK, ProcessBattleSixCombatInfoResponse);
     registerOpcode(Opcode::BATTLESIX_MATCH_BACK, ProcessBattleSixMatchResponse);

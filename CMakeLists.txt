@@ -37,6 +37,8 @@ add_executable(WebView2Demo WIN32
     ${SRC_DIR}/hook/dungeon_deepdig.cpp
     ${SRC_DIR}/hook/bag_items.cpp
     ${SRC_DIR}/hook/daily_activity.cpp
+    ${SRC_DIR}/hook/little_game.cpp
+    ${SRC_DIR}/hook/activity_bus.cpp
     ${SRC_DIR}/hook/md5_check.cpp
     ${SRC_DIR}/hook/trial.cpp
     ${SRC_DIR}/hook/tower.cpp

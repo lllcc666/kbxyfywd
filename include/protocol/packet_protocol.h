@@ -46,11 +46,22 @@ constexpr uint32_t DECOMPOSE_RESPONSE = RESOLVE_SPIRIT_BACK;
 
 constexpr uint32_t MONSTER_LIST = 1318401;
 
-// 地宫挖宝请求：PacketBuilder 路径用的是 1185525；daily_activity 里的裸字节包用的是
-// 1184789（0x15 0x14 0x12 0x00）。两者尚未统一，改动前需按实际回包核对。
-constexpr uint32_t DEEP_DIG_SEND = 1185525;
+// 小游戏总线（AS3 MsgDoc.as:1012 OP_CLIENT_LITTLE_GAME，send=1184789 / back=1315861）。
+// params=gameType，body 由 gameType 决定（LittlegameControl.as:57/63/78）：
+//   开始 [0,0,0,0,0,0]（PK 局 [0,0,0,0,playerid,playerScore]）
+//   结束 [4, level-1, score, sessionId, 0, 0]
+// 开始回包是 (act, result) 二元组：act==0 时 result 就是 sessionId，act==4 时是结算修为。
+// 原值 1185525 在 MsgDoc.as 里根本不存在，此处以 OP_CLIENT_LITTLE_GAME.send 为准。
+constexpr uint32_t DEEP_DIG_SEND = 1184789;
 constexpr uint32_t DEEP_DIG_BACK = 1315861;
+constexpr uint32_t LITTLE_GAME_SEND = DEEP_DIG_SEND;
+constexpr uint32_t LITTLE_GAME_BACK = DEEP_DIG_BACK;
 constexpr uint32_t ACTIVITY_QUERY_BACK = 1316501;
+
+// 小游戏 bus 的 params（gameType）。AS3 侧没有枚举表，只能按服务端
+// littleGameStart 事件里的 gameid 识别。
+constexpr int GAME_TYPE_DEEP_DIG = 12;      // 深度挖掘（DeepHole.as：一局 4 宝箱 / 100 秒）
+constexpr int GAME_TYPE_KNOWLEDGE = 10003;  // 知识小天地
 
 constexpr uint32_t PLAYER_ENTER_SCENE = 1315075;
 constexpr uint32_t PLAYER_LEAVE_SCENE = 1315328;
@@ -120,6 +131,11 @@ constexpr uint32_t CLICK_NPC = 1186048;
 constexpr uint32_t NPC_STATUS_SEND = 1184771;
 constexpr uint32_t NPC_STATUS_BACK = 1315843;
 
+// 场景玩家列表（AS3 MsgDoc.as:75 OP_CLIENT_REQ_SCENE_PLAYER_LIST，back=1315086）。
+// 进场景之后客户端发的第一条包：0x12123D params=0 空 body。
+constexpr uint32_t PLAYER_LIST_SEND = 1184317;
+constexpr uint32_t PLAYER_LIST_BACK = 1315086;
+
 // 场景 NPC 列表（AS3 MsgDoc.OP_CLIENT_NPC_LIST，back=1315854）。
 // 抓包证实：每次进入新场景，客户端先发 NPC_LIST(params=0, 空 body)，
 // 服务端回 body=[count, npcId...]，客户端再对列表里每个 NPC 发 NPC_STATUS。
@@ -144,6 +160,26 @@ constexpr uint32_t GET_MAGIC_INDEX_BACK = 1316125;
 constexpr uint32_t BATTLE_MD5_CHECK = 1317264;
 constexpr uint32_t BATTLE_MD5_SEND = 1186193;
 constexpr uint32_t BATTLE_MD5_FAIL = 1317266;
+
+// 新活动总线（AS3 MsgDoc.as:1580 OP_CLIENT_ACTIVITY_QINGYANG_NEW，send=1185429 / back=1316501）。
+// params=活动ID，body="u16 长度 + ASCII 动作名"。动作名表在各活动 SWF 的 Define 类里，
+// 例如障碍赛跑 Act810Define.as 有 open_ui / start_game / sweep_info / sweep / reward / exchange。
+// 障碍赛跑(810)、金平府祈愿(688)、灵兽采集(754)、坐骑大赛(665) 全部走这一条。
+constexpr uint32_t ACTIVITY_ACTION_SEND = 1185429;
+constexpr uint32_t ACTIVITY_ACTION_BACK = 1316501;
+
+// 旧活动总线（AS3 MsgDoc.as:1464 OP_CLIENT_ACTIVITY_QINGYANG，send=1184833 / back=1324097）。
+// params 是活动子命令码（900/902/325/154/182/142/332…），body 是参数列表。
+constexpr uint32_t ACTIVITY_QINGYANG_SEND = 1184833;
+constexpr uint32_t ACTIVITY_QINGYANG_BACK = 1324097;
+
+// 活动 ID（新总线的 params）与相关场景、NPC
+constexpr int ACT_RUN_COMPETITION = 810;   // 障碍赛跑 Act810RunMain
+constexpr int ACT_JINPINGFU_WISH = 688;    // 金平府祈愿
+constexpr int ACT_GOMOKU = 22003;          // 五子棋大作战
+constexpr int SCENE_GOMOKU = 1010;         // 五子棋所在场景
+constexpr int NPC_GOMOKU = 18004;          // 五子棋 NPC
+constexpr int SCENE_JINPINGFU = 22004;     // 金平府场景
 
 constexpr uint32_t ACTIVITY_QINGYANG_NEW_SEND = 1185429;
 constexpr uint32_t ACTIVITY_LUA_V3_SEND = 1185432;

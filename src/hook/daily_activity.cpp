@@ -19,6 +19,7 @@
 #include "dungeon_jump.h"
 #include "hook_shared.h"
 #include "latest_activities.h"
+#include "little_game.h"
 #include "managed_thread.h"
 #include "packet_builder.h"
 #include "packet_parser.h"
@@ -41,8 +42,8 @@ struct DailyTaskData {
 
 // ============ 日常活动功能实现 ============
 
-// 深度挖宝 - 发送开始游戏封包
-// Opcode: 1185525, Params: 12, Body: 6个int32(都是0)
+// 每日卡牌
+// Opcode: 1184815 (AS3 OP_CLIENT_ACTIVITY), Params: 22 就是「每日卡牌」子命令
 BOOL SendDailyCardPacket() {
     auto packet = PacketBuilder()
         .SetOpcode(1184815)
@@ -166,60 +167,50 @@ DWORD WINAPI DailyTaskThreadProc(LPVOID lpParam) {
     
     // 按顺序执行
     if (!ManagedThread::StopRequested() && (flags & 0x01)) {  // 深度挖宝
-        g_deepDigState.autoMode = true;
-        g_deepDigState.completedCount = 0;
+        g_deepDigState.completedCount.store(0);
         SendQueryDeepDigCountPacket();
-        
+
         // 执行剩余次数
-        int execCount = g_deepDigState.remainingCount > 0 ?
-                        g_deepDigState.remainingCount : WpeHook::DEEP_DIG_DEFAULT_COUNT;
+        const int remaining = g_deepDigState.remainingCount.load();
+        int execCount = remaining > 0 ? remaining : WpeHook::DEEP_DIG_DEFAULT_COUNT;
         for (int i = 0; i < execCount; i++) {
             if (ManagedThread::StopRequested()) {
                 break;
             }
-            g_deepDigState.waitingResponse = true;
-            g_deepDigState.sessionId = 0;
+            g_deepDigState.sessionId.store(0);
+            g_deepDigState.waitingResponse.store(true);
 
-            // 发送开始游戏封包
-            BYTE startPacket[36] = {
-                0x44, 0x53, 0x18, 0x00,
-                0x15, 0x14, 0x12, 0x00,
-                0x0C, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00
-            };
-            SendPacket(0, startPacket, sizeof(startPacket), Opcode::DEEP_DIG_BACK, 5000);
-            
-            ManagedThread::SleepCancellable(500);
-            
-            // 发送结束游戏封包
-            if (g_deepDigState.sessionId > 0) {
-                BYTE endPacket[36] = {
-                    0x44, 0x53, 0x18, 0x00,
-                    0x15, 0x14, 0x12, 0x00,
-                    0x0C, 0x00, 0x00, 0x00,
-                    0x04, 0x00, 0x00, 0x00,
-                    0x00, 0x00, 0x00, 0x00,
-                    0x04, 0x00, 0x00, 0x00,
-                    0x00, 0x00, 0x00, 0x00,
-                    0x00, 0x00, 0x00, 0x00,
-                    0x00, 0x00, 0x00, 0x00
-                };
-                endPacket[24] = static_cast<BYTE>(g_deepDigState.sessionId & 0xFF);
-                endPacket[25] = static_cast<BYTE>((g_deepDigState.sessionId >> 8) & 0xFF);
-                endPacket[26] = static_cast<BYTE>((g_deepDigState.sessionId >> 16) & 0xFF);
-                endPacket[27] = static_cast<BYTE>((g_deepDigState.sessionId >> 24) & 0xFF);
-                SendPacket(0, endPacket, sizeof(endPacket));
+            // 开局走小游戏总线：params=gameType=12，body=[0,0,0,0,0,0]。
+            if (!SendLittleGameStart(Opcode::GAME_TYPE_DEEP_DIG)) {
+                g_deepDigState.waitingResponse.store(false);
+                break;
             }
-            
+
+            // 等 ProcessDeepDigResponse 把回包里的 sessionId 填进来，最多 5 秒。
+            for (int waited = 0; waited < 5000 && g_deepDigState.sessionId.load() <= 0; waited += 100) {
+                if (ManagedThread::StopRequested()) {
+                    break;
+                }
+                ManagedThread::SleepCancellable(100);
+            }
+
+            // 无论等到没等到，标志的生命周期都只覆盖这一次请求。
+            // 超时和停止路径也要复位，否则下一次成功的开局之前，
+            // 任何小游戏回的 act==0 都会被当成这一局的 sessionId。
+            g_deepDigState.waitingResponse.store(false);
+
+            const int sessionId = g_deepDigState.sessionId.load();
+            if (sessionId > 0) {
+                // 结算走同一个 opcode：body=[4,0,4,sessionId,0,0]。
+                // score 必须发 4：DeepHole.as:29 一局上限 treasureNum=4，
+                // 而 DeepHole.as:172 只在 treasureCount>0 时才显示发奖。
+                SendLittleGameEnd(Opcode::GAME_TYPE_DEEP_DIG, 1, 4, sessionId);
+                g_deepDigState.completedCount.fetch_add(1);
+            }
+
             ManagedThread::SleepCancellable(800);
         }
-        
-        g_deepDigState.autoMode = false;
+
         completedCount++;
         ManagedThread::SleepCancellable(300);
     }
