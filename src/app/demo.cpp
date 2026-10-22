@@ -1359,10 +1359,50 @@ public:
 };
 
 // 主函数
+// 未处理 SEH 异常（访问违例、非法指令等）在 Release 下会让进程直接消失，
+// 用户侧同样表现为「双击没反应」。这里落一份日志到 %TEMP%\kbwebui_crash.log，
+// 有 ExceptionCode 和 ExceptionAddress 就能直接定位到出事的指令。
+static LONG WINAPI CrashLogFilter(EXCEPTION_POINTERS* info)
+{
+    wchar_t tempPath[MAX_PATH] = {};
+    if (GetTempPathW(MAX_PATH, tempPath) != 0 &&
+        wcslen(tempPath) + 20 < MAX_PATH)
+    {
+        wcscat_s(tempPath, L"kbwebui_crash.log");
+
+        HANDLE hFile = CreateFileW(tempPath, FILE_APPEND_DATA, FILE_SHARE_READ,
+                                   nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (hFile != INVALID_HANDLE_VALUE)
+        {
+            SYSTEMTIME st = {};
+            GetLocalTime(&st);
+
+            const unsigned long code = info ? info->ExceptionRecord->ExceptionCode : 0;
+            const void* addr = info ? info->ExceptionRecord->ExceptionAddress : nullptr;
+
+            char line[512] = {};
+            const int len = wsprintfA(line,
+                "[%04d-%02d-%02d %02d:%02d:%02d] ExceptionCode=0x%08lX ExceptionAddress=%p\r\n",
+                st.wYear, st.wMonth, st.wDay,
+                st.wHour, st.wMinute, st.wSecond, code, addr);
+            if (len > 0)
+            {
+                DWORD written = 0;
+                WriteFile(hFile, line, static_cast<DWORD>(len), &written, nullptr);
+            }
+            CloseHandle(hFile);
+        }
+    }
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
     (void)hPrevInstance;
     (void)lpCmdLine;
+
+    // 第一件事就挂上崩溃日志，之后任何 SEH 都能留下证据。
+    SetUnhandledExceptionFilter(CrashLogFilter);
     // 注册窗口类 (使用 Unicode 版本)
     const wchar_t CLASS_NAME[] = L"WebView2DemoWindowClass";
 
