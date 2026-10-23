@@ -1120,12 +1120,18 @@ public:
             HandleStartLatestActivityCommand(msg, LatestAct::ACT_TOUCH_STAR);
         } else if (msg.find(L"one_key_latest749") != std::wstring::npos) {
             HandleStartLatestActivityCommand(msg, LatestAct::ACT_EXPLORE);
-        } else if (msg.find(L"one_key_latest870") != std::wstring::npos) {
-            HandleStartLatestActivityCommand(msg, LatestAct::ACT_MOON_CAKE);
-        } else if (msg.find(L"one_key_latest704") != std::wstring::npos) {
-            HandleStartLatestActivityCommand(msg, LatestAct::ACT_FLOWER);
-        } else if (msg.find(L"one_key_latest697") != std::wstring::npos) {
-            HandleStartLatestActivityCommand(msg, LatestAct::ACT_FOOD);
+        } else if (msg.find(L"one_key_latest873") != std::wstring::npos) {
+            HandleStartLatestActivityCommand(msg, LatestAct::ACT_WORD_GAME);
+        } else if (msg.find(L"one_key_latest742") != std::wstring::npos) {
+            HandleStartLatestActivityCommand(msg, LatestAct::ACT_HULU);
+        } else if (msg.find(L"one_key_latest721") != std::wstring::npos) {
+            HandleStartLatestActivityCommand(msg, LatestAct::ACT_STAR_PRINCESS);
+        } else if (msg.find(L"one_key_latest877") != std::wstring::npos) {
+            HandleStartLatestActivityCommand(msg, LatestAct::ACT_FIND_CORNEL);
+        } else if (msg.find(L"one_key_latest730") != std::wstring::npos) {
+            HandleStartLatestActivityCommand(msg, LatestAct::ACT_FIGHT_EVILS);
+        } else if (msg.find(L"one_key_latest880") != std::wstring::npos) {
+            HandleStartLatestActivityCommand(msg, LatestAct::ACT_TREASURE);
         } else if (msg.find(L"refresh_activity_counts") != std::wstring::npos) {
             HandleRefreshActivityCountsCommand();
         } else if (msg.find(L"one_key_horse_competition") != std::wstring::npos) {

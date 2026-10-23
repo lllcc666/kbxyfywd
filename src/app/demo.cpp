@@ -67,7 +67,7 @@ PFN_INITIALIZESPEEDHACK g_pfnInitializeSpeedhack = nullptr;
 
 // 版本检查相关常量
 // 版本号与窗口标题统一取自 WpeHook::APP_VERSION_W / APP_WINDOW_TITLE_W，避免多处字面量漂移。
-constexpr float CURRENT_VERSION = 1.16f;  // 当前版本：1.16，须与 WpeHook::APP_VERSION_W 保持一致
+constexpr float CURRENT_VERSION = 1.17f;  // 当前版本：1.17，须与 WpeHook::APP_VERSION_W 保持一致
 constexpr wchar_t VERSION_CHECK_URL[] = L"https://gitee.com/deepmoutains/kxby-release-detection/raw/master/data.txt";
 constexpr wchar_t UPDATE_DOWNLOAD_URL[] = L"https://wwbov.lanzout.com/b03ancytve";
 

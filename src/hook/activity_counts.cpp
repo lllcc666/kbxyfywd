@@ -65,9 +65,12 @@ const ActivityCountTarget kActivityCountTargets[] = {
     {LatestAct::ACT_MAZE, L"突破迷阵"},
     {LatestAct::ACT_TOUCH_STAR, L"摘星之旅"},
     {LatestAct::ACT_EXPLORE, L"寒冰洞历险记"},
-    {LatestAct::ACT_MOON_CAKE, L"月饼大胃王"},
-    {LatestAct::ACT_FLOWER, L"夺回花束行动"},
-    {LatestAct::ACT_FOOD, L"美食大作战"},
+    {LatestAct::ACT_WORD_GAME, L"填字大作战"},
+    {LatestAct::ACT_HULU, L"守护葫芦藤"},
+    {LatestAct::ACT_STAR_PRINCESS, L"采菊东篱下"},
+    {LatestAct::ACT_FIND_CORNEL, L"寻找七色茱萸"},
+    {LatestAct::ACT_FIGHT_EVILS, L"智斗恶灵"},
+    {LatestAct::ACT_TREASURE, L"夺宝行动"},
 };
 
 constexpr int kActivityCountTargetNum =
@@ -93,7 +96,7 @@ void ReportActivityCount(uint32_t activityId, int remainingCount) {
 // 但使用更短超时。各活动响应处理器只读取 operation/playCount，不依赖
 // waitingResponse 预置，故此处无需先置位等待标记。
 bool ProbeActivityOpenUI(uint32_t activityId) {
-    // 749/704 等活动的进入操作是 "game_info"，不能一律用 "open_ui"。
+    // 749/730 等活动的进入操作是 "game_info"，不能一律用 "open_ui"。
     std::vector<BYTE> packet = BuildActivityPacket(
         Opcode::ACTIVITY_QINGYANG_NEW_SEND, activityId,
         GetLatestActivityOpenUIOperation(activityId), {});

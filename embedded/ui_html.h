@@ -961,7 +961,7 @@ R"HTML(dding: 2px 6px;
             align-items: center;
             gap: 5px;
             min-width: 0;
-            padding: 2px 6px;
+            padding: 1px 6px;
             background: #FFFFFF;
             border: 1px solid #D9E4F1;
             border-radius: 4px;
@@ -1727,7 +1727,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
     <div class="title-bar">
         <div class="title-bar-left">
             <div class="title-bar-icon">卡</div>
-            <span class="title-bar-title">卡布西游浮影微端 V1.16</span>
+            <span class="title-bar-title">卡布西游浮影微端 V1.17</span>
         </div>
         <div class="title-bar-controls">
             <button class="title-bar-button" id="btn-minimize" title="最小化">
@@ -2074,67 +2074,63 @@ R"HTML(rid-template-columns: 105px 75px; background: var(--color-background-hove
                     </div>
                     
                     
-                    <div style="width: 230px; height: 150px; )HTML" \
-R"HTML(opacity: 0; transform: translateY(4px); animation: fadeInUp var(--duration-slow) var(--easing-enter) forwards; animation-delay: 0.3s; flex: none;">
+                    <div style="flex: 1 1 230px; min-width: 2)HTML" \
+R"HTML(30px; max-width: 340px; margin-right: 6px; height: 150px; opacity: 0; transform: translateY(4px); animation: fadeInUp var(--duration-slow) var(--easing-enter) forwards; animation-delay: 0.3s;">
                         <div style="background: var(--color-background); border: 1px solid var(--color-border); border-radius: 4px; padding: 8px; box-shadow: var(--shadow-sm); height: 100%; display: flex; flex-direction: column;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; min-height: 18px;">
                                 <h3 style="font-size: 11.5px; font-weight: 600; color: var(--color-text-primary); margin: 0;">道具</h3>
                                 <button onclick="window.refreshPackItems()" style="padding: 1px 4px; font-size: 8px; background: #2e7d32; color: white; border: none; border-radius: 2px; cursor: pointer;">刷新</button>
                             </div>
                             
-                            
-                            <d)HTML" \
-R"HTML(iv id="item-buttons-container" style="flex: 1; overflow-y: auto; overflow-x: hidden; margin-bottom: 4px; padding-right: 2px;">
-                                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px;">
-                                    <button class="item-btn item-btn-hp" data-id="100008" onclick="window.selectItem(100008, '小金创药', 20, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 8.5px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
-                                        <span class="item-name">小金创药</span>
-                                        <span style="color: #e53935; font-size: 7.5px;">+20HP <span class="item-count" data-id="100008">(0)</span></span>
+             )HTML" \
+R"HTML(               
+                            <div id="item-buttons-container" style="flex: 1; overflow-y: auto; overflow-x: hidden; margin-bottom: 3px; padding-right: 2px;">
+                                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px;">
+                                    <button class="item-btn item-btn-hp" data-id="100034" onclick="window.selectItem(100034, '天香丸', 170, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
+                                        <span class="item-name">天香丸</span>
+                                        <span style="color: #e53935; font-size: 8px;">+170HP <span class="item-count" data-id="100034">(0)</span></span>
                                     </button>
-                                    <button class="item-btn item-btn-hp" data-id="100007" onclick="window.select)HTML" \
-R"HTML(Item(100007, '中金创药', 50, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 8.5px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
-                                        <span class="item-name">中金创药</span>
-                                        <span style="color: #e53935; font-size: 7.5px;">+50HP <span class="item-count" data-id="100007">(0)</span></span>
+                                    <button class="item-btn item-btn-h)HTML" \
+R"HTML(p" data-id="100758" onclick="window.selectItem(100758, '培元金丹', 200, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
+                                        <span class="item-name">培元金丹</span>
+                                        <span style="color: #e53935; font-size: 8px;">+200HP <span class="item-count" data-id="100758">(0)</span></span>
                                     </button>
-                                    <button class="item-btn item-btn-hp" data-id="100006" onclick="window.selectItem(100006, '大金创药', 100, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 8.5px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
-                                        <span class="item-name">大金创药</span>
-         )HTML" \
-R"HTML(                               <span style="color: #e53935; font-size: 7.5px;">+100HP <span class="item-count" data-id="100006">(0)</span></span>
+                                    <button class="item-btn item-btn-hp" data-id="100006" onclick="window.selectItem(100006, '大金创药', 100, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
+                                        <span c)HTML" \
+R"HTML(lass="item-name">大金创药</span>
+                                        <span style="color: #e53935; font-size: 8px;">+100HP <span class="item-count" data-id="100006">(0)</span></span>
                                     </button>
-                                    <button class="item-btn item-btn-hp" data-id="100031" onclick="window.selectItem(100031, '活血散', 150, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 8.5px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
+                                    <button class="item-btn item-btn-hp" data-id="100031" onclick="window.selectItem(100031, '活血散', 150, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
                                         <span class="item-name">活血散</span>
-                                        <span style="color: #e53935; font-size: 7.5px;">+150HP <span class="item-count" data-id="100031">(0)</span></span>
+                                        <span style="color: #e53935; font-size: 8px;">+150HP <span class="item-count" data-id="100031">(0)</span></span>
                                     </button>
-                                    <button class="item-btn item-btn-mp" data-id="100010" onclick="window.selectItem(100010, '小型法力药剂', 5, 'mp')" style="displ)HTML" \
-R"HTML(ay: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 8.5px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
+                                    <button class="item-btn item-btn-mp" data-id="100010" onclick="window.selectItem(100010, )HTML" \
+R"HTML('小型法力药剂', 5, 'mp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
                                         <span class="item-name">小型法力剂</span>
-                                        <span style="color: #1976d2; font-size: 7.5px;">+5PP <span class="item-count" data-id="100010">(0)</span></span>
+                                        <span style="color: #1976d2; font-size: 8px;">+5PP <span class="item-count" data-id="100010">(0)</span></span>
                                     </button>
-                                    <button class="item-btn item-btn-mp" data-id="100011" onclick="window.selectItem(100011, '中型法力药剂', 10, 'mp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 8.5px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
+                                    <button class="item-btn item-btn-mp" data-id="100011" onclick="window.selectItem(100011, '中型法力药剂', 10, 'mp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
                                         <span class="item-name">中型法力剂</span>
-                                        <span style)HTML" \
-R"HTML(="color: #1976d2; font-size: 7.5px;">+10PP <span class="item-count" data-id="100011">(0)</span></span>
+                         )HTML" \
+R"HTML(               <span style="color: #1976d2; font-size: 8px;">+10PP <span class="item-count" data-id="100011">(0)</span></span>
                                     </button>
-                                    <button class="item-btn item-btn-mp" data-id="100012" onclick="window.selectItem(100012, '大型法力药剂', 20, 'mp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 8.5px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
+                                    <button class="item-btn item-btn-mp" data-id="100012" onclick="window.selectItem(100012, '大型法力药剂', 20, 'mp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
                                         <span class="item-name">大型法力剂</span>
-                                        <span style="color: #1976d2; font-size: 7.5px;">+20PP <span class="item-count" data-id="100012">(0)</span></span>
+                                        <span style="color: #1976d2; font-size: 8px;">+20PP <span class="item-count" data-id="100012">(0)</span></span>
                                     </button>
                                 </div>
                             </div>
                             
-                            <div id="selected-item-hint" style="font-size: 8px; color: var(--c)HTML" \
-R"HTML(olor-text-tertiary); text-align: center; padding: 2px; background: var(--color-background-secondary); border-radius: 2px;">点击选择道具</div>
+                            <div id="selected-item-hint" style="font-size:)HTML" \
+R"HTML( 8px; color: var(--color-text-tertiary); text-align: center; padding: 1px 2px; background: var(--color-background-secondary); border-radius: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">点击选择道具</div>
                             
                             
-                            <div style="display: flex; gap: 4px;">
-                                <button id="buy-item-btn" onclick="window.buySelectedItem()" style="flex: 1; padding: 4px 6px; font-size: 9px; background: #2e7d32; color: white; border: none; border-radius: 2px; cursor: pointer;">购买</button>
-                                <button id="use-item-btn" onclick="window.useSelectedItem()" style="flex: 1; padding: 4px 6px; font-size: 9px; background: var(--color-primary); color: white; border: none; border-radius: 2px; cursor: pointer;">使用</button>
-                            </div>
-                            
-                            
-                            <div style="display: flex; align-items: center; gap: 4px; margin-top: 4px;">
-                                <span style=)HTML" \
-R"HTML("font-size: 9px; color: var(--color-text-secondary);">数量:</span>
-                                <input type="number" id="item-count-input" value="1" min="1" max="99" style="flex: 1; font-size: 9px; padding: 2px 4px; border: 1px solid var(--color-border); border-radius: 2px;">
+                            <div style="display: flex; gap: 4px; align-items: center;">
+                                <span style="font-size: 9px; color: var(--color-text-secondary); white-space: nowrap; flex: none;">数量</span>
+                                <input type="number" id="item-count-input" value="1" min="1" max="99" style="width: 32px; flex: none; font-size: 9px; padding: 2px 3px; border: 1px solid var(--color-border); border-radius: 2px; text-align: center;">
+                                <button id="buy-item-btn" onclick="window.buySelectedItem()" style="flex: 1; padding: 3px 4px; font-size: 9px; background: #2e7d32; color: white; border: none; border-radius: 2px; cursor: pointer;">购买</button)HTML" \
+R"HTML(>
+                                <button id="use-item-btn" onclick="window.useSelectedItem()" style="flex: 1; padding: 3px 4px; font-size: 9px; background: var(--color-primary); color: white; border: none; border-radius: 2px; cursor: pointer;">使用</button>
                             </div>
                         </div>
                     </div>
@@ -2146,8 +2142,8 @@ R"HTML("font-size: 9px; color: var(--color-text-secondary);">数量:</span>
                     
                     <div class="panel-animate" style="flex: 1; background: var(--color-background); border: 1px solid var(--color-border); border-radius: 4px; padding: 6px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                            <div style="display: flex; align-i)HTML" \
-R"HTML(tems: center; gap: 6px;">
+                            <div style="display: flex; align-items: center; gap: 6p)HTML" \
+R"HTML(x;">
                                 <h3 style="font-size: 11px; font-weight: 600; color: var(--color-text-primary); margin: 0;">妖怪列表</h3>
                                 <div id="monster-count" class="badge badge-success" style="padding: 0 4px; font-size: 9px;">0</div>
                             </div>
@@ -2157,8 +2153,8 @@ R"HTML(tems: center; gap: 6px;">
                         
                         <div style="flex: 1; border: 1px solid var(--color-border); border-radius: 3px; overflow: hidden; background: var(--color-background); display: flex; flex-direction: column;">
                             
-                            <div style="display: grid; grid-template-columns: 28px 48px 28px 28px 26px 26px 24px 32px 130px 1fr; background: var(--color)HTML" \
-R"HTML(-background-hover); padding: 2px 4px; border-bottom: 1px solid var(--color-border); font-size: 9.5px; font-weight: 600; color: var(--color-text-primary);">
+                            <div style="display: grid; grid-template-columns: 28px 48px 28px 28px 26px 26px 24px 32px 130px 1fr; background: var(--color-background-hover); p)HTML" \
+R"HTML(adding: 2px 4px; border-bottom: 1px solid var(--color-border); font-size: 9.5px; font-weight: 600; color: var(--color-text-primary);">
                                 <div style="text-align: center;">#</div>
                                 <div style="text-align: center;">名称</div>
                                 <div style="text-align: center;">ID</div>
@@ -2171,9 +2167,9 @@ R"HTML(-background-hover); padding: 2px 4px; border-bottom: 1px solid var(--colo
                                 <div style="text-align: left; padding-left: 4px;">技能</div>
                             </div>
                             
-                        )HTML" \
-R"HTML(    
-                            <div id="monster-list" style="overflow-y: auto; flex: 1; font-size: 9.5px;">
+                            
+                )HTML" \
+R"HTML(            <div id="monster-list" style="overflow-y: auto; flex: 1; font-size: 9.5px;">
                                 <div style="text-align: center; padding: 20px; color: var(--color-text-tertiary);">暂无妖怪数据，请打开游戏妖怪背包</div>
                             </div>
                         </div>
@@ -2184,8 +2180,8 @@ R"HTML(
                         <h3 style="font-size: 11px; font-weight: 600; color: var(--color-text-primary); margin: 0 0 4px 0; border-bottom: 1px solid var(--color-border); padding-bottom: 4px;">妖怪详情</h3>
                         
                         <div id="monster-detail" style="flex: 1; overflow-y: auto; font-size: 9px;">
-                            <div style="t)HTML" \
-R"HTML(ext-align: center; padding: 20px; color: var(--color-text-tertiary);">点击左侧妖怪查看详情</div>
+                            <div style="text-align: center; pa)HTML" \
+R"HTML(dding: 20px; color: var(--color-text-tertiary);">点击左侧妖怪查看详情</div>
                         </div>
                     </div>
                 </div>
@@ -2197,8 +2193,8 @@ R"HTML(ext-align: center; padding: 20px; color: var(--color-text-tertiary);">点
                     <div class="panel-animate" style="background: var(--color-background); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; box-shadow: var(--shadow-sm); width: 180px; flex-shrink: 0;">
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
                             <span style="font-size: 13px; font-weight: 600; color: var(--color-text-primary);">变速</span>
-                            <span id="speed-value" style="font-size: 12px; font-weight: 500; color: var(--colo)HTML" \
-R"HTML(r-primary); background: rgba(0, 120, 212, 0.1); padding: 3px 8px; border-radius: 10px;">1.0X</span>
+                            <span id="speed-value" style="font-size: 12px; font-weight: 500; color: var(--color-primary); backgroun)HTML" \
+R"HTML(d: rgba(0, 120, 212, 0.1); padding: 3px 8px; border-radius: 10px;">1.0X</span>
                         </div>
 
                         <div style="position: relative; height: 24px; display: flex; align-items: center; justify-content: center;">
@@ -2213,8 +2209,8 @@ R"HTML(r-primary); background: rgba(0, 120, 212, 0.1); padding: 3px 8px; border-
                     </div>
 
                     
-                    <div class="panel-animate" style="background: var(--color)HTML" \
-R"HTML(-background); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; box-shadow: var(--shadow-sm); width: 140px; flex-shrink: 0; height: 99px; display: flex; flex-direction: column;">
+                    <div class="panel-animate" style="background: var(--color-background); border:)HTML" \
+R"HTML( 1px solid var(--color-border); border-radius: 4px; padding: 12px; box-shadow: var(--shadow-sm); width: 140px; flex-shrink: 0; height: 99px; display: flex; flex-direction: column;">
                         <div style="font-size: 13px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 8px;">游戏辅助</div>
 
                         <div style="display: flex; flex-direction: column; gap: 2px; justify-content: center; flex: 1;">
@@ -2222,8 +2218,8 @@ R"HTML(-background); border: 1px solid var(--color-border); border-radius: 4px; 
                                 <input type="checkbox" id="auto-heal" style="width: 12px; height: 12px; cursor: pointer;" onchange="toggleAutoHeal(this.checked)">
                                 <span>自动回血</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size)HTML" \
-R"HTML(: 10px; color: var(--color-text-primary); padding: 2px 0;">
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 10px; color: var(--)HTML" \
+R"HTML(color-text-primary); padding: 2px 0;">
                                 <input type="checkbox" id="battlesix-auto-battle" style="width: 12px; height: 12px; cursor: pointer;" onchange="toggleBattleSixAutoBattle(this.checked)">
                                 <span>自动战斗</span>
                             </label>
@@ -2237,8 +2233,8 @@ R"HTML(: 10px; color: var(--color-text-primary); padding: 2px 0;">
                     
                     <div style="display: flex; justify-content: space-between; align-items: center; min-height: 16px;">
                         <span id="helper-log-count" style="font-size: 10px; color: var(--color-text-secondary);">总记录数: 0</span>
-                        <button onclick="window.clearHelperLog()" style="padding: 2px 8px; font-size: 10px; ba)HTML" \
-R"HTML(ckground: var(--color-background); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; transition: all var(--duration-fast) var(--easing-standard);">清空日志</button>
+                        <button onclick="window.clearHelperLog()" style="padding: 2px 8px; font-size: 10px; background: var(--color)HTML" \
+R"HTML(-background); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; transition: all var(--duration-fast) var(--easing-standard);">清空日志</button>
                     </div>
 
                     
@@ -2247,9 +2243,9 @@ R"HTML(ckground: var(--color-background); color: var(--color-text-primary); bord
                         <div style="display: grid; grid-template-columns: 60px 90px 1fr; background: var(--color-background-hover); padding: 3px 8px; border-bottom: 1px solid var(--color-border); font-size: 10px; font-weight: 600; color: var(--color-text-primary); flex-shrink: 0;">
                             <div style="text-align: center;">序号</div>
                             <div style="text-align: center;">时间</div>
-                            <div style="text-align: ce)HTML" \
-R"HTML(nter;">内容</div>
-                        </div>
+                            <div style="text-align: center;">内容</div>
+     )HTML" \
+R"HTML(                   </div>
 
                         
                         <div id="helper-log-list" style="overflow-y: auto; flex: 1; font-size: 10.5px; min-height: 90px;">
@@ -2266,8 +2262,8 @@ R"HTML(nter;">内容</div>
                     <button class="sub-tab-button" onclick="openSubTab(event, 'sub-taskzone')">任务区</button>
                     <button class="sub-tab-button" onclick="openSubTab(event, 'sub-latest')">最新活动</button>
                     <button class="sub-tab-button" onclick="openSubTab(event, 'sub-materials')">材料采集</button>
-                    <but)HTML" \
-R"HTML(ton class="sub-tab-button" onclick="openSubTab(event, 'sub-boss')">BOSS专区</button>
+                    <button class="sub-tab-bu)HTML" \
+R"HTML(tton" onclick="openSubTab(event, 'sub-boss')">BOSS专区</button>
                     <button class="sub-tab-button" onclick="openSubTab(event, 'sub-lingyu')">灵玉区</button>
                     <button class="sub-tab-button" onclick="openSubTab(event, 'sub-dungeon')">副本区</button>
                     <button class="sub-tab-button" onclick="openSubTab(event, 'sub-battlesix')" style="display: none;">万妖盛会</button>
@@ -2283,8 +2279,8 @@ R"HTML(ton class="sub-tab-button" onclick="openSubTab(event, 'sub-boss')">BOSS�
                             
                             <div class="fx-panel" style="flex: 2.2;">
                                 <span class="fx-panel-title">每日</span>
-                                <div class="fx-checks" style="gri)HTML" \
-R"HTML(d-template-columns: repeat(4, minmax(0, 1fr));">
+                                <div class="fx-checks" style="grid-template-columns: r)HTML" \
+R"HTML(epeat(4, minmax(0, 1fr));">
                                     <label class="fx-check">
                                         <input type="checkbox" id="daily-deep-dig" checked style="width: 11px; height: 11px;">
                                         <span>深度挖宝</span>
@@ -2298,8 +2294,8 @@ R"HTML(d-template-columns: repeat(4, minmax(0, 1fr));">
                                         <span>每日卡牌</span>
                                     </label>
                                     <label class="fx-check">
-                     )HTML" \
-R"HTML(                   <input type="checkbox" id="family-report" checked style="width: 11px; height: 11px;">
+                                        <i)HTML" \
+R"HTML(nput type="checkbox" id="family-report" checked style="width: 11px; height: 11px;">
                                         <span>家族报道</span>
                                     </label>
                                     <label class="fx-check">
@@ -2312,8 +2308,8 @@ R"HTML(                   <input type="checkbox" id="family-report" checked styl
                                     </label>
                                     <label class="fx-check">
                                         <input type="checkbox" id="weekly-gift" checked style="width: 11px; height: 11px;">
-                              )HTML" \
-R"HTML(          <span>每周礼包</span>
+                                        <span>每周礼包<)HTML" \
+R"HTML(/span>
                                     </label>
                                     <label class="fx-check">
                                         <input type="checkbox" id="shop-surprise" checked style="width: 11px; height: 11px;">
@@ -2329,8 +2325,8 @@ R"HTML(          <span>每周礼包</span>
                             
                             <div class="fx-panel" style="display: none; flex: 1 1 300px; min-width: 250px;">
                                 <span class="fx-panel-title">活动</span>
-                                <div class="fx-checks" style="g)HTML" \
-R"HTML(rid-template-columns: repeat(2, minmax(0, 1fr));">
+                                <div class="fx-checks" style="grid-template-columns:)HTML" \
+R"HTML( repeat(2, minmax(0, 1fr));">
                                     <label class="fx-check">
                                         <input type="checkbox" id="act-run-competition" checked style="width: 11px; height: 11px;">
                                         <span>障碍赛跑</span>
@@ -2343,9 +2339,9 @@ R"HTML(rid-template-columns: repeat(2, minmax(0, 1fr));">
                                         <input type="checkbox" id="act-knowledge-garden" checked style="width: 11px; height: 11px;">
                                         <span>知识小天地</span>
                                     </label>
-                                    <label class="fx-check")HTML" \
-R"HTML(>
-                                        <input type="checkbox" id="act-gomoku" style="width: 11px; height: 11px;">
+                                    <label class="fx-check">
+                   )HTML" \
+R"HTML(                     <input type="checkbox" id="act-gomoku" style="width: 11px; height: 11px;">
                                         <span>五子棋</span>
                                     </label>
                                 </div>
@@ -2360,8 +2356,8 @@ R"HTML(>
                                 <div class="fx-checks" style="grid-template-columns: 1fr;">
                                     <label class="fx-check">
                                         <input type="checkbox" id="daily-fire-wind" style="width: 11px; height: 11px;">
-                  )HTML" \
-R"HTML(                      <span>火风试炼</span>
+                                       )HTML" \
+R"HTML( <span>火风试炼</span>
                                     </label>
                                     <label class="fx-check">
                                         <input type="checkbox" id="daily-fire" style="width: 11px; height: 11px;">
@@ -2377,9 +2373,9 @@ R"HTML(                      <span>火风试炼</span>
                                 </div>
                             </div>
 
-                    )HTML" \
-R"HTML(        
-                            <div class="fx-panel">
+                            
+            )HTML" \
+R"HTML(                <div class="fx-panel">
                                 <span class="fx-panel-title">跳舞大赛</span>
                                 <label class="fx-check">
                                     <input type="checkbox" id="daily-dance" style="width: 11px; height: 11px;">
@@ -2392,9 +2388,9 @@ R"HTML(
                             </div>
 
                             
-                            <div class="fx-panel" style="flex:)HTML" \
-R"HTML( 1.3;">
-                                <span class="fx-panel-title">玄塔</span>
+                            <div class="fx-panel" style="flex: 1.3;">
+             )HTML" \
+R"HTML(                   <span class="fx-panel-title">玄塔</span>
                                 <div class="fx-actions" style="margin-top: 0;">
                                     <button id="one-key-xuantta" class="btn btn-primary" style="flex: 1; font-size: 9.5px; padding: 3px 4px;">一键玄塔</button>
                                     <button id="buy-dice-18" class="btn btn-secondary" style="flex: 1; font-size: 9.5px; padding: 3px 4px;">购买骰子18</button>
@@ -2404,8 +2400,8 @@ R"HTML( 1.3;">
                                     <span>自动回家</span>
                                 </label>
                                 <label class="fx-check" style="flex: 0 0 auto;">
-                                    <input type="checkbox" id)HTML" \
-R"HTML(="block-battle" style="width: 12px; height: 12px; cursor: pointer;" onchange="toggleBlockBattle(this.checked)">
+                                    <input type="checkbox" id="block-battle" style)HTML" \
+R"HTML(="width: 12px; height: 12px; cursor: pointer;" onchange="toggleBlockBattle(this.checked)">
                                     <span>屏蔽战斗</span>
                                 </label>
                             </div>
@@ -2417,8 +2413,8 @@ R"HTML(="block-battle" style="width: 12px; height: 12px; cursor: pointer;" oncha
                                 <div style="display: flex; align-items: center; gap: 4px; flex: 0 0 auto;">
                                     <label style="font-size: 9.5px; color: var(--color-text-secondary);">目标:</label>
                                     <input type="number" id="heaven-furui-max" value="30" min="1" max="30" style="width: 40px; font-size: 9.5px; padding: 2px 4px; border: 1px solid var(--color-border); border-radius: 2px;">
-                                    <spa)HTML" \
-R"HTML(n style="font-size: 9.5px; color: var(--color-text-secondary);">个</span>
+                                    <span style="font-size: 9)HTML" \
+R"HTML(.5px; color: var(--color-text-secondary);">个</span>
                                 </div>
                                 <div style="font-size: 9.5px; color: var(--color-text-secondary); flex: 0 0 auto;">已拾取: <span id="heaven-furui-count" style="color: var(--color-primary); font-weight: 600;">0</span>/<span id="heaven-furui-target">30</span></div>
                                 <div class="fx-actions">
@@ -2429,17 +2425,17 @@ R"HTML(n style="font-size: 9.5px; color: var(--color-text-secondary);">个</span
 
                             
                             <div class="fx-panel" style="flex: 1.3;">
-                                <span class="fx-panel-title">坐骑大赛</span>)HTML" \
-R"HTML(
-                                <div class="fx-panel-note">多人竞速 · 每日50点上限 · 固定临时坐骑</div>
+                                <span class="fx-panel-title">坐骑大赛</span>
+                    )HTML" \
+R"HTML(            <div class="fx-panel-note">多人竞速 · 每日50点上限 · 固定临时坐骑</div>
                                 <div style="font-size: 9.5px; color: var(--color-text-secondary); flex: 0 0 auto;">可获得积分: <span id="horse-competition-points" style="color: var(--color-primary); font-weight: 600;">--</span></div>
                                 <div style="font-size: 9.5px; color: var(--color-text-secondary); flex: 0 0 auto;">状态: <span id="horse-competition-status" style="color: var(--color-text-tertiary);">就绪</span></div>
                                 <div class="fx-actions">
                                     <button id="one-key-horse-competition" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 6px; flex: 1;">开始</button>
                                     <button id="stop-horse-competition" class="btn" style="font-size: 9.5px; padding: 3px 6px; flex: 1; background: #fff4e5; color: #9a5b00; border: 1px solid #ffd08a;">停止</button>
-                                <)HTML" \
-R"HTML(/div>
-                            </div>
+                                </div>
+               )HTML" \
+R"HTML(             </div>
 
                         </div>
                         
@@ -2457,8 +2453,8 @@ R"HTML(/div>
                             <span class="fx-panel-title">八卦灵盘</span>
                             <div class="fx-panel-note" style="white-space: normal;">按任务链顺序推进，覆盖对话、采集与场景切换，最终战斗自动处理。</div>
                             <div class="fx-actions">
-                                <button id="sta)HTML" \
-R"HTML(rt-task-zone" class="btn btn-primary" style="flex: 1; font-size: 9.5px; padding: 3px 6px;">开始</button>
+                                <button id="start-task-zone" class=")HTML" \
+R"HTML(btn btn-primary" style="flex: 1; font-size: 9.5px; padding: 3px 6px;">开始</button>
                                 <button id="stop-task-zone" class="btn btn-secondary" style="flex: 1; font-size: 9.5px; padding: 3px 6px;" disabled>停止</button>
                             </div>
                             <div id="task-zone-status" style="font-size: 9px; color: var(--color-text-secondary); background: var(--color-background-secondary); border-radius: 2px; padding: 2px 6px; flex: 0 0 auto;">等待开始</div>
@@ -2467,15 +2463,15 @@ R"HTML(rt-task-zone" class="btn btn-primary" style="flex: 1; font-size: 9.5px; p
                             
                             <div id="huangcheng-weiji-panel" style="flex: 1 1 560px; min-width: 560px; background: #FFFFFF; border: 1px solid var(--color-border); border-radius: 4px; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px;">
                                 <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 4px;">
-                                    <div style="font-)HTML" \
-R"HTML(size: 11px; font-weight: 600; color: var(--color-text-primary); white-space: nowrap;">主线任务</div>
+                                    <div style="font-size: 11px; font-weig)HTML" \
+R"HTML(ht: 600; color: var(--color-text-primary); white-space: nowrap;">主线任务</div>
                                     <button id="refresh-huangcheng-weiji" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 8px;">刷新进度</button>
                                     <button id="select-all-huangcheng-weiji" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 8px;">全选本系列</button>
                                     <button id="clear-huangcheng-weiji" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 8px;">清空选择</button>
                                     <button id="start-huangcheng-weiji" class="btn btn-primary" style="font-size: 9.5px; padding: 3px 8px;">完成所选</button>
                                     <button id="stop-huangcheng-weiji" class="btn btn-secondary" style="font-size: 9.5px; padding: 3px 8px;" disabled>停止</button>
-                                    <label style="display: flex; align-items: center; gap: 4px; font-size: 9.5p)HTML" \
-R"HTML(x; color: var(--color-text-secondary); cursor: pointer; user-select: none; margin-left: auto;">
+                                    <label style="display: flex; align-items: center; gap: 4px; font-size: 9.5px; color: var(--color)HTML" \
+R"HTML(-text-secondary); cursor: pointer; user-select: none; margin-left: auto;">
                                         <input type="checkbox" id="huangcheng-hide-completed" checked style="width: 12px; height: 12px; cursor: pointer;">
                                         <span>隐藏已完成</span>
                                     </label>
@@ -2487,14 +2483,14 @@ R"HTML(x; color: var(--color-text-secondary); cursor: pointer; user-select: none
                                 <div class="hw-foot">
                                     <span id="huangcheng-weiji-summary">已完成: 0 / 0，已勾选: 0</span>
                                     <span id="huangcheng-weiji-status">等待刷新进度</span>
-                     )HTML" \
-R"HTML(           </div>
-                            </div>
+                                </div>
+   )HTML" \
+R"HTML(                         </div>
                     </div>
                 </div>
 
                 <div id="sub-latest" class="sub-tab-content">
-                    <div class="fx-panel" style="margin: 4px 6px; align-self: stretch;">
+                    <div class="fx-panel" style="margin: 4px 6px; align-self: stretch; flex: 1 1 auto;">
                         
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: 0 0 auto;">
                             <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">活动选择</div>
@@ -2502,10 +2498,10 @@ R"HTML(           </div>
                         </div>
 
                         
-                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 2px 6px; flex: 0 0 auto;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 2px 6px; flex: 1 1 auto; min-height: 0; align-content: start; overflow-y: auto;">
                             <label class="act-item" id="act-row-647">
-                                <input type="checkb)HTML" \
-R"HTML(ox" id="act-check-647" class="act-pick">
+ )HTML" \
+R"HTML(                               <input type="checkbox" id="act-check-647" class="act-pick">
                                 <span class="act-item-name">突破迷阵</span>
                                 <span class="act-item-count" id="act-count-647">--</span>
                             </label>
@@ -2518,34 +2514,50 @@ R"HTML(ox" id="act-check-647" class="act-pick">
                                 <input type="checkbox" id="act-check-749" class="act-pick">
                                 <span class="act-item-name">寒冰洞历险记</span>
                                 <span class="act-item-count" id="act-count-749">--</span>
+                       )HTML" \
+R"HTML(     </label>
+                            <label class="act-item" id="act-row-873">
+                                <input type="checkbox" id="act-check-873" class="act-pick">
+                                <span class="act-item-name">填字大作战</span>
+                                <span class="act-item-count" id="act-count-873">--</span>
                             </label>
-                            <label c)HTML" \
-R"HTML(lass="act-item" id="act-row-870">
-                                <input type="checkbox" id="act-check-870" class="act-pick">
-                                <span class="act-item-name">月饼大胃王</span>
-                                <span class="act-item-count" id="act-count-870">--</span>
+                            <label class="act-item" id="act-row-742">
+                                <input type="checkbox" id="act-check-742" class="act-pick">
+                                <span class="act-item-name">守护葫芦藤</span>
+                                <span class="act-item-count" id="act-count-742">--</span>
                             </label>
-                            <label class="act-item" id="act-row-704">
-                                <input type="checkbox" id="act-check-704" class="act-pick">
-                                <span class="act-item-name">夺回花束行动</span>
-                                <span class="act-item-count" id="act-count-704">--</span>
+                            <label class="act-item" id="act-row-721">
+                                <input type="checkbox" id="act-check-721" class="act-pick">
+                                <span class="act-item-name">采菊东篱下</span>
+                           )HTML" \
+R"HTML(     <span class="act-item-count" id="act-count-721">--</span>
                             </label>
-                            <label class="act-item" id="act-row-697">
-                                <input type="checkbox" id="act-check-697" class="act-pick">
-                                <span class="act-item-name">美食大作战</span>
-                                <span class="act-item-count" id="act-count-6)HTML" \
-R"HTML(97">--</span>
+                            <label class="act-item" id="act-row-877">
+                                <input type="checkbox" id="act-check-877" class="act-pick">
+                                <span class="act-item-name">寻找七色茱萸</span>
+                                <span class="act-item-count" id="act-count-877">--</span>
+                            </label>
+                            <label class="act-item" id="act-row-730">
+                                <input type="checkbox" id="act-check-730" class="act-pick">
+                                <span class="act-item-name">智斗恶灵</span>
+                                <span class="act-item-count" id="act-count-730">--</span>
+                            </label>
+                            <label class="act-item" id="act-row-880">
+                                <input type="checkbox" id="act-check-880" class="act-pick">
+              )HTML" \
+R"HTML(                  <span class="act-item-name">夺宝行动</span>
+                                <span class="act-item-count" id="act-count-880">--</span>
                             </label>
                         </div>
 
                         
-                        <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px; flex: 0 0 auto;">
+                        <div style="display: flex; align-items: center; gap: 6px; margin-top: 2px; flex: 0 0 auto;">
                             <button onclick="selectAllActivities(true)" class="btn btn-secondary" style="font-size: 10px; padding: 3px 10px;">全选</button>
                             <button onclick="selectAllActivities(false)" class="btn btn-secondary" style="font-size: 10px; padding: 3px 10px;">全不选</button>
                             <button onclick="refreshActivityCounts()" class="btn btn-secondary" style="font-size: 10px; padding: 3px 10px;">刷新次数</button>
                             <button onclick="stopSelectedActivities()" class="btn btn-secondary" style="font-size: 10px; padding: 3px 10px;">停止</button>
-                            <button onclick="runSelectedActivities()" class="btn btn-primary" style="font-size: 10.5px; padding: 3px 14px; margin-left: auto;")HTML" \
-R"HTML(>一键执行所选</button>
+                        )HTML" \
+R"HTML(    <button onclick="runSelectedActivities()" class="btn btn-primary" style="font-size: 10.5px; padding: 3px 14px; margin-left: auto;">一键执行所选</button>
                         </div>
                     </div>
                 </div>
@@ -2559,10 +2571,10 @@ R"HTML(>一键执行所选</button>
                         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 2px 4px; flex: 0 0 auto;">
                             
                             <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
-                                <input type="checkbox" id="collect-0" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
+                                <input type="checkbox" id="collect-0" checked style="width: 12px;)HTML" \
+R"HTML( height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>上清宝玉</span>
-                       )HTML" \
-R"HTML(     </label>
+                            </label>
                             <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-1" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>天地灵气</span>
@@ -2571,9 +2583,9 @@ R"HTML(     </label>
                                 <input type="checkbox" id="collect-2" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>火云岩</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
-                                <input type="checkbox" id="collect-3" c)HTML" \
-R"HTML(hecked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
+                            <label style="display: flex; align-items: center; g)HTML" \
+R"HTML(ap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
+                                <input type="checkbox" id="collect-3" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>千年红木</span>
                             </label>
                             <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
@@ -2582,11 +2594,11 @@ R"HTML(hecked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; curso
                             </label>
                             <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-5" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
-                                <span>精蓝石</span>
+     )HTML" \
+R"HTML(                           <span>精蓝石</span>
                             </label>
                             
-                        )HTML" \
-R"HTML(    
+                            
                             <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-6" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>松绿石</span>
@@ -2595,9 +2607,9 @@ R"HTML(
                                 <input type="checkbox" id="collect-7" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>冰霜岩</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
-                                <input type="checkbox" id="collect-8" checked sty)HTML" \
-R"HTML(le="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
+                            <label style="display: flex; align-items: center; gap: 3px; c)HTML" \
+R"HTML(ursor: pointer; font-size: 10.5px; color: #333333;">
+                                <input type="checkbox" id="collect-8" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>幻影石</span>
                             </label>
                             <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
@@ -2606,10 +2618,10 @@ R"HTML(le="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer
                             </label>
                             <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-10" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
-                                <span>天罡石</span>
+                )HTML" \
+R"HTML(                <span>天罡石</span>
                             </label>
-                            <label style="display: flex; align-i)HTML" \
-R"HTML(tems: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-11" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>茅山玉</span>
                             </label>
@@ -2619,9 +2631,9 @@ R"HTML(tems: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #33333
                                 <input type="checkbox" id="collect-12" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>神明果</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
-                                <input type="checkbox" id="collect-13" checked style="widt)HTML" \
-R"HTML(h: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
+                            <label style="display: flex; align-items: center; gap: 3px; cursor: po)HTML" \
+R"HTML(inter; font-size: 10.5px; color: #333333;">
+                                <input type="checkbox" id="collect-13" checked style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                                 <span>朱砂石</span>
                             </label>
                             <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
@@ -2630,17 +2642,17 @@ R"HTML(h: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
                             </label>
                             <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 10.5px; color: #333333;">
                                 <input type="checkbox" id="collect-15" style="width: 12px; height: 12px; border: 1px solid #CCCCCC; cursor: pointer;">
-                                <span>坐骑蛋</span>
+                               )HTML" \
+R"HTML( <span>坐骑蛋</span>
                             </label>
                         </div>
                         
-                       )HTML" \
-R"HTML( 
+                        
                         <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; flex: 0 0 auto;">
                             <button onclick="selectAllCollect(true)" style="background: #FFFFFF; color: #333333; border: 1px solid #CCCCCC; border-radius: 3px; padding: 3px 10px; font-size: 10px; font-weight: 500; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#F5F5F5'" onmouseout="this.style.background='#FFFFFF'">全选</button>
                             <button onclick="selectAllCollect(false)" style="background: #FFFFFF; color: #333333; border: 1px solid #CCCCCC; border-radius: 3px; padding: 3px 10px; font-size: 10px; font-weight: 500; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#F5F5F5'" onmouseout="this.style.background='#FFFFFF'">全不选</button>
-                            <button onclick="startOneKeyCollect()" style="background: var(--color-primary); color: #FFFFFF; border: none; border-radius: 3px; p)HTML" \
-R"HTML(adding: 3px 12px; font-size: 10.5px; font-weight: 600; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='var(--color-primary-hover)'" onmouseout="this.style.background='var(--color-primary)'" onmousedown="this.style.background='var(--color-primary-pressed)'" onmouseup="this.style.background='var(--color-primary-hover)'">一键采集</button>
+                         )HTML" \
+R"HTML(   <button onclick="startOneKeyCollect()" style="background: var(--color-primary); color: #FFFFFF; border: none; border-radius: 3px; padding: 3px 12px; font-size: 10.5px; font-weight: 600; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='var(--color-primary-hover)'" onmouseout="this.style.background='var(--color-primary)'" onmousedown="this.style.background='var(--color-primary-pressed)'" onmouseup="this.style.background='var(--color-primary-hover)'">一键采集</button>
                         </div>
                     </div>
                 </div>
@@ -2648,9 +2660,9 @@ R"HTML(adding: 3px 12px; font-size: 10.5px; font-weight: 600; cursor: pointer; t
                 <div id="sub-boss" class="sub-tab-content">
                     
                     <div style="display: flex; flex-direction: column; gap: 8px; padding: 8px;">
-                        <div class="panel-animate" style="background: var(--color-background); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; box-shadow: var(--shadow-sm); width: 100%; max-width: 340px; min-width: 280px;">
-                            <div style="font-size: 11.5px; font-weight: 600; color: var(--color-text-primary); margin-bot)HTML" \
-R"HTML(tom: 8px;">boss对战</div>
+                        <div class="panel-animate" style="background: var(--color-background); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; box-shadow: var(--shadow-sm); width: 100%; max-width: 340px; min-wid)HTML" \
+R"HTML(th: 280px;">
+                            <div style="font-size: 11.5px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 8px;">boss对战</div>
                             
                             
                             <div style="display: flex; gap: 6px; align-items: center; min-width: 0;">
@@ -2660,8 +2672,8 @@ R"HTML(tom: 8px;">boss对战</div>
                                         style="width: 72px; padding: 5px 8px; font-size: 10.5px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); outline: none; transition: all var(--duration-normal) var(--easing-standard); background: var(--color-background); color: var(--color-text-primary);"
                                         oninput="filterBossSelect()">
                                     <select id="boss-select"
-                                        style="flex: 1; min-width: 0; padding: 5px 10px; font-size: 10.5px; border: 1px solid var(--color-bor)HTML" \
-R"HTML(der); border-radius: var(--radius-sm); outline: none; transition: all var(--duration-normal) var(--easing-standard); background: var(--color-background); color: var(--color-text-primary); cursor: pointer;"
+       )HTML" \
+R"HTML(                                 style="flex: 1; min-width: 0; padding: 5px 10px; font-size: 10.5px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); outline: none; transition: all var(--duration-normal) var(--easing-standard); background: var(--color-background); color: var(--color-text-primary); cursor: pointer;"
                                         onchange="selectBoss(this.value)">
                                         <option value="0">-- 请选择BOSS --</option>
                                         
@@ -2670,10 +2682,10 @@ R"HTML(der); border-radius: var(--radius-sm); outline: none; transition: all var
                                 
                                 
                                 <button id="enter-boss-battle-btn" onclick="enterBossBattle()" 
-                                    style="flex: 0 0 auto; padding: 4px 10px; font-size: 10px; background: var(--color-primary); color: white; border: none; border-radius: 2px; cursor: pointer; transition: all 0.2s linear; white-space: nowrap;"
+                                    style="flex: 0 0 auto; padding: 4px 10px; font-size: 10px; background: var(--color-primary); color: white; border: none; border-radius: 2px; cursor: pointer; transition: all 0.2s l)HTML" \
+R"HTML(inear; white-space: nowrap;"
                                     onmouseover="this.style.background='var(--color-primary-hover)'" 
-   )HTML" \
-R"HTML(                                 onmouseout="this.style.background='var(--color-primary)'">
+                                    onmouseout="this.style.background='var(--color-primary)'">
                                     进入战斗
                                 </button>
                             </div>
@@ -2690,9 +2702,9 @@ R"HTML(                                 onmouseout="this.style.background='var(-
                     <div class="fx-row">
                         
                         <div class="fx-panel" style="flex: 1.15;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; flex: 0 0 auto;">
-                                <div style="display: flex; align-items: center; gap: 5px; min-width: 0;">)HTML" \
-R"HTML(
+                            <div style="display: flex; justify-content: space-between; align-items: center;)HTML" \
+R"HTML( gap: 6px; flex: 0 0 auto;">
+                                <div style="display: flex; align-items: center; gap: 5px; min-width: 0;">
                                     <span class="fx-panel-title">灵玉列表</span>
                                     <div id="lingyu-count" class="badge badge-success" style="padding: 0 6px; font-size: 10px;">0</div>
                                 </div>
@@ -2702,10 +2714,10 @@ R"HTML(
                                         <option value="none">不排序</option>
                                         <option value="体力">体力</option>
                                         <option value="攻击">攻击</option>
-                                        <option value="防御">防御</option>
+                     )HTML" \
+R"HTML(                   <option value="防御">防御</option>
                                         <option value="法术">法术</option>
-             )HTML" \
-R"HTML(                           <option value="抗性">抗性</option>
+                                        <option value="抗性">抗性</option>
                                         <option value="速度">速度</option>
                                         <option value="威力">威力</option>
                                     </select>
@@ -2715,8 +2727,8 @@ R"HTML(                           <option value="抗性">抗性</option>
                             </div>
 
                             
-                            <div style="flex: 1 1 auto; min-height: 0; border: 1px solid var(--color-border); border-radius: 3px; overflow: hidden; background: var(--color)HTML" \
-R"HTML(-background); display: flex; flex-direction: column;">
+                            <div styl)HTML" \
+R"HTML(e="flex: 1 1 auto; min-height: 0; border: 1px solid var(--color-border); border-radius: 3px; overflow: hidden; background: var(--color-background); display: flex; flex-direction: column;">
                                 <div style="display: grid; grid-template-columns: 55px 40px 65px 1fr; background: var(--color-background-hover); padding: 2px 6px; border-bottom: 1px solid var(--color-border); font-size: 10px; font-weight: 600; color: var(--color-text-primary); flex: 0 0 auto;">
                                     <div style="text-align: center;">名称</div>
                                     <div style="text-align: center;">索引</div>
@@ -2724,10 +2736,10 @@ R"HTML(-background); display: flex; flex-direction: column;">
                                     <div style="text-align: center;">附加属性</div>
                                 </div>
                                 <div id="lingyu-list" class="fx-scroll" style="font-size: 10px;">
-                                    <div style="text-align: center; padding: 10px; color: var(--color-text-tertiary);">暂无数据</div>
+                                    <div style="text-align: cent)HTML" \
+R"HTML(er; padding: 10px; color: var(--color-text-tertiary);">暂无数据</div>
                                 </div>
-                            <)HTML" \
-R"HTML(/div>
+                            </div>
                         </div>
 
                         
@@ -2737,10 +2749,10 @@ R"HTML(/div>
                             
                             <div style="flex: 1 1 auto; min-height: 0; border: 1px solid var(--color-border); border-radius: 3px; overflow: hidden; background: var(--color-background); display: flex; flex-direction: column;">
                                 <div style="display: grid; grid-template-columns: 45px 1fr; background: var(--color-background-hover); padding: 2px 6px; border-bottom: 1px solid var(--color-border); font-size: 10px; font-weight: 600; color: var(--color-text-primary); flex: 0 0 auto;">
-                                    <div style="text-align: center;">#</div>
+                                    <div style="te)HTML" \
+R"HTML(xt-align: center;">#</div>
                                     <div style="text-align: center;">灵玉名称</div>
-                           )HTML" \
-R"HTML(     </div>
+                                </div>
                                 <div id="decompose-list" class="fx-scroll" style="font-size: 10px;">
                                     <div style="text-align: center; padding: 10px; color: var(--color-text-tertiary);">未添加灵玉</div>
                                 </div>
@@ -2750,11 +2762,11 @@ R"HTML(     </div>
                             <div class="fx-actions" style="display: grid; grid-template-columns: 1fr 1fr;">
                                 <button onclick="window.decomposeAllInQueue()" class="btn btn-primary" style="font-size: 10.5px; height: 21px; padding: 0; line-height: 21px;">一键分解</button>
                                 <button onclick="window.clearDecomposeQueue()" class="btn btn-secondary" style="font-size: 10.5px; height: 21px; padding: 0; line-height: 21px;">清空队列</button>
-                            </div>
+                            </)HTML" \
+R"HTML(div>
 
                             
-                            <div style="font-size: 9.5px; color: var(--color-text-secondary); line-)HTML" \
-R"HTML(height: 1.3; flex: 0 0 auto;">
+                            <div style="font-size: 9.5px; color: var(--color-text-secondary); line-height: 1.3; flex: 0 0 auto;">
                                 <span id="decompose-queue-count">已添加: 0 个灵玉</span>
                                 <span style="color: var(--color-text-tertiary);"> · 分解后无法找回</span>
                             </div>
@@ -2772,10 +2784,10 @@ R"HTML(height: 1.3; flex: 0 0 auto;">
 
                         
                         <div style="display: flex; align-items: center; gap: 4px; flex: 0 0 auto;">
-                            <label for="dungeon-layer-input" style="font-size: 9.5px; color: var(--color-text-secondary);">目标层数:</label>
+                            <label for="dungeon-layer-input" style="font-size: 9.5px; color: var(--color-text-secondary);">目标层数:)HTML" \
+R"HTML(</label>
                             <input type="number" id="dungeon-layer-input" value="1" min="1" max="9999"
-                      )HTML" \
-R"HTML(          style="width: 50px; font-size: 9.5px; padding: 2px 4px; border: 1px solid var(--color-border); border-radius: 2px;">
+                                style="width: 50px; font-size: 9.5px; padding: 2px 4px; border: 1px solid var(--color-border); border-radius: 2px;">
                             <span style="font-size: 8.5px; color: var(--color-text-tertiary);">层</span>
                         </div>
 
@@ -2788,11 +2800,11 @@ R"HTML(          style="width: 50px; font-size: 9.5px; padding: 2px 4px; border:
                     </div>
 
                     
-                    <div class="fx-panel" style="flex: 1.35;">
+                    <div class="fx-panel" style="flex:)HTML" \
+R"HTML( 1.35;">
                         <span class="fx-panel-title">双台谷刷级</span>
 
-                        <div style="display: flex; align-i)HTML" \
-R"HTML(tems: center; gap: 4px; flex: 0 0 auto;">
+                        <div style="display: flex; align-items: center; gap: 4px; flex: 0 0 auto;">
                             <label style="font-size: 9.5px; color: var(--color-text-secondary); min-width: 35px;">主宠:</label>
                             <select id="shuangtai-pet" style="flex: 1; min-width: 0; font-size: 9.5px; padding: 2px; border: 1px solid var(--color-border); border-radius: 2px; height: 18px;" disabled>
                                 <option value="">请先查询</option>
@@ -2801,9 +2813,9 @@ R"HTML(tems: center; gap: 4px; flex: 0 0 auto;">
                         </div>
 
                         <div style="display: flex; align-items: center; gap: 4px; flex: 0 0 auto;">
-                            <label style="font-size: 9.5px; color: var(--color-text-secondary); min-width: 35px;">技能:</label>
-                            <select id="shuangtai-skill" style="flex: 1; min-width: 0; font-size: 9.5px; padding: 2px)HTML" \
-R"HTML(; border: 1px solid var(--color-border); border-radius: 2px; height: 18px;" disabled>
+                            <label style="font-size: 9.5px; color: var(--color-text-secondary); min-width: 35)HTML" \
+R"HTML(px;">技能:</label>
+                            <select id="shuangtai-skill" style="flex: 1; min-width: 0; font-size: 9.5px; padding: 2px; border: 1px solid var(--color-border); border-radius: 2px; height: 18px;" disabled>
                                 <option value="">自动选择最高威力</option>
                             </select>
                         </div>
@@ -2817,9 +2829,9 @@ R"HTML(; border: 1px solid var(--color-border); border-radius: 2px; height: 18px
                         </div>
 
                         <div class="fx-actions">
-                            <button id="start-shuangtai" class="btn btn-primary" style="flex: 1; font-size: 9.5px; padding: 3px 6px;" disabled>启动</button>
-                            <button id="stop-shuangtai" class="btn btn-secondary")HTML" \
-R"HTML( style="flex: 1; font-size: 9.5px; padding: 3px 6px;" disabled>停止</button>
+                            <button id="start-shuangtai" class="btn btn-primary" style="flex: 1; font-)HTML" \
+R"HTML(size: 9.5px; padding: 3px 6px;" disabled>启动</button>
+                            <button id="stop-shuangtai" class="btn btn-secondary" style="flex: 1; font-size: 9.5px; padding: 3px 6px;" disabled>停止</button>
                         </div>
                     </div>
 
@@ -2835,9 +2847,9 @@ R"HTML( style="flex: 1; font-size: 9.5px; padding: 3px 6px;" disabled>停止</bu
                         
                         
                         <div style="display: flex; align-items: center; gap: 6px;">
-                            <label for="battlesix-match-count" style="font-size: 10.5px; color: var(--color-text-primary); min-width: 70px;">匹配次数：</label>
-                            <input type="number" id="battlesix-match-count" value="1" min="1" max="999" class=")HTML" \
-R"HTML(input" style="width: 60px; font-size: 10.5px; padding: 3px 5px;">
+                            <label for="battlesix-match-count" style="font-size: 10.5px; color: var(--color-text-primary); min-width)HTML" \
+R"HTML(: 70px;">匹配次数：</label>
+                            <input type="number" id="battlesix-match-count" value="1" min="1" max="999" class="input" style="width: 60px; font-size: 10.5px; padding: 3px 5px;">
                         </div>
 
                         
@@ -2852,10 +2864,10 @@ R"HTML(input" style="width: 60px; font-size: 10.5px; padding: 3px 5px;">
                     
                     
                     <div style="flex: 1;">
-                        <div style="font-size: 10.5px; font-weight: 600; color: var(--color-text-secondary); margin-bottom: 4px;">功能说明</div>
+                        <div style="font-size: 10.5px; font-weight: 600; color: var(--color-text-secondary); margin-)HTML" \
+R"HTML(bottom: 4px;">功能说明</div>
                         <div style="font-size: 9.5px; color: var(--color-text-tertiary); line-height: 1.5;">
-)HTML" \
-R"HTML(                            <div>• 自动匹配后进入战斗</div>
+                            <div>• 自动匹配后进入战斗</div>
                             <div>• 自动战斗会自动选择技能</div>
                             <div>• 精灵死亡时自动切换</div>
                             <div>• 战斗结束后自动确认</div>
@@ -2871,9 +2883,9 @@ R"HTML(                            <div>• 自动匹配后进入战斗</div>
                     
                     <div class="spirit-toolbar">
                         <span class="spirit-stat-chip">今日可赠 <span id="spirit-daily-out" style="color: var(--color-primary); font-weight: 600;">-</span></span>
-                        <span class="spirit-stat-chip">本周可赠 <span id="spirit-weekly-out" style="color: var(--color-primary); font-weight: 600;">-</span></span>
-                        <div class="spirit-toolbar-selected">已选精魄: <span id="spirit-selected" style="color: var(--color-pr)HTML" \
-R"HTML(imary); font-weight: 600;">无</span></div>
+                        <span class="spirit-stat-chip">本周可赠 <span id="spirit-weekly-out" style="color: var(--color-primary); font-weight: 600;">-</s)HTML" \
+R"HTML(pan></span>
+                        <div class="spirit-toolbar-selected">已选精魄: <span id="spirit-selected" style="color: var(--color-primary); font-weight: 600;">无</span></div>
                         <div class="spirit-toolbar-send">
                             <label>卡布号:</label>
                             <input type="text" id="spirit-friend-id" placeholder="输入对方卡布号">
@@ -2888,12 +2900,12 @@ R"HTML(imary); font-weight: 600;">无</span></div>
                         
                         <div class="spirit-giving-panel">
                             <div id="spirit-list">
-                                <div style="color: var(--color-text-tertiary); text-align: center; padding: 10px 8px;">点击“刷新”加载精魄列表</div>
+                                <div style="color: var(--color-text-tertiary)HTML" \
+R"HTML(); text-align: center; padding: 10px 8px;">点击“刷新”加载精魄列表</div>
                             </div>
                         </div>
 
-     )HTML" \
-R"HTML(                   
+                        
                         <div class="spirit-record-side">
                             <div class="spirit-record-header">
                                 <div class="spirit-record-title">记录面板</div>
@@ -2906,11 +2918,11 @@ R"HTML(
                                 </div>
                             </div>
 
-                            <div id="spirit-record-panel" class="spirit-record-body">
+                            <div id="spirit-record-panel")HTML" \
+R"HTML( class="spirit-record-body">
                                 点击上方按钮查看赠送记录或接收记录。
                             </div>
-                   )HTML" \
-R"HTML(     </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2925,9 +2937,9 @@ R"HTML(     </div>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                             <h3 style="font-size: 12px; font-weight: 600; color: var(--color-text-primary); margin: 0;">拦截类型</h3>
                         </div>
-                        <div style="display: flex; flex-direction: column; gap: 4px;">
-                            <div style="display: flex; align-i)HTML" \
-R"HTML(tems: center; gap: 5px;">
+               )HTML" \
+R"HTML(         <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <div style="display: flex; align-items: center; gap: 5px;">
                                 <input type="checkbox" id="intercept-send" checked style="width: 12px; height: 12px;">
                                 <label for="intercept-send" style="font-size: 10px; color: var(--color-text-primary); cursor: pointer;">发送包</label>
                             </div>
@@ -2936,8 +2948,8 @@ R"HTML(tems: center; gap: 5px;">
                                 <label for="intercept-receive" style="font-size: 10px; color: var(--color-text-primary); cursor: pointer;">接收包</label>
                             </div>
                             <div style="margin-top: 4px; display: flex; flex-direction: column; gap: 4px;">
-                                <button id="start-intercept" style="padding: 4px 5px; font-size: 10px; background: var(--color-primary); color: white; border: none; border-radi)HTML" \
-R"HTML(us: var(--radius-sm); cursor: pointer; transition: all var(--duration-fast) var(--easing-standard); width: 100%;">开始拦截</button>
+                                <button id)HTML" \
+R"HTML(="start-intercept" style="padding: 4px 5px; font-size: 10px; background: var(--color-primary); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer; transition: all var(--duration-fast) var(--easing-standard); width: 100%;">开始拦截</button>
                                 <button id="stop-intercept" style="padding: 4px 5px; font-size: 10px; background: var(--color-background); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; transition: all var(--duration-fast) var(--easing-standard); width: 100%;">停止拦截</button>
                             </div>
                         </div>
@@ -2945,9 +2957,9 @@ R"HTML(us: var(--radius-sm); cursor: pointer; transition: all var(--duration-fas
                     
                     
                     <div style="background: var(--color-background); border: 1px solid var(--color-border); border-radius: 4px; padding: 8px; width: 140px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                            <h3 s)HTML" \
-R"HTML(tyle="font-size: 12px; font-weight: 600; color: var(--color-text-primary); margin: 0;">发送设置</h3>
+                        <)HTML" \
+R"HTML(div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <h3 style="font-size: 12px; font-weight: 600; color: var(--color-text-primary); margin: 0;">发送设置</h3>
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -2955,33 +2967,33 @@ R"HTML(tyle="font-size: 12px; font-weight: 600; color: var(--color-text-primary)
                                 <input type="number" id="send-count" value="1" min="1" class="input" style="width: 40px; font-size: 10px; padding: 3px 5px;">
                             </div>
                             <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <label for="send-delay" style="font-size: 10px; color: var(--color-text-primary);">发送延迟:</label>
-                                <input type="number" id="send-delay" value="300" min="0" class="input" style="widt)HTML" \
-R"HTML(h: 40px; font-size: 10px; padding: 3px 5px;">
+                                <label for="send-delay" style="font-size: 10px; color: var(--color-text-prima)HTML" \
+R"HTML(ry);">发送延迟:</label>
+                                <input type="number" id="send-delay" value="300" min="0" class="input" style="width: 40px; font-size: 10px; padding: 3px 5px;">
                             </div>
                             <div style="margin-top: 4px; display: flex; flex-direction: column; gap: 4px;">
                                 <button id="start-send" style="padding: 4px 5px; font-size: 10px; background: var(--color-primary); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer; transition: all var(--duration-fast) var(--easing-standard); width: 100%;">开始发送</button>
                                 <button id="stop-send" style="padding: 4px 5px; font-size: 10px; background: var(--color-background); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; transition: all var(--duration-fast) var(--easing-standard); width: 100%;">停止发送</button>
-                            </div>
+                            </di)HTML" \
+R"HTML(v>
                         </div>
                     </div>
                     
                     
-                    <div style=)HTML" \
-R"HTML("background: var(--color-background); border: 1px solid var(--color-border); border-radius: 4px; padding: 8px; width: 130px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column;">
+                    <div style="background: var(--color-background); border: 1px solid var(--color-border); border-radius: 4px; padding: 8px; width: 130px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                             <h3 style="font-size: 12px; font-weight: 600; color: var(--color-text-primary); margin: 0;">高级功能</h3>
                         </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-                            <button id="toggle-packet-window" style="padding: 4px 5px; font-size: 10px; background: var(--color-primary); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer; transition: all var(--duration-fast) var(--easing-standard);">显示封包</button>
-                            <button id="clear-all-packets" style="padding: 4px 5px; font-size: 10px; background: var(--color-backg)HTML" \
-R"HTML(round); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; transition: all var(--duration-fast) var(--easing-standard);">清空封包</button>
+                            <button id="toggle-packet-window" style="padding: 4px 5px; font-size: 10px; background: var(--color-primary); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer; transition: all var(--duration-fast) var(--easing-standard);">显示封包</butt)HTML" \
+R"HTML(on>
+                            <button id="clear-all-packets" style="padding: 4px 5px; font-size: 10px; background: var(--color-background); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; transition: all var(--duration-fast) var(--easing-standard);">清空封包</button>
                             <div style="margin: 4px 0; padding: 4px 5px; background: var(--color-background-hover); border-radius: var(--radius-sm); font-size: 10px; color: var(--color-text-secondary); text-align: center; grid-column: 1 / -1;">
                                 <div>当前封包个数: <span id="packet-count">0</span></div>
                             </div>
-                            <button id="save-packets" style="padding: 4px 5px; font-size: 10px; background: var(--color-background); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; transition: all var(--duration-fast) var(--easing-standard);">保存封包</button>
-                            <button id="load-packets" style="padding: 4px 5px; font-size: 10px; b)HTML" \
-R"HTML(ackground: var(--color-background); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; transition: all var(--duration-fast) var(--easing-standard);">载入封包</button>
+                            <button id="save-packets" style="padding: 4px 5px; font-size: 10px; background: var(--color-background); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; transition: all var(--duration-fast) va)HTML" \
+R"HTML(r(--easing-standard);">保存封包</button>
+                            <button id="load-packets" style="padding: 4px 5px; font-size: 10px; background: var(--color-background); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; transition: all var(--duration-fast) var(--easing-standard);">载入封包</button>
                         </div>
                     </div>
                     
@@ -2990,18 +3002,18 @@ R"HTML(ackground: var(--color-background); color: var(--color-text-primary); bor
                         <div style="margin-bottom: 6px;">
                             <h3 style="font-size: 12px; font-weight: 600; color: var(--color-text-primary); margin: 0;">劫持修改</h3>
                         </div>
-                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <div style="display: flex; flex-direction: co)HTML" \
+R"HTML(lumn; gap: 4px;">
                             <div style="display: flex; align-items: center; gap: 5px;">
-                            )HTML" \
-R"HTML(    <input type="checkbox" id="hijack-send" checked style="width: 12px; height: 12px;">
+                                <input type="checkbox" id="hijack-send" checked style="width: 12px; height: 12px;">
                                 <label for="hijack-send" style="font-size: 10px; color: var(--color-text-primary); cursor: pointer;">劫持发送</label>
                                 <input type="checkbox" id="hijack-recv" checked style="width: 12px; height: 12px;">
                                 <label for="hijack-recv" style="font-size: 10px; color: var(--color-text-primary); cursor: pointer;">劫持接收</label>
                             </div>
                             <div style="display: flex; flex-direction: column; gap: 4px;">
-                                <input type="text" id="hijack-pattern" placeholder="检测文本（十六进制）" style="width: 100%; font-size: 9px; padding: 3px 5px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-sizing: border-box;">
-                                <input type="text" id="hijack-replace" placeholder="替换文本" style="width: 100%; font-size: 9px; padd)HTML" \
-R"HTML(ing: 3px 5px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-sizing: border-box;">
+                                <input type="text" id="hijack-pattern" placeholder="检测文本（十六进制）" style="width: 100%; font-size: 9px; padding: 3px 5px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-sizing: border-box)HTML" \
+R"HTML(;">
+                                <input type="text" id="hijack-replace" placeholder="替换文本" style="width: 100%; font-size: 9px; padding: 3px 5px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-sizing: border-box;">
                             </div>
                             <select id="hijack-type" style="width: 100%; font-size: 10px; padding: 3px 5px; border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
                                 <option value="block">拦截</option>
@@ -3020,9 +3032,9 @@ R"HTML(ing: 3px 5px; border: 1px solid var(--color-border); border-radius: var(-
         // 全局函数定义 - 必须在 DOM 元素之前定义
         function openTab(evt, tabName) {
             var tabContents = document.getElementsByClassName('tab-content');
-            for (var i = 0; i < tabContents.length; i++) {
-                tabContents[i].className = tabContents[i].className.replace)HTML" \
-R"HTML((' active', '');
+)HTML" \
+R"HTML(            for (var i = 0; i < tabContents.length; i++) {
+                tabContents[i].className = tabContents[i].className.replace(' active', '');
             }
             var tabButtons = document.getElementsByClassName('tab-button');
             for (var i = 0; i < tabButtons.length; i++) {
@@ -3041,10 +3053,10 @@ R"HTML((' active', '');
             var tabContents = document.getElementsByClassName('sub-tab-content');
             for (var i = 0; i < tabContents.length; i++) {
                 tabContents[i].className = tabContents[i].className.replace(' active', '');
-            }
+           )HTML" \
+R"HTML( }
             var tabButtons = document.getElementsByClassName('sub-tab-button');
-            for (var i = 0; i < tabButtons.length; )HTML" \
-R"HTML(i++) {
+            for (var i = 0; i < tabButtons.length; i++) {
                 tabButtons[i].className = tabButtons[i].className.replace(' active', '');
             }
             document.getElementById(tabName).className += ' active';
@@ -3058,10 +3070,10 @@ R"HTML(i++) {
                 }
                 var huangchengWeijiPanel = document.getElementById('huangcheng-weiji-panel');
                 if (huangchengWeijiPanel && !huangchengWeijiPanel.hidden && typeof window.refreshHuangchengWeijiTaskProgress === 'function') {
-                    window.refreshHuangchengWeijiTaskProgress();
+                    window.refreshHuangchengWeijiTaskProgress())HTML" \
+R"HTML(;
                 }
-                if (huangchengWeijiPanel && !huangchengWeijiPanel.hidden && typeof window.renderHuangchengWeijiTas)HTML" \
-R"HTML(ks === 'function') {
+                if (huangchengWeijiPanel && !huangchengWeijiPanel.hidden && typeof window.renderHuangchengWeijiTasks === 'function') {
                     window.renderHuangchengWeijiTasks();
                 }
             }
@@ -3088,14 +3100,14 @@ R"HTML(ks === 'function') {
                 // 触发重排
                 void helperText.offsetWidth;
                 // 更新文本
-                helperText.textContent = text;
+                helperText.textContent )HTML" \
+R"HTML(= text;
                 // 添加滑动特效类
                 helperText.classList.add('slide-in');
             }
         }
 
-        function res)HTML" \
-R"HTML(etAnimation(element) {
+        function resetAnimation(element) {
             // 重置动画效果
             element.style.animation = 'none';
             element.offsetHeight; // 强制重排
@@ -3115,10 +3127,10 @@ R"HTML(etAnimation(element) {
                 // 根据元素类型设置不同的动画延迟
                 if (element.classList.contains('section-title')) {
                     element.style.animationDelay = delay + 's';
-                    delay += 0.02;
+                    delay += 0.0)HTML" \
+R"HTML(2;
                 } else if (element.classList.contains('control-group') || element.classList.contains('form-row')) {
-               )HTML" \
-R"HTML(     element.style.animationDelay = delay + 's';
+                    element.style.animationDelay = delay + 's';
                     delay += 0.02;
                 } else if (element.classList.contains('input') || element.classList.contains('btn')) {
                     element.style.animationDelay = delay + 's';
@@ -3133,12 +3145,12 @@ R"HTML(     element.style.animationDelay = delay + 's';
                     element.style.animationDelay = delay + 's';
                     delay += 0.01;
                 } else if (element.classList.contains('panel-animate')) {
-                    element.style.animationDelay = delay + 's';
+ )HTML" \
+R"HTML(                   element.style.animationDelay = delay + 's';
                     delay += 0.015;
                 }
             }
-   )HTML" \
-R"HTML(     }
+        }
         
         // 绑定基础功能按钮事件
         var refreshGameBtn = document.getElementById('refresh-game');
@@ -3160,10 +3172,10 @@ R"HTML(     }
 
         // 复制 Key 按钮
         if (copyKeyBtn) {
-            copyKeyBtn.addEventListener('click', function() {
+            copyKeyBtn.addEventList)HTML" \
+R"HTML(ener('click', function() {
                 if (window.chrome && window.chrome.webview) {
-                    window.chrome.webview.pos)HTML" \
-R"HTML(tMessage({ type: 'copy-login-key' });
+                    window.chrome.webview.postMessage({ type: 'copy-login-key' });
                 }
             });
         }
@@ -3194,10 +3206,10 @@ R"HTML(tMessage({ type: 'copy-login-key' });
         }
 
         // 清理 IE 缓存按钮
-        if (clearIECacheBtn) {
+)HTML" \
+R"HTML(        if (clearIECacheBtn) {
             clearIECacheBtn.addEventListener('click', function() {
-                var clearCacheText =)HTML" \
-R"HTML( document.getElementById('clear-cache-text');
+                var clearCacheText = document.getElementById('clear-cache-text');
 
                 if (!clearCacheText || !window.chrome || !window.chrome.webview) {
                     return;
@@ -3219,11 +3231,11 @@ R"HTML( document.getElementById('clear-cache-text');
         // 更新静音按钮状态的函数
         window.updateMuteButtonState = function(isMuted) {
             var muteGameBtn = document.getElementById('mute-game');
-            var muteText = document.getElementById('mute-text');
+      )HTML" \
+R"HTML(      var muteText = document.getElementById('mute-text');
             
             if (muteGameBtn && muteText) {
-                if )HTML" \
-R"HTML((isMuted) {
+                if (isMuted) {
                     muteGameBtn.classList.add('muted');
                     muteText.textContent = '恢复声音';
                 } else {
@@ -3244,12 +3256,12 @@ R"HTML((isMuted) {
             clearIECacheBtn.disabled = false;
             clearIECacheBtn.classList.remove('cache-clearing');
             clearIECacheBtn.classList.toggle('cache-cleared', !!success);
-            clearIECacheBtn.classList.toggle('cache-clear-failed', !success);
+            clearIECacheBtn.classList.toggle('cache-clear-failed', !succes)HTML" \
+R"HTML(s);
             clearCacheText.textContent = success ? '已清理' : '清理失败';
 
             if (clearIECacheResetTimer) {
-                clea)HTML" \
-R"HTML(rTimeout(clearIECacheResetTimer);
+                clearTimeout(clearIECacheResetTimer);
             }
 
             clearIECacheResetTimer = setTimeout(function() {
@@ -3268,11 +3280,11 @@ R"HTML(rTimeout(clearIECacheResetTimer);
                 packetItem.setAttribute('data-index', index - 1);  // 修改：使用从0开始的数组索引
 
                 // 确保direction是简短的形式
-                var displayDirection = (direction === '发送包' || direction === '发送') ? '发送' : '接收';
+                var displayDirection = (direction === ')HTML" \
+R"HTML(发送包' || direction === '发送') ? '发送' : '接收';
                 var isSend = displayDirection === '发送';
 
-                packetItem.innerHT)HTML" \
-R"HTML(ML = `
+                packetItem.innerHTML = `
                     <div style="padding: 6px 8px; border-bottom: 1px solid var(--color-border-hover); cursor: pointer; transition: background 0.15s ease;">
                         
                         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
@@ -3281,9 +3293,9 @@ R"HTML(ML = `
                             </div>
                             <div style="width: 30px; flex-shrink: 0; font-weight: 600; color: ${isSend ? '#0078d4' : '#2e7d32'}; font-size: 9px; background: ${isSend ? 'rgba(0, 120, 212, 0.08)' : 'rgba(46, 125, 50, 0.08)'}; padding: 2px 4px; border-radius: 2px; text-align: center;">
                                 ${displayDirection}
-                            </div>
-                            <div style="width: 50px; flex-shrink: 0; color: var(--color-text-second)HTML" \
-R"HTML(ary); font-size: 8px; font-family: 'Consolas', monospace;">
+)HTML" \
+R"HTML(                            </div>
+                            <div style="width: 50px; flex-shrink: 0; color: var(--color-text-secondary); font-size: 8px; font-family: 'Consolas', monospace;">
                                 ${time}
                             </div>
                             <div style="flex: 1; min-width: 0; color: var(--color-primary); font-size: 8px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
@@ -3298,11 +3310,11 @@ R"HTML(ary); font-size: 8px; font-family: 'Consolas', monospace;">
                 `;
 
                 // 添加点击事件
-                packetItem.addEventListener('click', function() {
+                packetItem.addEventListener('click', f)HTML" \
+R"HTML(unction() {
                     // 移除其他选中状态
                     var allItems = pListItems.querySelectorAll('.packet-item');
-          )HTML" \
-R"HTML(          allItems.forEach(function(item) {
+                    allItems.forEach(function(item) {
                         item.style.background = '';
                         item.style.borderLeft = '';
                     });
@@ -3323,12 +3335,12 @@ R"HTML(          allItems.forEach(function(item) {
         window.addPacketToUI = window.addPacketToList; // 兼容性别名
 
         // 灵玉列表更新功能
-        window.currentLingyuData = null;
+        window.currentLingyuData = null;)HTML" \
+R"HTML(
         window.selectedLingyuIndices = new Set();
         window.currentLingyuData = { items: [] };
 
-        window.updateLingyuUI = )HTML" \
-R"HTML(function(jsonStr) {
+        window.updateLingyuUI = function(jsonStr) {
             try {
                 const data = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
                 window.currentLingyuData = data;
@@ -3348,11 +3360,11 @@ R"HTML(function(jsonStr) {
         };
 
         window.renderLingyuList = function(items) {
-            const listContainer = document.getElementById('lingyu-list');
+            const listContainer = do)HTML" \
+R"HTML(cument.getElementById('lingyu-list');
             const countElement = document.getElementById('lingyu-count');
             
-         )HTML" \
-R"HTML(   if (!listContainer) return;
+            if (!listContainer) return;
             
             listContainer.innerHTML = '';
             if (!items || items.length === 0) {
@@ -3369,10 +3381,10 @@ R"HTML(   if (!listContainer) return;
                 row.style.display = 'grid';
                 row.style.gridTemplateColumns = '55px 40px 65px 1fr';
                 row.style.padding = '3px 6px';
-                row.style.borderBottom = '1px solid var(--color-border)';
+         )HTML" \
+R"HTML(       row.style.borderBottom = '1px solid var(--color-border)';
                 row.style.alignItems = 'center';
-                row.)HTML" \
-R"HTML(style.minHeight = '24px';
+                row.style.minHeight = '24px';
                 row.style.transition = 'background-color 0.1s linear';
                 row.style.cursor = 'pointer';
                 row.style.backgroundColor = isSelected ? 'var(--color-background-secondary)' : 'transparent';
@@ -3387,12 +3399,12 @@ R"HTML(style.minHeight = '24px';
                     if (!window.selectedLingyuIndices.has(String(item.symmIndex))) {
                         row.style.backgroundColor = 'transparent';
                     } else {
-                        row.style.backgroundColor = 'var(--color-background-secondary)';
+                        row.style.backgroundColor = 'var(-)HTML" \
+R"HTML(-color-background-secondary)';
                     }
                 };
                 
-                const petName = item.petName )HTML" \
-R"HTML(|| '无';
+                const petName = item.petName || '无';
                 const petColor = item.petName ? 'var(--color-primary)' : 'var(--color-text-tertiary)';
                 const symmName = item.symmName || '未知';
                 
@@ -3406,8 +3418,8 @@ R"HTML(|| '无';
                 }
                 
                 row.innerHTML = `
-                    <div style="text-align: center; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 10.5px;">${symmN)HTML" \
-R"HTML(ame}</div>
+                    <div style="text-align:)HTML" \
+R"HTML( center; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 10.5px;">${symmName}</div>
                     <div style="text-align: center; color: var(--color-text-secondary); font-size: 10.5px;">${item.symmIndex}</div>
                     <div style="text-align: center; color: ${petColor}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 10.5px;">${petName}</div>
                     <div style="display: flex; flex-wrap: wrap; gap: 2px; font-size: 9.5px;">${attrHtml}</div>
@@ -3423,11 +3435,11 @@ R"HTML(ame}</div>
                 window.selectedLingyuIndices.delete(indexStr);
             } else {
                 window.selectedLingyuIndices.add(indexStr);
-                // 自动将选中的灵玉添加到分解队列
+                // 自动)HTML" \
+R"HTML(将选中的灵玉添加到分解队列
                 addToDecomposeQueueFromSelection(item);
                 // 添加后自动取消选中状态
-                setTimeout(() => )HTML" \
-R"HTML({
+                setTimeout(() => {
                     window.selectedLingyuIndices.delete(indexStr);
                     // 重新渲染列表以更新选中状态背景色
                     window.renderLingyuList(window.currentLingyuData.items);
@@ -3449,11 +3461,11 @@ R"HTML({
             // 检查是否已存在于分解队列中
             const exists = window.decomposeQueue.some(q => q.index === indexStr);
             if (!exists) {
-                window.decomposeQueue.push({
+                window.decomposeQue)HTML" \
+R"HTML(ue.push({
                     index: indexStr,
                     name: item.symmName || '未知',
-                    level: item.symmLe)HTML" \
-R"HTML(vel || 'N',
+                    level: item.symmLevel || 'N',
                     attrs: item.nativeList ? item.nativeList.map(attr => `${attr.nativeName}:${attr.nativeValue}`).join(',') : ''
                 });
 
@@ -3473,10 +3485,10 @@ R"HTML(vel || 'N',
             
             let html = `<div style="font-weight: 600; color: var(--color-primary); margin-bottom: 4px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">已选择 (${window.selectedLingyuIndices.size})</div>`;
             
-            // 找到对应的灵玉对象并显示
+            // 找到对应的灵玉对象并)HTML" \
+R"HTML(显示
             const selectedItems = (window.currentLingyuData.items || []).filter(item => 
-                window.selectedLingyuIndic)HTML" \
-R"HTML(es.has(String(item.symmIndex))
+                window.selectedLingyuIndices.has(String(item.symmIndex))
             );
             
             selectedItems.forEach(item => {
@@ -3491,14 +3503,14 @@ R"HTML(es.has(String(item.symmIndex))
                     </div>
                 `;
             });
-            
+   )HTML" \
+R"HTML(         
             infoDiv.innerHTML = html;
         };
 
         window.queryLingyu = function() {
             // 调用C++端的灵玉查询函数
-   )HTML" \
-R"HTML(         if (window.chrome && window.chrome.webview) {
+            if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage({
                     type: 'query_lingyu'
                 });
@@ -3525,14 +3537,14 @@ R"HTML(         if (window.chrome && window.chrome.webview) {
         // 从分解队列中移除单个项目
         window.removeItemFromDecomposeQueue = function(index) {
             // 从队列中移除指定索引的项目
-            window.decomposeQueue = window.decomposeQueue.filter(q => q.index !== index);
+            window.decomposeQueue = window.decomposeQueue.filter)HTML" \
+R"HTML((q => q.index !== index);
 
             // 重新渲染队列
             window.renderDecomposeQueue();
         };
 
-        window.renderDecompose)HTML" \
-R"HTML(Queue = function() {
+        window.renderDecomposeQueue = function() {
             try {
                 var listContainer = document.getElementById('decompose-list');
                 var countElement = document.getElementById('decompose-queue-count');
@@ -3549,11 +3561,11 @@ R"HTML(Queue = function() {
                     return;
                 }
                 
-                if (countElement) countElement.textContent = '已添加: ' + window.decomposeQueue.length + ' 个灵玉';
+                if (countElement) countElement.textContent = '已添加: ' + window.decomposeQueue.length )HTML" \
+R"HTML(+ ' 个灵玉';
                 
                 // 使用flexbox布局，一行显示两个项目
-                var html = '<div style="display:flex;flex-wrap:wrap)HTML" \
-R"HTML(;gap:3px;">';
+                var html = '<div style="display:flex;flex-wrap:wrap;gap:3px;">';
                 for (var i = 0; i < window.decomposeQueue.length; i++) {
                     var item = window.decomposeQueue[i];
                     // 每个项目包含选择框、序号、名称、属性和删除按钮
@@ -3561,23 +3573,23 @@ R"HTML(;gap:3px;">';
                     // 选择框
                     html += '<input type="checkbox" class="queue-item-checkbox" data-index="' + item.index + '" style="width:12px;height:12px;flex-shrink:0;" />';
                     // 序号
-                    html += '<span style="display:inline-block;background:var(--color-background-secondary);color:var(--color-text-primary);padding:1px 4px;border-radius:2px;font-size:9.5px;font-weight:500;white-space:nowrap;flex-shrink:0;">#' + item.index + '</span>';
+                    html += '<span style="display:inline-block;background:var(--color-background-secondary);color:var(--color-text-primary);padding:1px 4px;border-radius:2px;font-size:9.5px;font-weight:500;white-space:nowrap;fle)HTML" \
+R"HTML(x-shrink:0;">#' + item.index + '</span>';
                     // 名称
-                    html += '<span style="color:var(--color-text-p)HTML" \
-R"HTML(rimary);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;">' + (item.name || '未知') + '</span>';
+                    html += '<span style="color:var(--color-text-primary);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;">' + (item.name || '未知') + '</span>';
                     // 属性（简约显示）
                     if (item.attrs && item.attrs.length > 0) {
                         html += '<span style="display:inline-block;background:#e8f5e8;color:#2e7d32;padding:1px 3px;border-radius:2px;font-weight:500;font-size:8.5px;flex-shrink:0;">' + item.attrs + '</span>';
                     }
                     // 美化的删除按钮
                     html += '<button onclick="window.removeItemFromDecomposeQueue(\'' + item.index + '\')" style="width:16px;height:16px;border:none;border-radius:50%;background:var(--color-text-tertiary);color:white;font-size:9.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:bold;">×</button>';
-                    html += '</div>';
+                    html += '</d)HTML" \
+R"HTML(iv>';
                 }
                 html += '</div>';
                 listContainer.innerHTML = html;
             } catch (e) {
-  )HTML" \
-R"HTML(          }
+            }
         };
 
         window.decomposeAllInQueue = function() {
@@ -3605,13 +3617,13 @@ R"HTML(          }
                     return;
                 }
 
-                var count = window.decomposeQueue.length;
+                var count = window.decompos)HTML" \
+R"HTML(eQueue.length;
 
                 // 直接继续执行，不使用confirm对话框，因为可能导致卡死
 
                 // 标记为正在分解
-                window.isDecomposing = tr)HTML" \
-R"HTML(ue;
+                window.isDecomposing = true;
 
                 // 收集索引
                 var indices = [];
@@ -3634,12 +3646,12 @@ R"HTML(ue;
                 } else {
                     // 更新辅助提示文本
                     if (window.updateHelperText) {
-                        window.updateHelperText('错误: WebView2 API不可用');
+                        window.updateHelperText(')HTML" \
+R"HTML(错误: WebView2 API不可用');
                     }
                     window.isDecomposing = false;
                 }
-            } catch ()HTML" \
-R"HTML(e) {
+            } catch (e) {
                 window.isDecomposing = false;
                 // 更新辅助提示文本
                 if (window.updateHelperText) {
@@ -3667,11 +3679,11 @@ R"HTML(e) {
                 hex += "00 00 ";
 
                 // 3. Opcode: 0x00121816 (4字节)
-                hex += "16 18 12 00 ";
+)HTML" \
+R"HTML(                hex += "16 18 12 00 ";
 
                 // 4. Index as 8-byte integer in little endian format
-                // 例如，如果)HTML" \
-R"HTML(索引是500 (0x01F4):
+                // 例如，如果索引是500 (0x01F4):
                 // 0xF4 0x01 0x00 0x00 0x00 0x00 0x00 0x00
                 for (let i = 0; i < 8; i++) {
                     hex += ((firstIndex >> (i * 8)) & 0xFF).toString(16).padStart(2, '0').toUpperCase();
@@ -3697,11 +3709,11 @@ R"HTML(索引是500 (0x01F4):
             window.selectedLingyuIndices.clear();
 
             // 安全地重新渲染灵玉列表
-            if (window.currentLingyuData && window.currentLingyuData.items) {
+            if (window.currentLingyuData && window.cu)HTML" \
+R"HTML(rrentLingyuData.items) {
                 window.renderLingyuList(window.currentLingyuData.items);
             } else {
-               )HTML" \
-R"HTML( window.renderLingyuList([]);
+                window.renderLingyuList([]);
             }
 
             window.isDecomposing = false;
@@ -3727,9 +3739,9 @@ R"HTML( window.renderLingyuList([]);
             window.isDailyTaskRunning = isRunning;
             
             // 更新所有相关按钮状态
-            var dailyBtn = document.getElementById('complete-daily-tasks');
-            var trialBtn = document.getElementById('complete-trial-tas)HTML" \
-R"HTML(ks');
+            )HTML" \
+R"HTML(var dailyBtn = document.getElementById('complete-daily-tasks');
+            var trialBtn = document.getElementById('complete-trial-tasks');
             var danceBtn = document.getElementById('complete-dance-tasks');
             
             if (dailyBtn) {
@@ -3752,11 +3764,11 @@ R"HTML(ks');
         };
 
         // 一键完成日常活动
-        window.completeDailyTasks = function() {
+        wind)HTML" \
+R"HTML(ow.completeDailyTasks = function() {
             if (window.isDailyTaskRunning) return;
             
-            // 收集选中的任务（新增活动）- 只处理)HTML" \
-R"HTML(每日模块
+            // 收集选中的任务（新增活动）- 只处理每日模块
             var flags = 0;
             if (document.getElementById('daily-deep-dig').checked) flags |= 0x01;   // 深度挖宝
             if (document.getElementById('daily-card').checked) flags |= 0x02;       // 每日卡牌
@@ -3768,13 +3780,13 @@ R"HTML(每日模块
             if (document.getElementById('shop-surprise').checked) flags |= 0x80;    // 商城惊喜
             
             if (flags === 0) {
-                window.updateDailyTaskStatus('请至少勾选一项日常活动', false);
+                window.updateDailyTaskStatus('请至少勾选一项日)HTML" \
+R"HTML(常活动', false);
                 window.updateHelperText('请至少勾选一项日常活动');
                 return;
             }
             
-            w)HTML" \
-R"HTML(indow.updateDailyTaskStatus('正在执行日常活动，请勿操作...', true);
+            window.updateDailyTaskStatus('正在执行日常活动，请勿操作...', true);
             window.updateHelperText('正在执行日常活动，请勿操作...');
             
             // 发送到C++端
@@ -3798,12 +3810,12 @@ R"HTML(indow.updateDailyTaskStatus('正在执行日常活动，请勿操作...',
             if (runCompEl && runCompEl.checked) {
                 steps.push({
                     label: '障碍赛跑',
-                    msg: { type: 'daily_run_competition', times: 3 },
+                    )HTML" \
+R"HTML(msg: { type: 'daily_run_competition', times: 3 },
                     waitMs: 4000
                 });
             }
-            var j)HTML" \
-R"HTML(inpingfuEl = document.getElementById('act-jinpingfu-wish');
+            var jinpingfuEl = document.getElementById('act-jinpingfu-wish');
             if (jinpingfuEl && jinpingfuEl.checked) {
                 steps.push({
                     label: '金平府祈愿',
@@ -3823,13 +3835,13 @@ R"HTML(inpingfuEl = document.getElementById('act-jinpingfu-wish');
             if (gomokuEl && gomokuEl.checked) {
                 steps.push({
                     label: '五子棋',
-                    msg: { type: 'daily_gomoku', times: 1 },
+          )HTML" \
+R"HTML(          msg: { type: 'daily_gomoku', times: 1 },
                     waitMs: 12000
                 });
             }
 
-            if)HTML" \
-R"HTML( (steps.length === 0) {
+            if (steps.length === 0) {
                 window.updateDailyTaskStatus('请至少勾选一项活动', false);
                 window.updateHelperText('请至少勾选一项活动');
                 return;
@@ -3850,15 +3862,15 @@ R"HTML( (steps.length === 0) {
                 }
                 var delay = step.waitMs || 10000;
                 index++;
-                setTimeout(runNextStep, delay);
+                setTimeout(runN)HTML" \
+R"HTML(extStep, delay);
             }
 
             runNextStep();
         };
 
         // 一键完成试炼活动
-        window.completeTrialTasks = functio)HTML" \
-R"HTML(n() {
+        window.completeTrialTasks = function() {
             if (window.isDailyTaskRunning) return;
             
             // 只收集试炼相关的任务
@@ -3883,9 +3895,9 @@ R"HTML(n() {
                 return;
             }
             
-            window.updateDailyTaskStatus('正在执行 ' + trialNames.join('、') + '...', true);
-            window.updateHelperText('正在执行 ' + trialNames.join('、') + '...'))HTML" \
-R"HTML(;
+            window.updateDail)HTML" \
+R"HTML(yTaskStatus('正在执行 ' + trialNames.join('、') + '...', true);
+            window.updateHelperText('正在执行 ' + trialNames.join('、') + '...');
             
             // 发送到C++端
             if (window.chrome && window.chrome.webview) {
@@ -3914,11 +3926,11 @@ R"HTML(;
             }
         };
 
-        // 双台谷刷级 - 查询妖怪数据
+        // 双台谷刷级 -)HTML" \
+R"HTML( 查询妖怪数据
         window.queryShuangTai = function() {
             if (window.chrome && window.chrome.webview) {
-                window.)HTML" \
-R"HTML(chrome.webview.postMessage(JSON.stringify({ 
+                window.chrome.webview.postMessage(JSON.stringify({ 
                     action: 'query_shuangtai'
                 }));
             }
@@ -3937,14 +3949,14 @@ R"HTML(chrome.webview.postMessage(JSON.stringify({
                 var startBtn = document.getElementById('start-shuangtai');
                 var stopBtn = document.getElementById('stop-shuangtai');
                 if (startBtn) startBtn.disabled = true;
-                if (stopBtn) stopBtn.disabled = false;
+                if (stopBtn) s)HTML" \
+R"HTML(topBtn.disabled = false;
             }
         };
 
         // 双台谷刷级 - 停止
         window.stopShuangTai = function() {
-            if (w)HTML" \
-R"HTML(indow.chrome && window.chrome.webview) {
+            if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({ 
                     action: 'stop_shuangtai'
                 }));
@@ -3961,11 +3973,11 @@ R"HTML(indow.chrome && window.chrome.webview) {
             var petSelect = document.getElementById('shuangtai-pet');
             var skillSelect = document.getElementById('shuangtai-skill');
             var startBtn = document.getElementById('start-shuangtai');
-            var stopBtn = document.getElementById('stop-shuangtai');
+            var stopBtn = document.getEle)HTML" \
+R"HTML(mentById('stop-shuangtai');
             
             if (petSelect) {
-                petSelect.innerHTML = '<option value="">' + petN)HTML" \
-R"HTML(ame + '</option>';
+                petSelect.innerHTML = '<option value="">' + petName + '</option>';
                 petSelect.disabled = false;
             }
             if (skillSelect) {
@@ -3990,13 +4002,13 @@ R"HTML(ame + '</option>';
             }
             window.huangchengWeijiTaskDefs = defs;
             renderHuangchengWeijiTasks();
-        };
+        })HTML" \
+R"HTML(;
 
         window.huangchengWeijiState = {
             hideCompleted: true,
             isRunning: false,
-            activeGroup: '',)HTML" \
-R"HTML(
+            activeGroup: '',
             selectedMap: {},
             acceptedMap: {},
             completedMap: {}
@@ -4025,10 +4037,10 @@ R"HTML(
         function collectHuangchengWeijiGroups() {
             var groups = [];
             var byName = {};
-            for (var i = 0; i < window.huangchengWeijiTaskDefs.length; i++) {
+            for (var i = 0; i < window.h)HTML" \
+R"HTML(uangchengWeijiTaskDefs.length; i++) {
                 var task = window.huangchengWeijiTaskDefs[i];
-                var name = task.ta)HTML" \
-R"HTML(skName || '未分类';
+                var name = task.taskName || '未分类';
                 if (!byName[name]) {
                     byName[name] = { name: name, taskId: task.taskId, items: [] };
                     groups.push(byName[name]);
@@ -4053,12 +4065,12 @@ R"HTML(skName || '未分类';
         function pickActiveHuangchengGroup(groups) {
             var state = window.huangchengWeijiState;
             for (var i = 0; i < groups.length; i++) {
-                if (groups[i].name === state.activeGroup) {
+         )HTML" \
+R"HTML(       if (groups[i].name === state.activeGroup) {
                     return groups[i];
                 }
             }
-            f)HTML" \
-R"HTML(or (var j = 0; j < groups.length; j++) {
+            for (var j = 0; j < groups.length; j++) {
                 if (countGroupDone(groups[j]) < groups[j].items.length) {
                     return groups[j];
                 }
@@ -4077,11 +4089,11 @@ R"HTML(or (var j = 0; j < groups.length; j++) {
                 html += '<button class="hw-group' + (group === active ? ' active' : '') +
                         '" onclick="window.selectHuangchengWeijiGroup(' + i + ')">' +
                         escapeHtml(group.name) +
-                        '<span class="hw-group-count">' + countGroupDone(group) + '/' + group.items.length + '</span>' +
+                        '<span class="hw-group-count">' + countGr)HTML" \
+R"HTML(oupDone(group) + '/' + group.items.length + '</span>' +
                         '</button>';
             }
-            groupEl.innerHT)HTML" \
-R"HTML(ML = html;
+            groupEl.innerHTML = html;
         }
 
         function renderHuangchengWeijiTasks() {
@@ -4104,10 +4116,10 @@ R"HTML(ML = html;
             var total = window.huangchengWeijiTaskDefs.length;
             var completedCount = 0;
             var acceptedCount = 0;
-            var selectedCount = 0;
+        )HTML" \
+R"HTML(    var selectedCount = 0;
             for (var i = 0; i < total; i++) {
-                var key = String(window.huangchengWeijiTaskDe)HTML" \
-R"HTML(fs[i].subtaskId);
+                var key = String(window.huangchengWeijiTaskDefs[i].subtaskId);
                 if (state.completedMap[key]) completedCount++;
                 if (state.acceptedMap[key]) acceptedCount++;
                 if (state.selectedMap[key]) selectedCount++;
@@ -4125,9 +4137,9 @@ R"HTML(fs[i].subtaskId);
                         continue;
                     }
                     var statusText = isCompleted ? '已完成' : (isAccepted ? '进行中' : '待执行');
-                    var tip = task.subtaskId + ' · ' + (task.sceneName || '') + ' · ' + statusText;
-                    html += '<label class="hw-task' + ()HTML" \
-R"HTML(isCompleted ? ' hw-done' : '') +
+                    v)HTML" \
+R"HTML(ar tip = task.subtaskId + ' · ' + (task.sceneName || '') + ' · ' + statusText;
+                    html += '<label class="hw-task' + (isCompleted ? ' hw-done' : '') +
                             (isAccepted ? ' hw-accepted' : '') + '" title="' + escapeHtml(tip) + '">' +
                             '<input type="checkbox" ' + (isSelected ? 'checked' : '') +
                             (isCompleted ? ' disabled' : '') +
@@ -4143,9 +4155,9 @@ R"HTML(isCompleted ? ' hw-done' : '') +
             taskEl.innerHTML = html;
 
             if (summaryEl) {
-                summaryEl.textContent = '已完成: ' + completedCount + ' / ' + total +
-                    '，已接: ' + acceptedCount + '，已勾选: ' + selecte)HTML" \
-R"HTML(dCount;
+             )HTML" \
+R"HTML(   summaryEl.textContent = '已完成: ' + completedCount + ' / ' + total +
+                    '，已接: ' + acceptedCount + '，已勾选: ' + selectedCount;
             }
             updateHuangchengWeijiButtons();
         }
@@ -4167,13 +4179,13 @@ R"HTML(dCount;
             var groups = window.huangchengWeijiGroups || [];
             if (index < 0 || index >= groups.length) {
                 return;
-            }
+           )HTML" \
+R"HTML( }
             window.huangchengWeijiState.activeGroup = groups[index].name;
             renderHuangchengWeijiTasks();
         };
 
-   )HTML" \
-R"HTML(     window.setHuangchengWeijiSelection = function(subtaskId, checked) {
+        window.setHuangchengWeijiSelection = function(subtaskId, checked) {
             var state = window.huangchengWeijiState;
             if (!state) {
                 return;
@@ -4197,12 +4209,12 @@ R"HTML(     window.setHuangchengWeijiSelection = function(subtaskId, checked) {
                     break;
                 }
             }
-            if (!active) {
+            )HTML" \
+R"HTML(if (!active) {
                 return;
             }
             for (var j = 0; j < active.items.length; j++) {
-                var k)HTML" \
-R"HTML(ey = String(active.items[j].subtaskId);
+                var key = String(active.items[j].subtaskId);
                 if (!state.completedMap[key]) {
                     state.selectedMap[key] = true;
                 }
@@ -4229,11 +4241,11 @@ R"HTML(ey = String(active.items[j].subtaskId);
         };
 
         // USER_TASK_LIST 一次只回一个任务组，进度按组累加，不覆盖其它系列的结果。
-        window.updateHuangchengWeijiProgress = function(payload) {
+        window.updateHuangcheng)HTML" \
+R"HTML(WeijiProgress = function(payload) {
             var state = window.huangchengWeijiState;
             if (!state || !payload) {
-       )HTML" \
-R"HTML(         return;
+                return;
             }
             var accepted = payload.acceptedSubtaskIds || [];
             var finished = payload.finishedSubtaskIds || [];
@@ -4254,10 +4266,10 @@ R"HTML(         return;
                 state.isRunning = !!isRunning;
             }
             var statusEl = document.getElementById('huangcheng-weiji-status');
-            if (statusEl) {
+            if (statusE)HTML" \
+R"HTML(l) {
                 statusEl.textContent = text;
-                statusEl.style.color = isRunning ? 'var(--color-primary)' : 'var(--c)HTML" \
-R"HTML(olor-text-secondary)';
+                statusEl.style.color = isRunning ? 'var(--color-primary)' : 'var(--color-text-secondary)';
             }
             updateHuangchengWeijiButtons();
         };
@@ -4278,14 +4290,14 @@ R"HTML(olor-text-secondary)';
                     break;
                 }
             }
-            window.chrome.webview.postMessage({
+            window.chrome.webview.postMessage)HTML" \
+R"HTML(({
                 type: 'query_huangcheng_weiji_task_progress',
                 task_id: taskId
             });
         };
 
-        w)HTML" \
-R"HTML(indow.startHuangchengWeijiTask = function() {
+        window.startHuangchengWeijiTask = function() {
             var state = window.huangchengWeijiState;
             if (!state) {
                 return;
@@ -4308,11 +4320,11 @@ R"HTML(indow.startHuangchengWeijiTask = function() {
             window.updateHelperText('正在同步主线任务进度...');
 
             if (window.chrome && window.chrome.webview) {
-                window.chrome.webview.postMessage({
+                window.chrome.we)HTML" \
+R"HTML(bview.postMessage({
                     type: 'start_huangcheng_weiji_task',
                     task_id: 2001000,
-                   )HTML" \
-R"HTML( subtask_ids: selectedIds
+                    subtask_ids: selectedIds
                 });
             }
         };
@@ -4335,10 +4347,10 @@ R"HTML( subtask_ids: selectedIds
             }
             window.isTaskZoneRunning = isRunning;
 
-            var startBtn = document.getElementById('start-task-zone');
+            var startBtn )HTML" \
+R"HTML(= document.getElementById('start-task-zone');
             var stopBtn = document.getElementById('stop-task-zone');
-            if (sta)HTML" \
-R"HTML(rtBtn) {
+            if (startBtn) {
                 startBtn.disabled = isRunning;
                 startBtn.textContent = isRunning ? '执行中...' : '开始';
             }
@@ -4365,11 +4377,11 @@ R"HTML(rtBtn) {
             if (!window.isTaskZoneRunning) return;
 
             window.updateHelperText('正在停止任务区...');
-            if (window.chrome && window.chrome.webview) {
+            if (window.chr)HTML" \
+R"HTML(ome && window.chrome.webview) {
                 window.chrome.webview.postMessage({
                     type: 'stop_task_zone'
-       )HTML" \
-R"HTML(         });
+                });
             }
         };
 
@@ -4378,7 +4390,7 @@ R"HTML(         });
         // 剩余次数由 C++ 侧通过 window.updateActivityCounts 回填；次数为 0
         // 时自动禁用该行，避免无效操作。
         // ====================================================================
-        window.actLatestIds = [647, 869, 749, 870, 704, 697];
+        window.actLatestIds = [647, 869, 749, 873, 742, 721, 877, 730, 880];
 
         // C++ 回填各活动剩余次数：{ "717": 3, "822": 0, ... }
         // 值为负数或 null 表示未知，显示“--”且不禁用。
@@ -4389,13 +4401,13 @@ R"HTML(         });
                 var raw = counts[id];
                 if (raw === undefined) raw = counts[String(id)];
                 if (raw === undefined) return;
-                window.actLatestCounts[id] = raw;
+         )HTML" \
+R"HTML(       window.actLatestCounts[id] = raw;
                 window.applyActivityCount(id, raw);
             });
         };
 
-        window.applyActivity)HTML" \
-R"HTML(Count = function(id, raw) {
+        window.applyActivityCount = function(id, raw) {
             var countEl = document.getElementById('act-count-' + id);
             var rowEl = document.getElementById('act-row-' + id);
             var pickEl = document.getElementById('act-check-' + id);
@@ -4414,11 +4426,11 @@ R"HTML(Count = function(id, raw) {
             countEl.textContent = '剩 ' + n;
             if (n <= 0) {
                 countEl.className = 'act-item-count act-count-zero';
-                rowEl.classList.add('act-disabled');
+        )HTML" \
+R"HTML(        rowEl.classList.add('act-disabled');
                 if (pickEl) { pickEl.checked = false; pickEl.disabled = true; }
             } else {
-   )HTML" \
-R"HTML(             countEl.className = 'act-item-count';
+                countEl.className = 'act-item-count';
                 rowEl.classList.remove('act-disabled');
                 if (pickEl) pickEl.disabled = false;
             }
@@ -4439,14 +4451,14 @@ R"HTML(             countEl.className = 'act-item-count';
                 window.chrome.webview.postMessage(JSON.stringify({
                     action: 'refresh_activity_counts'
                 }));
-            }
+  )HTML" \
+R"HTML(          }
         };
 
         // 一键执行所勾选的活动：整批交给 C++ 单线程顺序执行。
         // 每个活动会在 C++ 侧循环到次数耗尽，并在每轮结束自动回填剩余次数，
         // 因此这里只下发一次，不再逐个 setTimeout。
-)HTML" \
-R"HTML(        window.runSelectedActivities = function() {
+        window.runSelectedActivities = function() {
             var picked = [];
             window.actLatestIds.forEach(function(id) {
                 var pickEl = document.getElementById('act-check-' + id);
@@ -4469,10 +4481,10 @@ R"HTML(        window.runSelectedActivities = function() {
 
         // 停止最新活动一键执行
         window.stopSelectedActivities = function() {
-            window.updateHelperText('正在停止最新活动...');
+   )HTML" \
+R"HTML(         window.updateHelperText('正在停止最新活动...');
             if (window.chrome && window.chrome.webview) {
-                window.chrome.webview.post)HTML" \
-R"HTML(Message(JSON.stringify({
+                window.chrome.webview.postMessage(JSON.stringify({
                     action: 'stop_latest_activities'
                 }));
             }
@@ -4494,11 +4506,11 @@ R"HTML(Message(JSON.stringify({
             window.heavenFuruiRunning = true;
             
             // 更新按钮状态
-            document.getElementById('start-heaven-furui').disabled = true;
+            document.getElementById('s)HTML" \
+R"HTML(tart-heaven-furui').disabled = true;
             document.getElementById('stop-heaven-furui').disabled = false;
             
-            if (window.c)HTML" \
-R"HTML(hrome && window.chrome.webview) {
+            if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage(JSON.stringify({ 
                     action: 'start_heaven_furui',
                     maxBoxes: maxBoxes
@@ -4523,10 +4535,10 @@ R"HTML(hrome && window.chrome.webview) {
             }
         };
 
-        // 福瑞宝箱 - 更新进度（C++调用）
+        // 福瑞宝箱)HTML" \
+R"HTML( - 更新进度（C++调用）
         window.updateHeavenFuruiProgress = function(current, total) {
-            document.getElementById('heaven-furui-count').textCo)HTML" \
-R"HTML(ntent = current;
+            document.getElementById('heaven-furui-count').textContent = current;
             document.getElementById('heaven-furui-target').textContent = total;
         };
 
@@ -4548,15 +4560,15 @@ R"HTML(ntent = current;
 
         window.stopHorseCompetition = function() {
             if (window.chrome && window.chrome.webview) {
-                window.chrome.webview.postMessage(JSON.stringify({
+                window.chrome.webview.p)HTML" \
+R"HTML(ostMessage(JSON.stringify({
                     action: 'stop_horse_competition'
                 }));
             }
         };
 
 
-        window.updat)HTML" \
-R"HTML(eHorseCompetitionPoints = function(points) {
+        window.updateHorseCompetitionPoints = function(points) {
             var pointsEl = document.getElementById('horse-competition-points');
             if (pointsEl) {
                 pointsEl.textContent = points;
@@ -4582,12 +4594,12 @@ R"HTML(eHorseCompetitionPoints = function(points) {
             window.danceGameData.completedCount = 0;
             var el = document.getElementById('dance-count');
             if (el) {
-                el.textContent = '0';
+)HTML" \
+R"HTML(                el.textContent = '0';
             }
             
             window.updateDailyTaskStatus('正在执行跳舞大赛...', true);
-            window.up)HTML" \
-R"HTML(dateHelperText('正在执行跳舞大赛...');
+            window.updateHelperText('正在执行跳舞大赛...');
             
             // 发送到C++端
             if (window.chrome && window.chrome.webview) {
@@ -4613,15 +4625,15 @@ R"HTML(dateHelperText('正在执行跳舞大赛...');
                 var checkbox = document.getElementById('collect-' + i);
                 if (checkbox) {
                     checkbox.checked = checked;
-                }
+)HTML" \
+R"HTML(                }
             }
         };
 
         window.startOneKeyCollect = function() {
             // 收集选中的采集物品
             var flags = 0;
-    )HTML" \
-R"HTML(        for (var i = 0; i < 16; i++) {
+            for (var i = 0; i < 16; i++) {
                 var checkbox = document.getElementById('collect-' + i);
                 if (checkbox && checkbox.checked) {
                     flags |= (1 << i);
@@ -4647,11 +4659,11 @@ R"HTML(        for (var i = 0; i < 16; i++) {
         // 跳舞完成回调 - 计数由服务器响应更新，这里只更新状态提示
         window.onDanceComplete = function() {
             // 计数已由 updateDanceCount 更新（从服务器响应获取）
-            var count = window.danceGameData.completedCount;
+         )HTML" \
+R"HTML(   var count = window.danceGameData.completedCount;
             
             if (count >= window.danceGameData.maxCount) {
-                window.upd)HTML" \
-R"HTML(ateDailyTaskStatus('跳舞大赛已完成全部3次', false);
+                window.updateDailyTaskStatus('跳舞大赛已完成全部3次', false);
                 window.updateHelperText('跳舞大赛已完成全部3次');
             } else {
                 window.updateDailyTaskStatus('跳舞完成，已完成 ' + count + '/3 次', false);
@@ -4675,10 +4687,10 @@ R"HTML(ateDailyTaskStatus('跳舞大赛已完成全部3次', false);
 
             // 创建时间戳
             var now = new Date();
-            var timeStr = now.getHours().toString().padStart(2, '0') + ':' +
+            var timeStr = now.getHours().toString().padS)HTML" \
+R"HTML(tart(2, '0') + ':' +
                          now.getMinutes().toString().padStart(2, '0') + ':' +
-                         now.getSeconds().toString)HTML" \
-R"HTML(().padStart(2, '0');
+                         now.getSeconds().toString().padStart(2, '0');
 
             // 添加到数据数组
             var logItem = {
@@ -4699,10 +4711,10 @@ R"HTML(().padStart(2, '0');
             logDiv.style.color = 'var(--color-text-primary)';
 
             logDiv.innerHTML = `
-                <div style="text-align: center; color: var(--color-text-secondary); font-weight: 500;">${logItem.index}</div>
+                <div style="text-align: center; color: var(--color-text-secondary); font-weight: 500;">$)HTML" \
+R"HTML({logItem.index}</div>
                 <div style="text-align: center; color: var(--color-text-secondary);">${logItem.time}</div>
-                <div)HTML" \
-R"HTML( style="text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${logItem.content}</div>
+                <div style="text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${logItem.content}</div>
             `;
 
             logList.appendChild(logDiv);
@@ -4723,14 +4735,14 @@ R"HTML( style="text-align: left; white-space: nowrap; overflow: hidden; text-ove
                 logList.innerHTML = '<div style="text-align: center; padding: 30px; color: var(--color-text-tertiary);">暂无日志记录</div>';
             }
             if (logCount) {
-                logCount.textContent = '总记录数: 0';
+                logC)HTML" \
+R"HTML(ount.textContent = '总记录数: 0';
             }
         };
 
         // 更新辅助提示文本
         window.updateHelperText = function(text) {
-            var el = d)HTML" \
-R"HTML(ocument.getElementById('helper-text');
+            var el = document.getElementById('helper-text');
             if (el) {
                 el.textContent = text;
                 el.classList.remove('slide-in');
@@ -4756,10 +4768,10 @@ R"HTML(ocument.getElementById('helper-text');
             // 标题栏拖拽功能
             var titleBar = document.querySelector('.title-bar');
             if (titleBar) {
-                titleBar.addEventListener('mousedown', function(e) {
+          )HTML" \
+R"HTML(      titleBar.addEventListener('mousedown', function(e) {
                     // 检查是否点击在控制按钮上
-                    if (e.target.closest('.title-bar-b)HTML" \
-R"HTML(utton')) {
+                    if (e.target.closest('.title-bar-button')) {
                         return; // 不处理控制按钮区域的拖拽
                     }
                     // 发送拖拽消息
@@ -4782,11 +4794,11 @@ R"HTML(utton')) {
                 });
             }
             
-            // 日常活动按钮
+     )HTML" \
+R"HTML(       // 日常活动按钮
             var completeBtn = document.getElementById('complete-daily-tasks');
             if (completeBtn) {
-                comple)HTML" \
-R"HTML(teBtn.addEventListener('click', window.completeDailyTasks);
+                completeBtn.addEventListener('click', window.completeDailyTasks);
             }
             var trialBtn = document.getElementById('complete-trial-tasks');
             if (trialBtn) {
@@ -4802,11 +4814,11 @@ R"HTML(teBtn.addEventListener('click', window.completeDailyTasks);
             }
             var startTaskZoneBtn = document.getElementById('start-task-zone');
             if (startTaskZoneBtn) {
-                startTaskZoneBtn.addEventListener('click', window.startTaskZone);
+                startTaskZoneBtn.addEventListener('click)HTML" \
+R"HTML(', window.startTaskZone);
             }
             var stopTaskZoneBtn = document.getElementById('stop-task-zone');
-            if (stopTaskZoneBtn))HTML" \
-R"HTML( {
+            if (stopTaskZoneBtn) {
                 stopTaskZoneBtn.addEventListener('click', window.stopTaskZone);
             }
             var huangchengHideCompleted = document.getElementById('huangcheng-hide-completed');
@@ -4821,10 +4833,10 @@ R"HTML( {
             }
             var selectAllHuangchengBtn = document.getElementById('select-all-huangcheng-weiji');
             if (selectAllHuangchengBtn) {
-                selectAllHuangchengBtn.addEventListener('click', window.selectAllHuangchengWeiji);
+                selectAllHuangch)HTML" \
+R"HTML(engBtn.addEventListener('click', window.selectAllHuangchengWeiji);
             }
-            var clearHuangchengBtn = document.getElementById('clear-)HTML" \
-R"HTML(huangcheng-weiji');
+            var clearHuangchengBtn = document.getElementById('clear-huangcheng-weiji');
             if (clearHuangchengBtn) {
                 clearHuangchengBtn.addEventListener('click', window.clearHuangchengWeijiSelection);
             }
@@ -4840,10 +4852,10 @@ R"HTML(huangcheng-weiji');
             if (xuanttaBtn) {
                 xuanttaBtn.addEventListener('click', window.oneKeyXuantta);
             }
-            var buyDice18Btn = document.getElementById('buy-dice-18');
+            var buyDi)HTML" \
+R"HTML(ce18Btn = document.getElementById('buy-dice-18');
             if (buyDice18Btn) {
-                buyDice18Btn.addEventListener('click', window.buyDi)HTML" \
-R"HTML(ce18);
+                buyDice18Btn.addEventListener('click', window.buyDice18);
             }
             var startShuangTaiBtn = document.getElementById('start-shuangtai');
             if (startShuangTaiBtn) {
@@ -4859,12 +4871,12 @@ R"HTML(ce18);
             }
             var strawberryBtn = document.getElementById('one-key-strawberry');
             if (strawberryBtn) {
-                strawberryBtn.addEventListener('click', window.oneKeyStrawberry);
+                strawberryBtn.addEventListener('click', window.oneKeyStrawberr)HTML" \
+R"HTML(y);
             }
             var startHeavenFuruiBtn = document.getElementById('start-heaven-furui');
             if (startHeavenFuruiBtn) {
-       )HTML" \
-R"HTML(         startHeavenFuruiBtn.addEventListener('click', window.startHeavenFurui);
+                startHeavenFuruiBtn.addEventListener('click', window.startHeavenFurui);
             }
             var stopHeavenFuruiBtn = document.getElementById('stop-heaven-furui');
             if (stopHeavenFuruiBtn) {
@@ -4878,14 +4890,14 @@ R"HTML(         startHeavenFuruiBtn.addEventListener('click', window.startHeaven
             if (stopHorseCompetitionBtn) {
                 stopHorseCompetitionBtn.addEventListener('click', window.stopHorseCompetition);
             }
-            if (typeof window.renderHuangchengWeijiTasks === 'function') {
+            if (typeof window.renderHuangchengWeij)HTML" \
+R"HTML(iTasks === 'function') {
                 window.renderHuangchengWeijiTasks();
             }
         });
 
 
-        window.applyLingyuSort = function())HTML" \
-R"HTML( {
+        window.applyLingyuSort = function() {
             if (!window.currentLingyuData || !window.currentLingyuData.items) return;
             
             const attr = document.getElementById('lingyu-sort-attr').value;
@@ -4905,10 +4917,10 @@ R"HTML( {
             window.renderLingyuList(sortedItems);
         };
 
-        // 封包窗口显示/隐藏功能
+        // 封包)HTML" \
+R"HTML(窗口显示/隐藏功能
         var packetWindow = document.getElementById('packet-window');
-        var togglePacketBtn = document.getElementById('toggle-packet-w)HTML" \
-R"HTML(indow');
+        var togglePacketBtn = document.getElementById('toggle-packet-window');
         var closePacketBtn = document.getElementById('close-packet-window');
         var clearAllBtn = document.getElementById('clear-all-packets');
         var deleteSelectedBtn = document.getElementById('delete-selected-packets');
@@ -4924,11 +4936,11 @@ R"HTML(indow');
                         packetWindow.style.opacity = '1';
                         packetWindow.style.transform = 'translateY(0)';
                         // 获取窗口位置和大小
-                        var rect = packetWindow.getBoundingClientRect();
+                        var rect = packetWindow.getBound)HTML" \
+R"HTML(ingClientRect();
                         // 发送postMessage通知C++端弹窗显示
                         if (window.chrome && window.chrome.webview) {
-           )HTML" \
-R"HTML(                 window.chrome.webview.postMessage({
+                            window.chrome.webview.postMessage({
                                 type: 'packet_window_visible',
                                 visible: true,
                                 left: rect.left,
@@ -4947,11 +4959,11 @@ R"HTML(                 window.chrome.webview.postMessage({
                     setTimeout(function() {
                         packetWindow.style.display = 'none';
                         // 更改按钮文本
-                        togglePacketBtn.textContent = '显示封包';
+                        togglePacketBtn.t)HTML" \
+R"HTML(extContent = '显示封包';
                         // 发送postMessage通知C++端弹窗隐藏
                         if (window.chrome && window.chrome.webview) {
-       )HTML" \
-R"HTML(                     window.chrome.webview.postMessage({
+                            window.chrome.webview.postMessage({
                                 type: 'packet_window_visible',
                                 visible: false
                             });
@@ -4972,11 +4984,11 @@ R"HTML(                     window.chrome.webview.postMessage({
                     // 更改按钮文本
                     togglePacketBtn.textContent = '显示封包';
                     // 发送postMessage通知C++端弹窗隐藏
-                    if (window.chrome && window.chrome.webview) {
+                    if (window.chrome && window.chrome)HTML" \
+R"HTML(.webview) {
                         window.chrome.webview.postMessage({
                             type: 'packet_window_visible',
-                  )HTML" \
-R"HTML(          visible: false
+                            visible: false
                         });
 }
                 }, 200);
@@ -5000,13 +5012,13 @@ R"HTML(          visible: false
                     var selectedItems = pListItems.querySelectorAll('.packet-item[style*="background"]');
                     if (selectedItems.length === 0) {
                         alert('请先选中要删除的封包');
-                        return;
+                      )HTML" \
+R"HTML(  return;
                     }
 
                     // 收集选中的索引
                     var selectedIndices = [];
-                    selectedItems.forEa)HTML" \
-R"HTML(ch(function(item) {
+                    selectedItems.forEach(function(item) {
                         var index = item.getAttribute('data-index');
                         if (index) {
                             selectedIndices.push(parseInt(index));
@@ -5027,11 +5039,11 @@ R"HTML(ch(function(item) {
                     }
 
                     // 更新计数
-                    var countElement = document.getElementById('packet-count');
+                    var countElement = document.getElementById('packet-)HTML" \
+R"HTML(count');
                     if (countElement) {
                         countElement.textContent = pListItems.children.length;
-                    })HTML" \
-R"HTML(
+                    }
                 }
             });
         }
@@ -5054,15 +5066,15 @@ R"HTML(
                 if (window.chrome && window.chrome.webview) {
                     window.chrome.webview.postMessage({
                         type: 'set_speed',
-                        speed: parseFloat(val)
+                       )HTML" \
+R"HTML( speed: parseFloat(val)
                     });
                 }
             });
         }
         
         // 自动回血功能实现
-        window.toggleAutoHea)HTML" \
-R"HTML(l = function(enabled) {
+        window.toggleAutoHeal = function(enabled) {
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage({
                     type: 'toggle_auto_heal',
@@ -5086,15 +5098,15 @@ R"HTML(l = function(enabled) {
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage({
                     type: 'set_block_battle',
-                    enabled: enabled
+             )HTML" \
+R"HTML(       enabled: enabled
                 });
             }
         };
 
         // 自动回家功能实现
         window.toggleAutoGoHome = function(enabled) {
-     )HTML" \
-R"HTML(       if (window.chrome && window.chrome.webview) {
+            if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage({
                     type: 'set_auto_go_home',
                     enabled: enabled
@@ -5111,10 +5123,10 @@ R"HTML(       if (window.chrome && window.chrome.webview) {
         var interceptSendCb = document.getElementById('intercept-send');
         var interceptReceiveCb = document.getElementById('intercept-receive');
         var clearAllBtn = document.getElementById('clear-all-packets');
-        var deleteSelectedBtn = document.getElementById('delete-selected-packets');
+        var )HTML" \
+R"HTML(deleteSelectedBtn = document.getElementById('delete-selected-packets');
         var packetCountElement = document.getElementById('packet-count');
-   )HTML" \
-R"HTML(     
+        
         // 点击列表项时的选中效果和数据填充
         if (packetList) {
             packetList.addEventListener('click', function(e) {
@@ -5133,13 +5145,13 @@ R"HTML(
                     clickedItem.classList.add('selected');
                     
                     // 将16进制字符串显示到编辑框
-                    var hexData = clickedItem.getAttribute('data-hex');
+                    var hexData = clickedItem.getAttribute('data-)HTML" \
+R"HTML(hex');
                     if (packetHexInput) {
                         packetHexInput.value = hexData;
                     }
                 }
-    )HTML" \
-R"HTML(        });
+            });
         }
         
         // 发送封包功能
@@ -5159,12 +5171,12 @@ R"HTML(        });
                     console.log('[Debug] 发送postMessage到C++端');
                     window.chrome.webview.postMessage({
                         type: 'send_packet',
-                        hex: hexData
+                        he)HTML" \
+R"HTML(x: hexData
                     });
                     // 显示发送提示（C++端会处理实际发送结果）
                     window.updateHelperText('封包已发送');
-               )HTML" \
-R"HTML( } else {
+                } else {
                     console.log('[Debug] window.chrome.webview 不存在');
                 }
             });
@@ -5185,13 +5197,13 @@ R"HTML( } else {
                     if (!isNaN(index)) {
                         indices.push(index - 1);
                     }
-                    item.remove();
+                    item.rem)HTML" \
+R"HTML(ove();
                 });
                 // 清空编辑框
                 if (packetHexInput) {
                     packetHexInput.value = '';
-            )HTML" \
-R"HTML(    }
+                }
                 
                 // 更新封包计数
                 updatePacketCount();
@@ -5216,10 +5228,10 @@ R"HTML(    }
 
                 // 更新按钮状态
                 startInterceptBtn.style.background = 'var(--color-background)';
-                startInterceptBtn.style.color = 'var(--color-text-primary)';
+         )HTML" \
+R"HTML(       startInterceptBtn.style.color = 'var(--color-text-primary)';
                 startInterceptBtn.style.borderColor = 'var(--color-border)';
-    )HTML" \
-R"HTML(            startInterceptBtn.disabled = true;
+                startInterceptBtn.disabled = true;
 
                 stopInterceptBtn.style.background = 'var(--color-primary)';
                 stopInterceptBtn.style.color = 'white';
@@ -5239,11 +5251,11 @@ R"HTML(            startInterceptBtn.disabled = true;
                 // 更新按钮状态
                 stopInterceptBtn.style.background = 'var(--color-background)';
                 stopInterceptBtn.style.color = 'var(--color-text-primary)';
-                stopInterceptBtn.style.borderColor = 'var(--color-border)';
+                stop)HTML" \
+R"HTML(InterceptBtn.style.borderColor = 'var(--color-border)';
                 stopInterceptBtn.disabled = true;
 
-                startInterceptBtn.style.ba)HTML" \
-R"HTML(ckground = 'var(--color-primary)';
+                startInterceptBtn.style.background = 'var(--color-primary)';
                 startInterceptBtn.style.color = 'white';
                 startInterceptBtn.style.borderColor = 'var(--color-primary)';
                 startInterceptBtn.disabled = false;
@@ -5266,11 +5278,11 @@ R"HTML(ckground = 'var(--color-primary)';
             if (interceptSendCb && interceptReceiveCb) {
                 // 发送postMessage通知C++端更新拦截类型
                 if (window.chrome && window.chrome.webview) {
-                    window.chrome.webview.postMessage({
+                    window.chrome.webview.po)HTML" \
+R"HTML(stMessage({
                         type: 'set_intercept_type',
                         send: interceptSendCb.checked,
-                        recv: )HTML" \
-R"HTML(interceptReceiveCb.checked
+                        recv: interceptReceiveCb.checked
                     });
                 }
             }
@@ -5299,11 +5311,11 @@ R"HTML(interceptReceiveCb.checked
             });
         }
 
-        // 更新封包计数函数
+        // 更新封包)HTML" \
+R"HTML(计数函数
         window.updatePacketCount = function(count) {
             var countElement = document.getElementById('packet-count');
-            var pac)HTML" \
-R"HTML(ketListItems = document.getElementById('packet-list-items');
+            var packetListItems = document.getElementById('packet-list-items');
             if (countElement) {
                 if (count !== undefined) {
                     countElement.textContent = count;
@@ -5320,12 +5332,12 @@ R"HTML(ketListItems = document.getElementById('packet-list-items');
         var hijackRecvCb = document.getElementById('hijack-recv');
         var hijackPatternInput = document.getElementById('hijack-pattern');
         var hijackReplaceInput = document.getElementById('hijack-replace');
-        var hijackTypeSelect = document.getElementById('hijack-type');
+        var hijackTy)HTML" \
+R"HTML(peSelect = document.getElementById('hijack-type');
 
         // 自动劫持功能 - 当复选框状态改变时自动发送劫持设置
         function sendHijackSettings() {
-            var pat)HTML" \
-R"HTML(tern = hijackPatternInput ? hijackPatternInput.value.trim() : '';
+            var pattern = hijackPatternInput ? hijackPatternInput.value.trim() : '';
             var replace = hijackReplaceInput ? hijackReplaceInput.value.trim() : '';
             var isSend = hijackSendCb ? hijackSendCb.checked : true;
             var isRecv = hijackRecvCb ? hijackRecvCb.checked : true;
@@ -5346,13 +5358,13 @@ R"HTML(tern = hijackPatternInput ? hijackPatternInput.value.trim() : '';
                 if (window.chrome && window.chrome.webview) {
                     window.chrome.webview.postMessage('clear_hijack_rules');
                 }
-                return;
+              )HTML" \
+R"HTML(  return;
             }
 
             // 发送劫持规则
             if (window.chrome && window.chrome.webview) {
-                window.chrome.webview.postMe)HTML" \
-R"HTML(ssage({
+                window.chrome.webview.postMessage({
                     type: 'add_hijack_rule',
                     rule: {
                         isSend: isSend,
@@ -5379,13 +5391,13 @@ R"HTML(ssage({
         }
 
         if (hijackReplaceInput) {
-            hijackReplaceInput.addEventListener('input', sendHijackSettings);
+            hijackReplaceInput.addEventListener('input', sendHijackSet)HTML" \
+R"HTML(tings);
         }
 
         // 为劫持类型选择框添加 change 事件监听器
         if (hijackTypeSelect) {
-            hijackTypeSelect.addEventListener('change', sendHij)HTML" \
-R"HTML(ackSettings);
+            hijackTypeSelect.addEventListener('change', sendHijackSettings);
         }
 
         // ==================== 保存/载入封包功能实现 ====================
@@ -5408,11 +5420,11 @@ R"HTML(ackSettings);
         // 载入封包
         if (loadPacketsBtn) {
             loadPacketsBtn.addEventListener('click', function() {
-                if (window.chrome && window.chrome.webview) {
+                if (window.chrome && window.chrome)HTML" \
+R"HTML(.webview) {
                     // 直接通知C++端打开载入对话框
                     window.chrome.webview.postMessage({
-                        type: 'load_packet)HTML" \
-R"HTML(_list'
+                        type: 'load_packet_list'
                     });
                 }
             });
@@ -5433,15 +5445,15 @@ R"HTML(_list'
                         type: 'send_all_packets',
                         sendCount: sendCount,
                         sendDelay: sendDelay
-                    });
+  )HTML" \
+R"HTML(                  });
                 }
             });
         }
 
         // 停止发送封包
         var stopSendBtn = document.getElementById('stop-send');
-)HTML" \
-R"HTML(        if (stopSendBtn) {
+        if (stopSendBtn) {
             stopSendBtn.addEventListener('click', function() {
                 // 通知C++端停止发送
                 if (window.chrome && window.chrome.webview) {
@@ -5463,9 +5475,9 @@ R"HTML(        if (stopSendBtn) {
 
         // 初始页面加载时，触发第一个标签页的动画
         window.onload = function() {
-            console.log('[UI] Page loaded, checking window functions...');
-            console.log('[UI] window.updateBattleUI:', typeof window.updateBattleU)HTML" \
-R"HTML(I);
+        )HTML" \
+R"HTML(    console.log('[UI] Page loaded, checking window functions...');
+            console.log('[UI] window.updateBattleUI:', typeof window.updateBattleUI);
             console.log('[UI] window.addBattleData:', typeof window.addBattleData);
             
             var activeTab = document.querySelector('.tab-content.active');
@@ -5491,11 +5503,11 @@ R"HTML(I);
                 simplified = upMatch[1] + '+' + upMatch[2];
             }
             
-            // 处理 "攻击降低X级" -> "攻击-X"
+            // 处理 "攻击降低X级" -> "攻击-X")HTML" \
+R"HTML(
             const downMatch = name.match(/(攻击|防御|速度|命中|暴击|法术|抗性|体力)降低(\d+)级?/);
             if (downMatch) {
-                simplified = downMatch[)HTML" \
-R"HTML(1] + '-' + downMatch[2];
+                simplified = downMatch[1] + '-' + downMatch[2];
             }
             
             // 处理其他升降格式
@@ -5525,10 +5537,10 @@ R"HTML(1] + '-' + downMatch[2];
             
             // 首先处理去重：同类型 Buff 只保留最新的
             bufArr.forEach(buf => {
-                // 跳过瞬时/PP 事件 (3, 4, 5, 6)，这些不显示为状态标签
+)HTML" \
+R"HTML(                // 跳过瞬时/PP 事件 (3, 4, 5, 6)，这些不显示为状态标签
                 if (buf.addOrRemove === 3 || buf.addOrRemove === 4 ||
-                    buf.a)HTML" \
-R"HTML(ddOrRemove === 5 || buf.addOrRemove === 6) {
+                    buf.addOrRemove === 5 || buf.addOrRemove === 6) {
                     return;
                 }
 
@@ -5552,14 +5564,14 @@ R"HTML(ddOrRemove === 5 || buf.addOrRemove === 6) {
                 // 如果 addOrRemove 未设置或为其他值（回合开始更新的 buf），根据 bufId 处理
                 if (buf.bufId) {
                     // 更新 Map 中已有的 buf
-                    bufMap.set(buf.bufId, buf);
+                    bufMap.set(buf.bu)HTML" \
+R"HTML(fId, buf);
                 }
             });
 
             // 渲染去重后的 Buff
             bufMap.forEach(buf => {
-                const tag = document.cre)HTML" \
-R"HTML(ateElement('span');
+                const tag = document.createElement('span');
                 tag.className = 'buf-tag';
                 
                 // 根据 bufId 判断是增益还是减益
@@ -5571,11 +5583,11 @@ R"HTML(ateElement('span');
                                    buf.name.includes('速度') && !buf.name.includes('降') && !buf.name.includes('减') ||
                                    buf.name.includes('命中') ||
                                    buf.name.includes('暴击') ||
-                                   buf.name.includes('回血') ||
+                                   buf.name.includes('回血'))HTML" \
+R"HTML( ||
                                    buf.name.includes('护盾') ||
                                    buf.name.includes('提升')
-                        )HTML" \
-R"HTML(       ));
+                               ));
                 
                 // 减益关键词
                 const debuffKeywords = ['灼烧', '中毒', '流血', '麻痹', '冰冻', '睡眠', '混乱', '恐惧', '诅咒', '虚弱', '减速', '降低'];
@@ -5592,12 +5604,12 @@ R"HTML(       ));
                     tag.style.border = '1px solid rgba(76, 175, 80, 0.3)';
                 } else {
                     tag.style.background = 'rgba(158, 158, 158, 0.15)';
-                    tag.style.color = '#616161';
+           )HTML" \
+R"HTML(         tag.style.color = '#616161';
                     tag.style.border = '1px solid rgba(158, 158, 158, 0.3)';
                 }
 
-               )HTML" \
-R"HTML( tag.style.fontSize = '8px';
+                tag.style.fontSize = '8px';
                 tag.style.padding = '1px 4px';
                 tag.style.borderRadius = '2px';
                 tag.style.cursor = 'pointer';
@@ -5618,10 +5630,10 @@ R"HTML( tag.style.fontSize = '8px';
                 }
                 if (buf.tipString) {
                     tooltipContent += '<br>' + buf.tipString;
-                }
+      )HTML" \
+R"HTML(          }
                 if (buf.bufId) {
-                    tooltipContent += '<br><span style="color:#888;font-size:8px;">ID: ' + buf.bufId + ')HTML" \
-R"HTML(</span>';
+                    tooltipContent += '<br><span style="color:#888;font-size:8px;">ID: ' + buf.bufId + '</span>';
                 }
 
                 if (tooltipContent) {
@@ -5644,12 +5656,12 @@ R"HTML(</span>';
             setTimeout(() => {
                 // 计算所有标签的总宽度
                 let totalWidth = 0;
-                const tags = container.querySelectorAll('.buf-tag');
+                const tags = container.querySelectorAll('.b)HTML" \
+R"HTML(uf-tag');
                 tags.forEach(tag => {
                     totalWidth += tag.offsetWidth;
                 });
-                const gapWidth)HTML" \
-R"HTML( = 2; // gap: 2px
+                const gapWidth = 2; // gap: 2px
                 const gapCount = Math.max(0, tags.length - 1);
                 totalWidth += gapCount * gapWidth;
                 
@@ -5669,14 +5681,14 @@ R"HTML( = 2; // gap: 2px
             }, 10);  // 延迟10ms确保DOM渲染完成
         }
 
-        /**
+    )HTML" \
+R"HTML(    /**
          * 显示 Buff 详细 Tooltip
          */
         function showBufTooltip(event, element) {
             hideBufTooltip(); // 先移除已有的
 
-        )HTML" \
-R"HTML(    const tooltip = document.createElement('div');
+            const tooltip = document.createElement('div');
             tooltip.id = 'buf-tooltip';
             tooltip.style.cssText = `
                 position: fixed;
@@ -5701,13 +5713,13 @@ R"HTML(    const tooltip = document.createElement('div');
 
             // 定位
             const rect = element.getBoundingClientRect();
-            let left = rect.left;
+            let l)HTML" \
+R"HTML(eft = rect.left;
             let top = rect.bottom + 4;
 
             // 防止超出屏幕
             if (left + tooltip.offsetWidth > window.innerWidth) {
-    )HTML" \
-R"HTML(            left = window.innerWidth - tooltip.offsetWidth - 8;
+                left = window.innerWidth - tooltip.offsetWidth - 8;
             }
             if (top + tooltip.offsetHeight > window.innerHeight) {
                 top = rect.top - tooltip.offsetHeight - 4;
@@ -5736,12 +5748,12 @@ R"HTML(            left = window.innerWidth - tooltip.offsetWidth - 8;
             if (!data) return;
             window._battleData = data;
             
-            // 调试输出：确认函数被调用
+            // 调试输出：)HTML" \
+R"HTML(确认函数被调用
             console.log('[Battle] updateBattleUI called with data:', data);
 
             // 更新我方数据
-            if (data.myPets && data.myPets)HTML" \
-R"HTML(.length > 0) {
+            if (data.myPets && data.myPets.length > 0) {
                 const myActive = data.myPets[data.myActiveIndex] || data.myPets[0];
                 document.getElementById('my-spirit-id').textContent = myActive.spiritId;
                 document.getElementById('my-hp').textContent = myActive.hp + '/' + myActive.maxHp;
@@ -5754,9 +5766,9 @@ R"HTML(.length > 0) {
                     const row = document.createElement('div');
                     row.className = 'skill-row';
                     row.innerHTML = `
-                        <div style="font-size: 9px; color: var(--color-text-primary); text-align: center;">${skill.name ? skill.name : ('技能' + skill.id)}</div>
-                        <div style="fo)HTML" \
-R"HTML(nt-size: 9px; color: var(--color-text-primary); text-align: center;">${skill.pp}/${skill.maxPp}</div>
+                        <div style="font-size: 9p)HTML" \
+R"HTML(x; color: var(--color-text-primary); text-align: center;">${skill.name ? skill.name : ('技能' + skill.id)}</div>
+                        <div style="font-size: 9px; color: var(--color-text-primary); text-align: center;">${skill.pp}/${skill.maxPp}</div>
                     `;
                     mySkillList.appendChild(row);
                 });
@@ -5774,11 +5786,11 @@ R"HTML(nt-size: 9px; color: var(--color-text-primary); text-align: center;">${sk
                     const option = document.createElement('option');
                     option.value = index;
                     option.textContent = pet.name ? pet.name : ('妖怪' + pet.spiritId);
-                    if (index === data.myActiveIndex) option.selected = true;
+                    if (index === data.m)HTML" \
+R"HTML(yActiveIndex) option.selected = true;
                     mySelect.appendChild(option);
                 });
-                mySelect.value = String(d)HTML" \
-R"HTML(ata.myActiveIndex);
+                mySelect.value = String(data.myActiveIndex);
             } else {
                 // Clear UI
                 document.getElementById('my-spirit-id').textContent = '0';
@@ -5793,10 +5805,10 @@ R"HTML(ata.myActiveIndex);
             // 更新敌方数据
             if (data.otherPets && data.otherPets.length > 0) {
                 const otherActive = data.otherPets[data.otherActiveIndex] || data.otherPets[0];
-                document.getElementById('other-spirit-id').textContent = otherActive.spiritId;
+                document.getElementById('other-spirit-id').text)HTML" \
+R"HTML(Content = otherActive.spiritId;
                 document.getElementById('other-hp').textContent = otherActive.hp + '/' + otherActive.maxHp;
-         )HTML" \
-R"HTML(       document.getElementById('other-name').textContent = otherActive.name ? otherActive.name : ('妖怪' + otherActive.spiritId);
+                document.getElementById('other-name').textContent = otherActive.name ? otherActive.name : ('妖怪' + otherActive.spiritId);
 
                 // 更新技能列表
                 const otherSkillList = document.getElementById('other-skill-list');
@@ -5807,13 +5819,13 @@ R"HTML(       document.getElementById('other-name').textContent = otherActive.na
                     row.innerHTML = `
                         <div style="font-size: 9px; color: var(--color-text-primary); text-align: center;">${skill.name ? skill.name : ('技能' + skill.id)}</div>
                         <div style="font-size: 9px; color: var(--color-text-primary); text-align: center;">${skill.pp}/${skill.maxPp}</div>
-                    `;
+                  )HTML" \
+R"HTML(  `;
                     otherSkillList.appendChild(row);
                 });
 
                 // 更新敌方 Buff 标签
-                const otherBufList = d)HTML" \
-R"HTML(ocument.getElementById('other-buf-list');
+                const otherBufList = document.getElementById('other-buf-list');
                 if (otherBufList) {
                     renderBufList(otherActive.bufArr, otherBufList);
                 }
@@ -5831,10 +5843,10 @@ R"HTML(ocument.getElementById('other-buf-list');
                 otherSelect.value = String(data.otherActiveIndex);
             } else {
                 // Clear UI
-                document.getElementById('other-spirit-id').textContent = '0';
+         )HTML" \
+R"HTML(       document.getElementById('other-spirit-id').textContent = '0';
                 document.getElementById('other-hp').textContent = '0/0';
-       )HTML" \
-R"HTML(         document.getElementById('other-name').textContent = '未知';
+                document.getElementById('other-name').textContent = '未知';
                 document.getElementById('other-skill-list').innerHTML = '';
                 document.getElementById('other-pet-select').innerHTML = '<option value="0">敌方妖怪1</option>';
                 const otherBufList = document.getElementById('other-buf-list');
@@ -5850,10 +5862,10 @@ R"HTML(         document.getElementById('other-name').textContent = '未知';
                     if (!d || !Array.isArray(d.myPets) || d.myPets.length === 0) return;
                     var idx = parseInt(this.value, 10);
                     if (isNaN(idx)) idx = 0;
-                    if (idx < 0) idx = 0;
+   )HTML" \
+R"HTML(                 if (idx < 0) idx = 0;
                     if (idx >= d.myPets.length) idx = d.myPets.length - 1;
-                    d.myActiveIndex)HTML" \
-R"HTML( = idx;
+                    d.myActiveIndex = idx;
                     window.updateBattleUI(d);
                 });
             }
@@ -5874,12 +5886,12 @@ R"HTML( = idx;
 
         /**
          * 添加战斗数据到UI列表
-         * @param {string} type - 消息类型 (如: '战斗开始', '回合结算')
+         * @param {string} type - 消息类型 ()HTML" \
+R"HTML(如: '战斗开始', '回合结算')
          * @param {string} data - 数据内容描述
          */
         window.addBattleData = function(type, data) {
-            // 获取我方和敌方的)HTML" \
-R"HTML(技能列表容器 (这里以我方为例进行演示，实际应根据 type 解析)
+            // 获取我方和敌方的技能列表容器 (这里以我方为例进行演示，实际应根据 type 解析)
             // 假设我们将所有解析到的战斗事件添加到一个通用的记录列表，或者更新现有的属性
             
             // 查找战斗数据标签页中的列表容器
@@ -5902,11 +5914,11 @@ R"HTML(技能列表容器 (这里以我方为例进行演示，实际应根据 t
 
         // 性格名称映射
         const geniusNames = {
-            1: '固执', 2: '保守', 3: '胆小', 4: '开朗', 5: '勇敢',
+            1: '固执', 2: '保守', 3: '胆小', 4: ')HTML" \
+R"HTML(开朗', 5: '勇敢',
             6: '冷静', 7: '慎重', 8: '淘气', 9: '孤僻', 10: '调皮',
             11: '急躁', 12: '天真', 13: '温顺', 14: '慎重', 15: '浮躁',
-            16:)HTML" \
-R"HTML( '认真', 17: '坦率', 18: '实干', 19: '害羞', 20: '保守'
+            16: '认真', 17: '坦率', 18: '实干', 19: '害羞', 20: '保守'
         };
 
         // 性格颜色映射（攻击、防御、法术、抗性、体力、速度）
@@ -5933,10 +5945,10 @@ R"HTML( '认真', 17: '坦率', 18: '实干', 19: '害羞', 20: '保守'
          * 渲染妖怪列表
          */
         window.renderMonsterList = function(monsters) {
-            const listContainer = document.getElementById('monster-list');
+       )HTML" \
+R"HTML(     const listContainer = document.getElementById('monster-list');
             const countElement = document.getElementById('monster-count');
-      )HTML" \
-R"HTML(      
+            
             if (!listContainer) return;
             
             listContainer.innerHTML = '';
@@ -5953,11 +5965,11 @@ R"HTML(
                 row.style.display = 'grid';
                 row.style.gridTemplateColumns = '28px 48px 28px 28px 26px 26px 24px 32px 130px 1fr';
                 row.style.padding = '3px 4px';
-                row.style.borderBottom = '1px solid var(--color-border)';
+                row.style.borderBottom)HTML" \
+R"HTML( = '1px solid var(--color-border)';
                 row.style.alignItems = 'center';
                 row.style.minHeight = '24px';
-                ro)HTML" \
-R"HTML(w.style.cursor = 'pointer';
+                row.style.cursor = 'pointer';
                 row.style.transition = 'background-color 0.1s linear';
                 
                 if (window.selectedMonsterIndex === index) {
@@ -5974,13 +5986,13 @@ R"HTML(w.style.cursor = 'pointer';
                     if (window.selectedMonsterIndex !== index) {
                         row.style.backgroundColor = 'transparent';
                     } else {
-                        row.style.backgroundColor = 'rgba(0, 120, 212, 0.1)';
+                        row.style.backgroundColor = 'rgba(0, 120,)HTML" \
+R"HTML( 212, 0.1)';
                     }
                 };
                 
                 // 获取性格名称
-                const geniusName = monster.geniusNam)HTML" \
-R"HTML(e || geniusNames[monster.geniusType] || '平衡';
+                const geniusName = monster.geniusName || geniusNames[monster.geniusType] || '平衡';
                 
                 // 获取资质名称
                 const aptitudeName = monster.aptitudeName || '未知';
@@ -5999,9 +6011,9 @@ R"HTML(e || geniusNames[monster.geniusType] || '平衡';
                 }
                 
                 // 判断是否首发
-                const isFirst = monster.isfirst === 1;
-                const nameStyle = isFirst ? 'color: var(--color-primary); font-weight: 600;' : 'color: var(--color-t)HTML" \
-R"HTML(ext-primary);';
+                const )HTML" \
+R"HTML(isFirst = monster.isfirst === 1;
+                const nameStyle = isFirst ? 'color: var(--color-primary); font-weight: 600;' : 'color: var(--color-text-primary);';
                 const firstBadge = isFirst ? '<span style="background: var(--color-primary); color: white; padding: 0 2px; border-radius: 2px; font-size: 7px; margin-left: 2px;">首</span>' : '';
                 
                 // 系别颜色
@@ -6013,12 +6025,12 @@ R"HTML(ext-primary);';
                 const typeColor = elemColor[monster.typeName] || 'var(--color-text-primary)';
                 
                 // 简化资质名称显示（取前2字）
-                const shortAptitude = aptitudeName.length > 2 ? aptitudeName.substring(0, 2) : aptitudeName;
+                const shortAptitude = aptitudeName.length > 2 ? aptitudeName.substring(0, 2) : aptitu)HTML" \
+R"HTML(deName;
                 
                 // 构建资质数值显示（顺序：体力/攻击/防御/法术/抗性/速度）
                 // geniusList顺序：攻击[0]/防御[1]/法术[2]/抗性[3]/体力[4]/速度[5]
-      )HTML" \
-R"HTML(          let aptitudeDisplay = shortAptitude;
+                let aptitudeDisplay = shortAptitude;
                 if (monster.geniusList && monster.geniusList.length >= 6) {
                     const hp = monster.geniusList[4].value;      // 体力
                     const atk = monster.geniusList[0].value;     // 攻击
@@ -6031,8 +6043,8 @@ R"HTML(          let aptitudeDisplay = shortAptitude;
                 
                 row.innerHTML = `
                     <div style="text-align: center; color: var(--color-text-secondary);">${index + 1}</div>
-                    <div style="text-align: center; ${nameStyle} white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${monster.name || '未知'}">${monst)HTML" \
-R"HTML(er.name || '未知'}</div>
+                    )HTML" \
+R"HTML(<div style="text-align: center; ${nameStyle} white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${monster.name || '未知'}">${monster.name || '未知'}</div>
                     <div style="text-align: center; color: var(--color-text-secondary); font-size: 8.5px;">${monster.iid || 0}</div>
                     <div style="text-align: center; color: ${sexColor};">${sexName}</div>
                     <div style="text-align: center; color: var(--color-text-primary);">${monster.level || 1}</div>
@@ -6040,8 +6052,8 @@ R"HTML(er.name || '未知'}</div>
                     <div style="text-align: center; color: ${typeColor}; font-weight: 500;">${monster.typeName || '未知'}</div>
                     <div style="text-align: center; color: #9b59b6;">${geniusName}</div>
                     <div style="text-align: center; color: #e67e22; font-size: 8px; white-space: nowrap;" title="${aptitudeName}">${aptitudeDisplay}</div>
-                    <div style="color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px;" title="${skillNames}">$)HTML" \
-R"HTML({skillNames}</div>
+                    <div s)HTML" \
+R"HTML(tyle="color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px;" title="${skillNames}">${skillNames}</div>
                 `;
                 
                 listContainer.appendChild(row);
@@ -6066,13 +6078,13 @@ R"HTML({skillNames}</div>
             if (!detailContainer) return;
             
             const geniusName = monster.geniusName || geniusNames[monster.geniusType] || '平衡';
-            const aptitudeName = monster.aptitudeName || '未知';
+            const aptitudeName = monster.aptitudeName || '未知';)HTML" \
+R"HTML(
             const isFirst = monster.isfirst === 1;
             
             // 获取性别
             const sexNames = ['未知', '雌', '雄', '无'];
-            )HTML" \
-R"HTML(const sexName = sexNames[monster.sex] || '未知';
+            const sexName = sexNames[monster.sex] || '未知';
             
             // 构建技能列表
             let skillsHtml = '';
@@ -6086,13 +6098,13 @@ R"HTML(const sexName = sexNames[monster.sex] || '未知';
                     `;
                 });
             } else {
-                skillsHtml = '<div style="text-align: center; color: var(--color-text-tertiary);">无技能数据</div>';
+                skillsHtml = '<div style="text-align: center)HTML" \
+R"HTML(; color: var(--color-text-tertiary);">无技能数据</div>';
             }
             
             // 构建灵玉列表
             let symmHtml = '';
-            if (m)HTML" \
-R"HTML(onster.symmList && monster.symmList.length > 0) {
+            if (monster.symmList && monster.symmList.length > 0) {
                 monster.symmList.forEach(symm => {
                     symmHtml += `<span style="display: inline-block; background: #e8f5e8; color: #2e7d32; padding: 1px 4px; border-radius: 2px; margin: 1px; font-size: 8.5px;">${symm.name || ('灵玉' + symm.id)}</span>`;
                 });
@@ -6103,9 +6115,9 @@ R"HTML(onster.symmList && monster.symmList.length > 0) {
             detailContainer.innerHTML = `
                 <div style="margin-bottom: 6px; padding: 4px; background: var(--color-background-secondary); border-radius: 3px;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 12.5px; font-weight: 600; color: ${isFirst ? 'var(--color-primary)' : 'var(--color-text-primary)'};">${monster.name || '未知'}</span>
-                        ${isFirst ? '<span style="background: var(--co)HTML" \
-R"HTML(lor-primary); color: white; padding: 1px 4px; border-radius: 2px; font-size: 8.5px;">首发</span>' : ''}
+                        <span style="font-size: 12.5px; font-weight: 600; color: ${isFirst ? 'var(--c)HTML" \
+R"HTML(olor-primary)' : 'var(--color-text-primary)'};">${monster.name || '未知'}</span>
+                        ${isFirst ? '<span style="background: var(--color-primary); color: white; padding: 1px 4px; border-radius: 2px; font-size: 8.5px;">首发</span>' : ''}
                     </div>
                     <div style="color: var(--color-text-secondary); font-size: 9.5px;">配置ID: ${monster.iid || 0} | 唯一ID: ${monster.id || 0}</div>
                     <div style="color: var(--color-text-secondary); font-size: 9.5px;">系别: ${monster.typeName || '未知'} | 性别: ${sexName} | 资质: ${aptitudeName}</div>
@@ -6114,9 +6126,9 @@ R"HTML(lor-primary); color: white; padding: 1px 4px; border-radius: 2px; font-si
                 <div style="margin-bottom: 6px;">
                     <div style="font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">基础属性</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2px; font-size: 9.5px;">
-                        <div>等级: <span style="font-weight: 500;">Lv${monster.level || 1}</span></div>
-                        <div>经验: <span style="font-weight: 500;">${monster.ex)HTML" \
-R"HTML(p || 0}/${monster.needExp || 0}</span></div>
+                        <div>等)HTML" \
+R"HTML(级: <span style="font-weight: 500;">Lv${monster.level || 1}</span></div>
+                        <div>经验: <span style="font-weight: 500;">${monster.exp || 0}/${monster.needExp || 0}</span></div>
                         <div style="color: #e74c3c;">血量: <span style="font-weight: 500;">${monster.hp || 0}</span></div>
                         <div style="color: #e67e22;">攻击: <span style="font-weight: 500;">${monster.attack || 0}</span></div>
                         <div style="color: #3498db;">防御: <span style="font-weight: 500;">${monster.defence || 0}</span></div>
@@ -6125,10 +6137,10 @@ R"HTML(p || 0}/${monster.needExp || 0}</span></div>
                         <div style="color: #2ecc71;">速度: <span style="font-weight: 500;">${monster.speed || 0}</span></div>
                     </div>
                 </div>
-                
+       )HTML" \
+R"HTML(         
                 <div style="margin-bottom: 6px;">
-                    <div style="font-weight: 600; color: var(--color-text-primary); margi)HTML" \
-R"HTML(n-bottom: 2px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">性格: ${geniusName}</div>
+                    <div style="font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">性格: ${geniusName}</div>
                 </div>
                 
                 <div style="margin-bottom: 6px;">
@@ -6137,10 +6149,10 @@ R"HTML(n-bottom: 2px; border-bottom: 1px solid var(--color-border); padding-bott
                         ${(() => {
                             if (!monster.geniusList || monster.geniusList.length === 0) return '<div style="color: var(--color-text-tertiary);">无资质数据</div>';
                             const starColors = ['', '#9e9e9e', '#4caf50', '#2196f3', '#9c27b0', '#ff9800'];
-                            // geniusList顺序：攻击[0]/防御[1]/法术[2]/抗性[3]/体力[4]/速度[5]
+                            // geniusList)HTML" \
+R"HTML(顺序：攻击[0]/防御[1]/法术[2]/抗性[3]/体力[4]/速度[5]
                             // 显示顺序：体力/攻击/防御/法术/抗性/速度
-                            const displayOrder = [4, 0, )HTML" \
-R"HTML(1, 2, 3, 5];
+                            const displayOrder = [4, 0, 1, 2, 3, 5];
                             return displayOrder.map(idx => {
                                 const g = monster.geniusList[idx];
                                 const level = g.level - 1; // 星级1-5（减1）
@@ -6149,13 +6161,13 @@ R"HTML(1, 2, 3, 5];
                                     <span style="color: var(--color-text-secondary);">${g.name}:</span>
                                     <span style="font-weight: 500; color: ${starColors[level] || 'var(--color-text-primary)'};">${g.value}</span>
                                     <span style="color: ${starColors[level] || 'var(--color-text-tertiary)'}; font-size: 7px;">${stars}</span>
-                                </div>`;
+                     )HTML" \
+R"HTML(           </div>`;
                             }).join('');
                         })()}
                     </div>
                 </div>
-        )HTML" \
-R"HTML(        
+                
                 <div style="margin-bottom: 6px;">
                     <div style="font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">技能 (${monster.skills ? monster.skills.length : 0}个)</div>
                     ${skillsHtml}
@@ -6172,11 +6184,11 @@ R"HTML(
          * 刷新妖怪列表（发送封包请求）
          */
         window.queryMonsters = function() {
-            if (window.chrome && window.chrome.webview) {
+     )HTML" \
+R"HTML(       if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage({
                     type: 'query_monsters'
- )HTML" \
-R"HTML(               });
+                });
             }
         };
         
@@ -6203,11 +6215,11 @@ R"HTML(               });
          * @param {Object} items - 道具数量对象 {itemId: count, ...}
          */
         window.updateItemCounts = function(items) {
-            window.itemCountMap = items || {};
+            window.itemCountMap = i)HTML" \
+R"HTML(tems || {};
             // 更新每个按钮上的数量显示
             document.querySelectorAll('.item-count').forEach(el => {
-                var itemId = el.getAttri)HTML" \
-R"HTML(bute('data-id');
+                var itemId = el.getAttribute('data-id');
                 var count = window.itemCountMap[itemId] || 0;
                 el.textContent = '(' + count + ')';
                 // 数量为0时变红提醒
@@ -6232,11 +6244,11 @@ R"HTML(bute('data-id');
             window.selectedItemValue = value;
             window.selectedItemType = type || 'hp';
             
-            // 更新按钮选中状态
+     )HTML" \
+R"HTML(       // 更新按钮选中状态
             document.querySelectorAll('.item-btn').forEach(btn => {
                 btn.style.background = '#fafafa';
-            )HTML" \
-R"HTML(    btn.style.color = '#333';
+                btn.style.color = '#333';
                 btn.style.borderColor = '#e0e0e0';
                 btn.style.fontWeight = 'normal';
             });
@@ -6254,11 +6266,11 @@ R"HTML(    btn.style.color = '#333';
             const hintEl = document.getElementById('selected-item-hint');
             if (hintEl) {
                 var typeText = type === 'mp' ? 'PP' : 'HP';
-                hintEl.innerHTML = '<span style="color: var(--color-primary);">✓</span> ' + itemName + ' <span style="color: ' + (type === 'mp' ? '#1976d2' : '#e53935') + ';">+' + value + typeText + '</span>';
+                hintEl.innerHTML = '<span style="color: var(--color-primary);">✓</span> ' + itemName + ' <span sty)HTML" \
+R"HTML(le="color: ' + (type === 'mp' ? '#1976d2' : '#e53935') + ';">+' + value + typeText + '</span>';
             }
             
-            var typeText =)HTML" \
-R"HTML( type === 'mp' ? 'PP' : 'HP';
+            var typeText = type === 'mp' ? 'PP' : 'HP';
             window.updateHelperText('已选择: ' + itemName + ' (效果: +' + value + typeText + ')');
         };
 
@@ -6280,15 +6292,15 @@ R"HTML( type === 'mp' ? 'PP' : 'HP';
                     itemId: window.selectedItemId,
                     count: count
                 });
-                window.updateHelperText('正在购买: ' + window.selectedItemName + ' x' + count);
+                window.updateHelperText('正在购买: ' + window.sel)HTML" \
+R"HTML(ectedItemName + ' x' + count);
             }
         };
 
         /**
          * 使用选中的道具（战斗中）
          */
-        window.useSelectedItem = function() )HTML" \
-R"HTML({
+        window.useSelectedItem = function() {
             if (!window.selectedItemId) {
                 window.updateHelperText('请先选择要使用的道具');
                 return;
@@ -6312,13 +6324,13 @@ R"HTML({
         window.selectedBossId = 0;  // 当前选中的BOSS ID
 
         /**
-         * 初始化BOSS列表（从C++调用）
+         * 初始化B)HTML" \
+R"HTML(OSS列表（从C++调用）
          * @param {Object|string} data - BOSS数据对象或JSON字符串
          */
         window.initBossList = function(data) {
             try {
-)HTML" \
-R"HTML(                const bossData = typeof data === 'string' ? JSON.parse(data) : data;
+                const bossData = typeof data === 'string' ? JSON.parse(data) : data;
                 // 支持数组格式或对象格式
                 window.bossList = Array.isArray(bossData) ? bossData : (bossData.bosses || []);
                 window.renderBossSelect();
@@ -6344,13 +6356,13 @@ R"HTML(                const bossData = typeof data === 'string' ? JSON.parse(da
             // 缓存BOSS列表
             cachedBossList = [...window.bossList];
 
-            select.innerHTML = '';
+            select.inn)HTML" \
+R"HTML(erHTML = '';
 
             // 添加默认选项
             const defaultOption = document.createElement('option');
             defaultOption.value = '0';
-      )HTML" \
-R"HTML(      defaultOption.textContent = '-- 请选择BOSS --';
+            defaultOption.textContent = '-- 请选择BOSS --';
             select.appendChild(defaultOption);
 
             // 添加BOSS选项
@@ -6375,11 +6387,11 @@ R"HTML(      defaultOption.textContent = '-- 请选择BOSS --';
             if (isSelectingBoss) return;
 
             const searchInput = document.getElementById('boss-search-input');
-            const select = document.getElementById('boss-select');
+          )HTML" \
+R"HTML(  const select = document.getElementById('boss-select');
             if (!searchInput || !select) return;
 
-            const keyword = searchInput.va)HTML" \
-R"HTML(lue.toLowerCase().trim();
+            const keyword = searchInput.value.toLowerCase().trim();
             const currentValue = select.value;
 
             // 清空选项
@@ -6402,13 +6414,13 @@ R"HTML(lue.toLowerCase().trim();
             filteredBosses.forEach(boss => {
                 const option = document.createElement('option');
                 option.value = boss.id;
-                option.textContent = `${boss.name} (ID: ${boss.id})`;
+                option.textContent = `${boss)HTML" \
+R"HTML(.name} (ID: ${boss.id})`;
                 select.appendChild(option);
             });
 
             // 尝试恢复之前选中的值
-            if (currentValue && sele)HTML" \
-R"HTML(ct.querySelector(`option[value="${currentValue}"]`)) {
+            if (currentValue && select.querySelector(`option[value="${currentValue}"]`)) {
                 select.value = currentValue;
             }
         };
@@ -6434,12 +6446,12 @@ R"HTML(ct.querySelector(`option[value="${currentValue}"]`)) {
                     info.innerHTML = `已选择: <span style="color: var(--color-primary); font-weight: 600;">${boss.name}</span> (ID: ${boss.id})`;
                 }
 
-                // 设置标志位，防止清空搜索框时触发过滤
+                // 设置)HTML" \
+R"HTML(标志位，防止清空搜索框时触发过滤
                 isSelectingBoss = true;
 
                 // 清空搜索框，显示所有BOSS列表，避免选中的BOSS消失
-                const searchInput = documen)HTML" \
-R"HTML(t.getElementById('boss-search-input');
+                const searchInput = document.getElementById('boss-search-input');
                 if (searchInput) {
                     searchInput.value = '';
                 }
@@ -6459,13 +6471,13 @@ R"HTML(t.getElementById('boss-search-input');
                     window.bossList.forEach(b => {
                         const option = document.createElement('option');
                         option.value = b.id;
-                        option.textContent = `${b.name} (ID: ${b.id})`;
+                        option.textCont)HTML" \
+R"HTML(ent = `${b.name} (ID: ${b.id})`;
                         select.appendChild(option);
                     });
 
                     // 设置选中的值
-         )HTML" \
-R"HTML(           select.value = bossIdNum;
+                    select.value = bossIdNum;
                 }
 
                 // 延迟重置标志位，确保所有操作完成
@@ -6493,9 +6505,9 @@ R"HTML(           select.value = bossIdNum;
                 });
                 
                 if (window.updateHelperText) {
-                    const boss = window.bossList.find(b => b.id === window.selectedBossId);
-                    window.updateHelperText(`正在进入BOSS战斗: ${boss ? boss.name :)HTML" \
-R"HTML( window.selectedBossId}`);
+                    )HTML" \
+R"HTML(const boss = window.bossList.find(b => b.id === window.selectedBossId);
+                    window.updateHelperText(`正在进入BOSS战斗: ${boss ? boss.name : window.selectedBossId}`);
                 }
             }
         };
@@ -6517,12 +6529,12 @@ R"HTML( window.selectedBossId}`);
 
             // 隐藏IE浏览框
             if (window.chrome && window.chrome.webview) {
-                window.chrome.webview.postMessage({ type: 'update-dialog-show' });
+  )HTML" \
+R"HTML(              window.chrome.webview.postMessage({ type: 'update-dialog-show' });
             }
 
             // 设置更新内容
-            announcement.textCo)HTML" \
-R"HTML(ntent = updateInfo.announcement || '';
+            announcement.textContent = updateInfo.announcement || '';
             content.textContent = updateInfo.updateContent || '';
 
             // 绑定确定按钮事件 - 使用系统默认浏览器打开
@@ -6549,12 +6561,12 @@ R"HTML(ntent = updateInfo.announcement || '';
         function hideUpdateDialog() {
             const overlay = document.getElementById('update-dialog-overlay');
             if (overlay) {
-                overlay.classList.remove('show');
+                ov)HTML" \
+R"HTML(erlay.classList.remove('show');
             }
             // 恢复IE浏览框显示
             if (window.chrome && window.chrome.webview) {
-                wind)HTML" \
-R"HTML(ow.chrome.webview.postMessage({ type: 'update-dialog-hide' });
+                window.chrome.webview.postMessage({ type: 'update-dialog-hide' });
             }
         }
 
@@ -6577,13 +6589,13 @@ R"HTML(ow.chrome.webview.postMessage({ type: 'update-dialog-hide' });
                 window.chrome.webview.postMessage({ type: 'key-login-dialog-show' });
             }
 
-            // 清空输入框
+            // 清空输入框)HTML" \
+R"HTML(
             input.value = '';
 
             // 绑定确定按钮事件
             confirmBtn.onclick = function() {
-                const key = input.value.trim();)HTML" \
-R"HTML(
+                const key = input.value.trim();
                 if (key) {
                     if (window.chrome && window.chrome.webview) {
                         window.chrome.webview.postMessage({
@@ -6613,12 +6625,12 @@ R"HTML(
         function hideKeyLoginDialog() {
             const overlay = document.getElementById('key-login-overlay');
             if (overlay) {
-                overlay.classList.remove('show');
+                overlay.classList.remove)HTML" \
+R"HTML(('show');
             }
             // 恢复IE浏览框显示
             if (window.chrome && window.chrome.webview) {
-                window.chrome.webview.post)HTML" \
-R"HTML(Message({ type: 'key-login-dialog-hide' });
+                window.chrome.webview.postMessage({ type: 'key-login-dialog-hide' });
             }
         }
 
@@ -6641,12 +6653,12 @@ R"HTML(Message({ type: 'key-login-dialog-hide' });
                 });
             }
         }
-        
+   )HTML" \
+R"HTML(     
         function stopDungeonJump() {
             updateDungeonStatus('停止副本跳层', 'info');
             
-            if (window.chrome && window.ch)HTML" \
-R"HTML(rome.webview && window.chrome.webview.postMessage) {
+            if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
                 window.chrome.webview.postMessage({
                     type: 'dungeon_jump_stop'
                 });
@@ -6670,12 +6682,12 @@ R"HTML(rome.webview && window.chrome.webview.postMessage) {
         }
         
         // 接收C++发送的副本状态更新
-        window.updateDungeonJumpStatus = function(text) {
+        window.u)HTML" \
+R"HTML(pdateDungeonJumpStatus = function(text) {
             updateDungeonStatus(text, 'info');
         };
 
-        // =====================================)HTML" \
-R"HTML(=======
+        // ============================================
         // 精魄赠送系统功能
         // ============================================
         
@@ -6705,13 +6717,13 @@ R"HTML(=======
             if (!spirit) {
                 return '未知性格';
             }
-            return spirit.characterName || (spirit.character > 0 ? ('性格' + spirit.character) : '未知性格');
+            return spirit.characterName |)HTML" \
+R"HTML(| (spirit.character > 0 ? ('性格' + spirit.character) : '未知性格');
         }
 
         function formatSpiritDate(ts) {
             if (!ts) {
-            )HTML" \
-R"HTML(    return '未知时间';
+                return '未知时间';
             }
             const date = new Date(ts * 1000);
             if (Number.isNaN(date.getTime())) {
@@ -6735,10 +6747,10 @@ R"HTML(    return '未知时间';
             }
             return getSpiritDisplayName(spirit) + '｜' +
                 getSpiritTypeName(spirit.eggType) + '｜' +
-                (spirit.elemName || '未知系别') + '｜' +
+  )HTML" \
+R"HTML(              (spirit.elemName || '未知系别') + '｜' +
                 getSpiritCharacterName(spirit) + '｜' +
-                formatSpiritDate(spirit.born)HTML" \
-R"HTML(Time) + '｜' +
+                formatSpiritDate(spirit.bornTime) + '｜' +
                 getSpiritSkillSummary(spirit);
         }
 
@@ -6760,12 +6772,12 @@ R"HTML(Time) + '｜' +
             const panel = document.getElementById('spirit-record-panel');
             const titleEl = document.getElementById('spirit-record-title');
             if (titleEl) {
-                titleEl.textContent = title || '记录面板';
+      )HTML" \
+R"HTML(          titleEl.textContent = title || '记录面板';
             }
             if (panel) {
                 panel.textContent = text || '暂无记录';
-         )HTML" \
-R"HTML(       panel.scrollTop = 0;
+                panel.scrollTop = 0;
             }
         }
 
@@ -6791,14 +6803,14 @@ R"HTML(       panel.scrollTop = 0;
             updateSpiritStatus('正在刷新精魄数据...', 'info');
             requestSpiritOpenUi();
             setTimeout(function() {
-                requestSpiritList();
+   )HTML" \
+R"HTML(             requestSpiritList();
             }, 80);
         }
         
         // 获取精魄列表
         function getSpiritList() {
-            updateSpiri)HTML" \
-R"HTML(tStatus('正在获取精魄列表...', 'info');
+            updateSpiritStatus('正在获取精魄列表...', 'info');
             requestSpiritList();
         }
         
@@ -6820,11 +6832,11 @@ R"HTML(tStatus('正在获取精魄列表...', 'info');
             }
 
             if (spiritState.selectedSpirit) {
-                document.getElementById('spirit-selected').textContent = getSpiritSelectedSummary(spiritState.selectedSpirit);
+          )HTML" \
+R"HTML(      document.getElementById('spirit-selected').textContent = getSpiritSelectedSummary(spiritState.selectedSpirit);
             }
             
-     )HTML" \
-R"HTML(       let html = '<div class="spirit-list-grid">';
+            let html = '<div class="spirit-list-grid">';
             spiritState.spiritList.forEach(spirit => {
                 const isSelected = spiritState.selectedSpirit && spiritState.selectedSpirit.eggId === spirit.eggId;
                 html += '<div class="spirit-item' + (isSelected ? ' selected' : '') + '" onclick="selectSpirit(' + spirit.eggId + ')" title="' + escapeSpiritHtml(getSpiritSkillSummary(spirit)) + '">' +
@@ -6832,10 +6844,10 @@ R"HTML(       let html = '<div class="spirit-list-grid">';
                         '<span class="spirit-item-name">' + escapeSpiritHtml(getSpiritDisplayName(spirit)) + '</span>' +
                         '<span class="spirit-item-tag">#' + spirit.eggId + '</span>' +
                         '<div class="spirit-item-chips">' +
-                            '<span class="spirit-mini-chip">' + escapeSpiritHtml(getSpiritTypeName(spirit.eggType)) + '</span>' +
+                            '<span class="spirit-mini-chip">' + escapeSpiritHtml(getSpiritTypeName(spiri)HTML" \
+R"HTML(t.eggType)) + '</span>' +
                             '<span class="spirit-mini-chip">' + escapeSpiritHtml(spirit.elemName || '未知系别') + '</span>' +
- )HTML" \
-R"HTML(                           '<span class="spirit-mini-chip">' + escapeSpiritHtml(getSpiritCharacterName(spirit)) + '</span>' +
+                            '<span class="spirit-mini-chip">' + escapeSpiritHtml(getSpiritCharacterName(spirit)) + '</span>' +
                         '</div>' +
                     '</div>' +
                 '</div>';
@@ -6856,12 +6868,12 @@ R"HTML(                           '<span class="spirit-mini-chip">' + escapeSpir
         
         // 验证并赠送精魄
         function verifyAndSendSpirit() {
-            const friendIdInput = document.getElementById('spirit-friend-id');
+            const friendIdInput = document.getElementById('spirit-friend-id');)HTML" \
+R"HTML(
             const friendId = friendIdInput ? friendIdInput.value.trim() : '';
             
             if (!friendId) {
-                updateSpirit)HTML" \
-R"HTML(Status('请输入对方卡布号', 'error');
+                updateSpiritStatus('请输入对方卡布号', 'error');
                 return;
             }
             
@@ -6887,11 +6899,11 @@ R"HTML(Status('请输入对方卡布号', 'error');
             
             // 先验证玩家
             updateSpiritStatus('正在验证玩家信息...', 'info');
-            if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+            if (window.chrome && window.chrome.webview && window.chrome.webvi)HTML" \
+R"HTML(ew.postMessage) {
                 window.chrome.webview.postMessage({
                     type: 'spiritCollect',
-                    action: 'verifyP)HTML" \
-R"HTML(layer',
+                    action: 'verifyPlayer',
                     friendId: parseInt(friendId)
                 });
             }
@@ -6913,11 +6925,11 @@ R"HTML(layer',
         
         // 更新精魄系统状态显示
         function updateSpiritStatus(text, type) {
-            const statusEl = document.getElementById('spirit-status');
+            const statusEl = document.getElement)HTML" \
+R"HTML(ById('spirit-status');
             if (statusEl) {
                 statusEl.textContent = text;
-                statusEl.style.color = type === 'erro)HTML" \
-R"HTML(r' ? '#c62828' : type === 'success' ? '#2e7d32' : 'var(--color-text-tertiary)';
+                statusEl.style.color = type === 'error' ? '#c62828' : type === 'success' ? '#2e7d32' : 'var(--color-text-tertiary)';
             }
         }
 
@@ -6936,10 +6948,10 @@ R"HTML(r' ? '#c62828' : type === 'success' ? '#2e7d32' : 'var(--color-text-terti
             const overlay = document.getElementById('spirit-confirm-overlay');
             const messageEl = document.getElementById('spirit-confirm-message');
             const confirmBtn = document.getElementById('spirit-confirm-accept');
-            const cancelBtn = document.getElementById('spirit-confirm-cancel');
+            c)HTML" \
+R"HTML(onst cancelBtn = document.getElementById('spirit-confirm-cancel');
 
-            if (!overlay || !messageEl || !confirmBtn || !cancelBtn || !spiritSta)HTML" \
-R"HTML(te.selectedSpirit) {
+            if (!overlay || !messageEl || !confirmBtn || !cancelBtn || !spiritState.selectedSpirit) {
                 updateSpiritStatus('确认弹窗初始化失败，请稍后重试', 'error');
                 return;
             }
@@ -6961,11 +6973,11 @@ R"HTML(te.selectedSpirit) {
                 hideSpiritConfirmDialog();
                 updateSpiritStatus('已取消赠送', 'info');
             };
-            overlay.onclick = function(event) {
+            overlay.onclick = function()HTML" \
+R"HTML(event) {
                 if (event.target === overlay) {
                     hideSpiritConfirmDialog();
-                    updateSpiritStatus('已取消赠送)HTML" \
-R"HTML(', 'info');
+                    updateSpiritStatus('已取消赠送', 'info');
                 }
             };
 
@@ -6987,13 +6999,13 @@ R"HTML(', 'info');
                     });
                     updateSpiritStatus('正在发送精魄...', 'info');
                 } else {
-                    updateSpiritStatus('当前环境不支持发送精魄请求', 'error');
+                    updateSpiritStatus('当前环境)HTML" \
+R"HTML(不支持发送精魄请求', 'error');
                 }
             };
 
             updateSpiritStatus('玩家验证成功，请确认赠送对象', 'info');
-            overlay.classList.add(')HTML" \
-R"HTML(show');
+            overlay.classList.add('show');
         }
         
         // 接收C++发送的精魄系统数据
@@ -7011,10 +7023,10 @@ R"HTML(show');
                     renderSpiritList();
                     updateSpiritStatus('已获取 ' + spiritState.spiritList.length + ' 个精魄', 'success');
                     break;
-                case 'confirm':
+           )HTML" \
+R"HTML(     case 'confirm':
                     const friendIdInput = document.getElementById('spirit-friend-id');
-                    const friendId = frie)HTML" \
-R"HTML(ndIdInput ? parseInt(friendIdInput.value, 10) || 0 : 0;
+                    const friendId = friendIdInput ? parseInt(friendIdInput.value, 10) || 0 : 0;
                     if (!spiritState.selectedSpirit) {
                         updateSpiritStatus('当前没有选中的精魄，请重新选择后再试', 'error');
                         break;
@@ -7032,10 +7044,10 @@ R"HTML(ndIdInput ? parseInt(friendIdInput.value, 10) || 0 : 0;
                 case 'history':
                     let recordText = data.recordType === 1 ? '赠送记录:\n' : '接收记录:\n';
                     if (data.json) {
-                        try {
+                        try )HTML" \
+R"HTML({
                             const recordList = JSON.parse(data.json);
-                            if (Array.isArray(recordList) && recordList.lengt)HTML" \
-R"HTML(h > 0) {
+                            if (Array.isArray(recordList) && recordList.length > 0) {
                                 recordList.forEach(item => {
                                     if (Array.isArray(item) && item.length >= 5) {
                                         const date = new Date(item[3] * 1000);
@@ -7045,12 +7057,12 @@ R"HTML(h > 0) {
                                             recordText += '【' + dateText + '】【' + item[1] + '】赠送你一个【' + spiritName + '精魄】\n';
                                         } else {
                                             recordText += '【' + dateText + '】你赠送给【' + item[1] + '】一个【' + spiritName + '精魄】\n';
-                                        }
+                          )HTML" \
+R"HTML(              }
                                     }
                                 });
                             } else {
-                      )HTML" \
-R"HTML(          recordText += '暂无记录';
+                                recordText += '暂无记录';
                             }
                         } catch (e) {
                             recordText += data.json;
@@ -7072,11 +7084,11 @@ R"HTML(          recordText += '暂无记录';
 
         // 万妖盛会PVP功能
         document.addEventListener('DOMContentLoaded', function() {
-            // 自动匹配按钮
+ )HTML" \
+R"HTML(           // 自动匹配按钮
             const autoMatchBtn = document.getElementById('battlesix-auto-match');
             if (autoMatchBtn) {
-              )HTML" \
-R"HTML(  autoMatchBtn.onclick = function() {
+                autoMatchBtn.onclick = function() {
                     const matchCountInput = document.getElementById('battlesix-match-count');
                     const matchCount = matchCountInput ? parseInt(matchCountInput.value) || 1 : 1;
                     if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
@@ -7092,10 +7104,10 @@ R"HTML(  autoMatchBtn.onclick = function() {
             const cancelMatchBtn = document.getElementById('battlesix-cancel-match');
             if (cancelMatchBtn) {
                 cancelMatchBtn.onclick = function() {
-                    if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+                    if (window.chrome && window.chrome.webview && wi)HTML" \
+R"HTML(ndow.chrome.webview.postMessage) {
                         window.chrome.webview.postMessage({
-                            type: 'battlesix_cancel_ma)HTML" \
-R"HTML(tch'
+                            type: 'battlesix_cancel_match'
                         });
                     }
                 };

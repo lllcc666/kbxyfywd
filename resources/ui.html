@@ -931,7 +931,7 @@
             align-items: center;
             gap: 5px;
             min-width: 0;
-            padding: 2px 6px;
+            padding: 1px 6px;
             background: #FFFFFF;
             border: 1px solid #D9E4F1;
             border-radius: 4px;
@@ -1679,7 +1679,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
     <div class="title-bar">
         <div class="title-bar-left">
             <div class="title-bar-icon">卡</div>
-            <span class="title-bar-title">卡布西游浮影微端 V1.16</span>
+            <span class="title-bar-title">卡布西游浮影微端 V1.17</span>
         </div>
         <div class="title-bar-controls">
             <button class="title-bar-button" id="btn-minimize" title="最小化">
@@ -2002,7 +2002,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                     </div>
                     
                     <!-- 道具卡片 -->
-                    <div style="width: 230px; height: 150px; opacity: 0; transform: translateY(4px); animation: fadeInUp var(--duration-slow) var(--easing-enter) forwards; animation-delay: 0.3s; flex: none;">
+                    <div style="flex: 1 1 230px; min-width: 230px; max-width: 340px; margin-right: 6px; height: 150px; opacity: 0; transform: translateY(4px); animation: fadeInUp var(--duration-slow) var(--easing-enter) forwards; animation-delay: 0.3s;">
                         <div style="background: var(--color-background); border: 1px solid var(--color-border); border-radius: 4px; padding: 8px; box-shadow: var(--shadow-sm); height: 100%; display: flex; flex-direction: column;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; min-height: 18px;">
                                 <h3 style="font-size: 11.5px; font-weight: 600; color: var(--color-text-primary); margin: 0;">道具</h3>
@@ -2010,51 +2010,47 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                             </div>
                             
                             <!-- 道具选择按钮组容器（带滚动条） -->
-                            <div id="item-buttons-container" style="flex: 1; overflow-y: auto; overflow-x: hidden; margin-bottom: 4px; padding-right: 2px;">
-                                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px;">
-                                    <button class="item-btn item-btn-hp" data-id="100008" onclick="window.selectItem(100008, '小金创药', 20, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 8.5px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
-                                        <span class="item-name">小金创药</span>
-                                        <span style="color: #e53935; font-size: 7.5px;">+20HP <span class="item-count" data-id="100008">(0)</span></span>
+                            <div id="item-buttons-container" style="flex: 1; overflow-y: auto; overflow-x: hidden; margin-bottom: 3px; padding-right: 2px;">
+                                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px;">
+                                    <button class="item-btn item-btn-hp" data-id="100034" onclick="window.selectItem(100034, '天香丸', 170, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
+                                        <span class="item-name">天香丸</span>
+                                        <span style="color: #e53935; font-size: 8px;">+170HP <span class="item-count" data-id="100034">(0)</span></span>
                                     </button>
-                                    <button class="item-btn item-btn-hp" data-id="100007" onclick="window.selectItem(100007, '中金创药', 50, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 8.5px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
-                                        <span class="item-name">中金创药</span>
-                                        <span style="color: #e53935; font-size: 7.5px;">+50HP <span class="item-count" data-id="100007">(0)</span></span>
+                                    <button class="item-btn item-btn-hp" data-id="100758" onclick="window.selectItem(100758, '培元金丹', 200, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
+                                        <span class="item-name">培元金丹</span>
+                                        <span style="color: #e53935; font-size: 8px;">+200HP <span class="item-count" data-id="100758">(0)</span></span>
                                     </button>
-                                    <button class="item-btn item-btn-hp" data-id="100006" onclick="window.selectItem(100006, '大金创药', 100, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 8.5px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
+                                    <button class="item-btn item-btn-hp" data-id="100006" onclick="window.selectItem(100006, '大金创药', 100, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
                                         <span class="item-name">大金创药</span>
-                                        <span style="color: #e53935; font-size: 7.5px;">+100HP <span class="item-count" data-id="100006">(0)</span></span>
+                                        <span style="color: #e53935; font-size: 8px;">+100HP <span class="item-count" data-id="100006">(0)</span></span>
                                     </button>
-                                    <button class="item-btn item-btn-hp" data-id="100031" onclick="window.selectItem(100031, '活血散', 150, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 8.5px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
+                                    <button class="item-btn item-btn-hp" data-id="100031" onclick="window.selectItem(100031, '活血散', 150, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
                                         <span class="item-name">活血散</span>
-                                        <span style="color: #e53935; font-size: 7.5px;">+150HP <span class="item-count" data-id="100031">(0)</span></span>
+                                        <span style="color: #e53935; font-size: 8px;">+150HP <span class="item-count" data-id="100031">(0)</span></span>
                                     </button>
-                                    <button class="item-btn item-btn-mp" data-id="100010" onclick="window.selectItem(100010, '小型法力药剂', 5, 'mp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 8.5px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
+                                    <button class="item-btn item-btn-mp" data-id="100010" onclick="window.selectItem(100010, '小型法力药剂', 5, 'mp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
                                         <span class="item-name">小型法力剂</span>
-                                        <span style="color: #1976d2; font-size: 7.5px;">+5PP <span class="item-count" data-id="100010">(0)</span></span>
+                                        <span style="color: #1976d2; font-size: 8px;">+5PP <span class="item-count" data-id="100010">(0)</span></span>
                                     </button>
-                                    <button class="item-btn item-btn-mp" data-id="100011" onclick="window.selectItem(100011, '中型法力药剂', 10, 'mp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 8.5px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
+                                    <button class="item-btn item-btn-mp" data-id="100011" onclick="window.selectItem(100011, '中型法力药剂', 10, 'mp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
                                         <span class="item-name">中型法力剂</span>
-                                        <span style="color: #1976d2; font-size: 7.5px;">+10PP <span class="item-count" data-id="100011">(0)</span></span>
+                                        <span style="color: #1976d2; font-size: 8px;">+10PP <span class="item-count" data-id="100011">(0)</span></span>
                                     </button>
-                                    <button class="item-btn item-btn-mp" data-id="100012" onclick="window.selectItem(100012, '大型法力药剂', 20, 'mp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 8.5px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
+                                    <button class="item-btn item-btn-mp" data-id="100012" onclick="window.selectItem(100012, '大型法力药剂', 20, 'mp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
                                         <span class="item-name">大型法力剂</span>
-                                        <span style="color: #1976d2; font-size: 7.5px;">+20PP <span class="item-count" data-id="100012">(0)</span></span>
+                                        <span style="color: #1976d2; font-size: 8px;">+20PP <span class="item-count" data-id="100012">(0)</span></span>
                                     </button>
                                 </div>
                             </div>
                             <!-- 选中提示 -->
-                            <div id="selected-item-hint" style="font-size: 8px; color: var(--color-text-tertiary); text-align: center; padding: 2px; background: var(--color-background-secondary); border-radius: 2px;">点击选择道具</div>
+                            <div id="selected-item-hint" style="font-size: 8px; color: var(--color-text-tertiary); text-align: center; padding: 1px 2px; background: var(--color-background-secondary); border-radius: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">点击选择道具</div>
                             
-                            <!-- 操作按钮 -->
-                            <div style="display: flex; gap: 4px;">
-                                <button id="buy-item-btn" onclick="window.buySelectedItem()" style="flex: 1; padding: 4px 6px; font-size: 9px; background: #2e7d32; color: white; border: none; border-radius: 2px; cursor: pointer;">购买</button>
-                                <button id="use-item-btn" onclick="window.useSelectedItem()" style="flex: 1; padding: 4px 6px; font-size: 9px; background: var(--color-primary); color: white; border: none; border-radius: 2px; cursor: pointer;">使用</button>
-                            </div>
-                            
-                            <!-- 数量输入 -->
-                            <div style="display: flex; align-items: center; gap: 4px; margin-top: 4px;">
-                                <span style="font-size: 9px; color: var(--color-text-secondary);">数量:</span>
-                                <input type="number" id="item-count-input" value="1" min="1" max="99" style="flex: 1; font-size: 9px; padding: 2px 4px; border: 1px solid var(--color-border); border-radius: 2px;">
+                            <!-- 操作行：数量 + 购买 + 使用 -->
+                            <div style="display: flex; gap: 4px; align-items: center;">
+                                <span style="font-size: 9px; color: var(--color-text-secondary); white-space: nowrap; flex: none;">数量</span>
+                                <input type="number" id="item-count-input" value="1" min="1" max="99" style="width: 32px; flex: none; font-size: 9px; padding: 2px 3px; border: 1px solid var(--color-border); border-radius: 2px; text-align: center;">
+                                <button id="buy-item-btn" onclick="window.buySelectedItem()" style="flex: 1; padding: 3px 4px; font-size: 9px; background: #2e7d32; color: white; border: none; border-radius: 2px; cursor: pointer;">购买</button>
+                                <button id="use-item-btn" onclick="window.useSelectedItem()" style="flex: 1; padding: 3px 4px; font-size: 9px; background: var(--color-primary); color: white; border: none; border-radius: 2px; cursor: pointer;">使用</button>
                             </div>
                         </div>
                     </div>
@@ -2390,7 +2386,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 </div>
 
                 <div id="sub-latest" class="sub-tab-content">
-                    <div class="fx-panel" style="margin: 4px 6px; align-self: stretch;">
+                    <div class="fx-panel" style="margin: 4px 6px; align-self: stretch; flex: 1 1 auto;">
                         <!-- 标题行：说明 + 剩余次数总览 -->
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: 0 0 auto;">
                             <div style="font-size: 11px; font-weight: 600; color: var(--color-text-primary);">活动选择</div>
@@ -2398,7 +2394,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                         </div>
 
                         <!-- 活动项网格：勾选框 + 名称 + 剩余次数（是否扫荡由 C++ 侧自动判定） -->
-                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 2px 6px; flex: 0 0 auto;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 2px 6px; flex: 1 1 auto; min-height: 0; align-content: start; overflow-y: auto;">
                             <label class="act-item" id="act-row-647">
                                 <input type="checkbox" id="act-check-647" class="act-pick">
                                 <span class="act-item-name">突破迷阵</span>
@@ -2414,25 +2410,40 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                                 <span class="act-item-name">寒冰洞历险记</span>
                                 <span class="act-item-count" id="act-count-749">--</span>
                             </label>
-                            <label class="act-item" id="act-row-870">
-                                <input type="checkbox" id="act-check-870" class="act-pick">
-                                <span class="act-item-name">月饼大胃王</span>
-                                <span class="act-item-count" id="act-count-870">--</span>
+                            <label class="act-item" id="act-row-873">
+                                <input type="checkbox" id="act-check-873" class="act-pick">
+                                <span class="act-item-name">填字大作战</span>
+                                <span class="act-item-count" id="act-count-873">--</span>
                             </label>
-                            <label class="act-item" id="act-row-704">
-                                <input type="checkbox" id="act-check-704" class="act-pick">
-                                <span class="act-item-name">夺回花束行动</span>
-                                <span class="act-item-count" id="act-count-704">--</span>
+                            <label class="act-item" id="act-row-742">
+                                <input type="checkbox" id="act-check-742" class="act-pick">
+                                <span class="act-item-name">守护葫芦藤</span>
+                                <span class="act-item-count" id="act-count-742">--</span>
                             </label>
-                            <label class="act-item" id="act-row-697">
-                                <input type="checkbox" id="act-check-697" class="act-pick">
-                                <span class="act-item-name">美食大作战</span>
-                                <span class="act-item-count" id="act-count-697">--</span>
+                            <label class="act-item" id="act-row-721">
+                                <input type="checkbox" id="act-check-721" class="act-pick">
+                                <span class="act-item-name">采菊东篱下</span>
+                                <span class="act-item-count" id="act-count-721">--</span>
+                            </label>
+                            <label class="act-item" id="act-row-877">
+                                <input type="checkbox" id="act-check-877" class="act-pick">
+                                <span class="act-item-name">寻找七色茱萸</span>
+                                <span class="act-item-count" id="act-count-877">--</span>
+                            </label>
+                            <label class="act-item" id="act-row-730">
+                                <input type="checkbox" id="act-check-730" class="act-pick">
+                                <span class="act-item-name">智斗恶灵</span>
+                                <span class="act-item-count" id="act-count-730">--</span>
+                            </label>
+                            <label class="act-item" id="act-row-880">
+                                <input type="checkbox" id="act-check-880" class="act-pick">
+                                <span class="act-item-name">夺宝行动</span>
+                                <span class="act-item-count" id="act-count-880">--</span>
                             </label>
                         </div>
 
                         <!-- 操作按钮行 -->
-                        <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px; flex: 0 0 auto;">
+                        <div style="display: flex; align-items: center; gap: 6px; margin-top: 2px; flex: 0 0 auto;">
                             <button onclick="selectAllActivities(true)" class="btn btn-secondary" style="font-size: 10px; padding: 3px 10px;">全选</button>
                             <button onclick="selectAllActivities(false)" class="btn btn-secondary" style="font-size: 10px; padding: 3px 10px;">全不选</button>
                             <button onclick="refreshActivityCounts()" class="btn btn-secondary" style="font-size: 10px; padding: 3px 10px;">刷新次数</button>
@@ -4180,7 +4191,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
         // 剩余次数由 C++ 侧通过 window.updateActivityCounts 回填；次数为 0
         // 时自动禁用该行，避免无效操作。
         // ====================================================================
-        window.actLatestIds = [647, 869, 749, 870, 704, 697];
+        window.actLatestIds = [647, 869, 749, 873, 742, 721, 877, 730, 880];
 
         // C++ 回填各活动剩余次数：{ "717": 3, "822": 0, ... }
         // 值为负数或 null 表示未知，显示“--”且不禁用。

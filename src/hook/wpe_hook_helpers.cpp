@@ -102,14 +102,13 @@ std::wstring GetItemName(uint32_t itemId) {
     static const ItemNameEntry itemNames[] = {
         {100005, L"蟠桃"},
         {100006, L"大金创药"},
-        {100007, L"中金创药"},
-        {100008, L"小金创药"},
         {100009, L"天仙玉露"},
         {100010, L"小型法力药剂"},
         {100011, L"中型法力药剂"},
         {100012, L"大型法力药剂"},
         {100031, L"活血散"},
         {100034, L"天香丸"},
+        {100758, L"培元金丹"},
     };
 
     for (const auto& entry : itemNames) {

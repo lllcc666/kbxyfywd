@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# 仓库统一 Python 入口：强制 UTF-8 模式，避免 Windows zh-CN 下 GBK 默认编码造成的乱码与写文件损坏。
+# 用法: scripts/py <script.py> [args...]
+exec python -X utf8 "$@"
