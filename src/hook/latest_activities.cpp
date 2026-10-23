@@ -144,6 +144,7 @@ struct LatestActState {
     std::atomic<int> bestScore{0};   ///< 历史最好成绩（自动扫荡判定用）
     std::atomic<int> checkCode{0};   ///< start_game 下发的校验种子
     std::atomic<int> ruleFlag{0};    ///< start_game 需要的规则/提示参数
+    std::atomic<bool> startPayloadReady{false}; ///< 721 的 start_game DTO 已完整消费
     std::atomic<bool> sweepReady{false};  ///< sweep_info 是否放行（有历史成绩）
 
     std::atomic<bool> waitingResponse{false};
@@ -155,6 +156,22 @@ struct LatestActState {
     /// 最近一次 end_game 回包的结果码，以及这次结算是否被服务端接受。
     std::atomic<int> lastEndResult{-1};
     std::atomic<bool> endSettled{false};
+
+    /// 721 专用：end_game 回包里服务端自己算出来的成绩与奖励。
+    /// ActModel.decodeEndGame:154-161 读 resultType, playCount, frozenTime,
+    /// ActEndGameDto{starCount, coin, lilian, 奖励对...}，ActEndView.as:57-59 直接把
+    /// starCount 当本局得分显示。客户端上报多少星不等于服务端认多少星，
+    /// 把这三个数读回来才能看出这一局到底算了几分——「奖励很少」就是从这里露出来的。
+    std::atomic<int> endStarCount{-1};
+    std::atomic<int> endCoin{-1};
+    std::atomic<int> endLilian{-1};
+    std::atomic<int> playProcessFailValue{-1}; ///< 721 game_event 失败的累计值，-2 表示取消
+    std::atomic<int> playProcessSendError{0}; ///< 最近一次 game_event 发包失败的 Winsock 错误
+
+    /// 721 专用：服务端对 game_event 的回送计数（操作串 game_event 的 back 包，
+    /// :1764 早退点之前累计）。AS3 客户端同样不监听这个回包，服务端是否每事件
+    /// 必答未知——等待方必须带超时兜底，不能裸等。
+    std::atomic<uint32_t> playEventAcks{0};
 
     /// 最近一次 sweep 回包的结果码。0/4 是成功（4 = 满额通关），
     /// 3 = 校验失败，10 = 在游戏中，11 = 冷却中，12 = 次数不足。
@@ -221,88 +238,6 @@ void Notify(uint32_t activityId, const std::wstring& message) {
     UIBridge::Instance().UpdateHelperText(std::wstring(name) + L"：" + message);
 }
 
-// ---------------------------------------------------------------------------
-// 调试追踪：把最新活动发出的包与收到的回包原样落到 exe 同目录的
-// latest_act_trace.log。活动结算被拒时，日志里能直接看到服务端到底回了什么，
-// 不用再靠猜字段偏移。
-// ---------------------------------------------------------------------------
-std::mutex& TraceMutex() {
-    static std::mutex mutex;
-    return mutex;
-}
-
-const std::wstring& TraceLogPath() {
-    static const std::wstring path = []() {
-        wchar_t buf[MAX_PATH] = {0};
-        const DWORD len = GetModuleFileNameW(nullptr, buf, MAX_PATH);
-        if (len > 0 && len < MAX_PATH) {
-            std::wstring full(buf, len);
-            const size_t slash = full.find_last_of(L"\\/");
-            if (slash != std::wstring::npos) {
-                full.resize(slash + 1);
-            }
-            return full + L"latest_act_trace.log";
-        }
-        return std::wstring(L"latest_act_trace.log");
-    }();
-    return path;
-}
-
-std::string HexOf(const std::vector<BYTE>& body, size_t limit) {
-    static const char* kDigits = "0123456789abcdef";
-    const size_t count = body.size() < limit ? body.size() : limit;
-    std::string hex;
-    hex.reserve(count * 2 + 4);
-    for (size_t i = 0; i < count; ++i) {
-        hex.push_back(kDigits[body[i] >> 4]);
-        hex.push_back(kDigits[body[i] & 0x0F]);
-    }
-    if (count < body.size()) {
-        hex += "...";
-    }
-    return hex;
-}
-
-void TraceActivity(const std::string& line) {
-    std::lock_guard<std::mutex> lock(TraceMutex());
-    // 每次运行重建日志：上一轮的收发记录留着只会干扰判断。
-    static bool truncated = false;
-    if (!truncated) {
-        truncated = true;
-        std::ofstream reset(TraceLogPath(), std::ios::binary | std::ios::trunc);
-    }
-    std::ofstream out(TraceLogPath(), std::ios::binary | std::ios::app);
-    if (!out) {
-        return;
-    }
-    out << line << "\n";
-}
-
-void TraceSend(uint32_t activityId, const std::string& operation,
-               const std::vector<int32_t>& args) {
-    std::string line = "SEND " + std::to_string(activityId) + " " + operation + " [";
-    for (size_t i = 0; i < args.size(); ++i) {
-        if (i != 0) {
-            line += ",";
-        }
-        line += std::to_string(args[i]);
-    }
-    line += "]";
-    TraceActivity(line);
-}
-
-void TraceReceive(uint32_t activityId, const std::string& operation,
-                  const std::vector<BYTE>& body, size_t offset) {
-    std::string line = "RECV " + std::to_string(activityId) + " " + operation +
-                       " size=" + std::to_string(body.size()) +
-                       " dataOffset=" + std::to_string(offset) + " hex=";
-    std::vector<BYTE> tail(body.begin() + static_cast<std::ptrdiff_t>(
-                                           offset < body.size() ? offset : body.size()),
-                           body.end());
-    line += HexOf(tail, 256);
-    TraceActivity(line);
-}
-
 // 读取 body 中的 UTF 字符串（长度 2 字节小端 + 内容）。
 bool ReadBodyString(const BYTE* body, size_t bodySize, size_t& offset, std::string& out) {
     if (offset + 2 > bodySize) {
@@ -332,17 +267,9 @@ BOOL SendLatestPacket(uint32_t activityId, const std::string& operation,
     std::vector<BYTE> packet = BuildActivityPacket(
         Opcode::ACTIVITY_QINGYANG_NEW_SEND, activityId, operation, bodyValues);
     if (packet.empty()) {
-        TraceActivity("SEND " + std::to_string(activityId) + " " + operation +
-                      " <build failed>");
         return FALSE;
     }
-    TraceSend(activityId, operation, bodyValues);
-    if (!SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()))) {
-        TraceActivity("SEND " + std::to_string(activityId) + " " + operation +
-                      " <send failed>");
-        return FALSE;
-    }
-    return TRUE;
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size())) ? TRUE : FALSE;
 }
 
 // 不等待回包的过程包（AS3 的 play_game / game_event 也是发完即走）。
@@ -351,17 +278,9 @@ BOOL SendLatestPacketNoWait(uint32_t activityId, const std::string& operation,
     std::vector<BYTE> packet = BuildActivityPacket(
         Opcode::ACTIVITY_QINGYANG_NEW_SEND, activityId, operation, bodyValues);
     if (packet.empty()) {
-        TraceActivity("SEND " + std::to_string(activityId) + " " + operation +
-                      " <build failed>");
         return FALSE;
     }
-    TraceSend(activityId, operation, bodyValues);
-    if (!SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()))) {
-        TraceActivity("SEND " + std::to_string(activityId) + " " + operation +
-                      " <send failed>");
-        return FALSE;
-    }
-    return TRUE;
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size())) ? TRUE : FALSE;
 }
 
 // 上报每日任务进度。AS3 各活动在结算后用
@@ -561,7 +480,10 @@ void ParseOpenUI(const LatestActDesc& desc, LatestActState& state,
             state.restTime = read();      // frozenTime
             offset += 4;                  // medalCount
             state.ruleFlag = read();      // pop_win_flag
-            state.bestScore = read();     // maxScore（历史最高分）
+            state.bestScore = read();     // maxScore（实测是"今天成功打完过
+                                          // 一局"的标志位：58 星一局后=1，
+                                          // 再打 65 星仍=1；真客户端唯一
+                                          // 用法 ActEnterView.as:119 >0 放行扫荡）
             break;
 
         case LatestAct::ACT_FIND_CORNEL:
@@ -631,6 +553,9 @@ void ParseStartGame(const LatestActDesc& desc, LatestActState& state,
                     const GamePacket& packet, size_t offset) {
     const BYTE* body = packet.body.data();
     const size_t size = packet.body.size();
+    if (desc.id == LatestAct::ACT_STAR_PRINCESS) {
+        state.startPayloadReady = false;
+    }
     if (offset + 4 > size) return;
     const int result = ReadInt32LE(body, offset);
     state.lastStartResult = result;
@@ -669,6 +594,27 @@ void ParseStartGame(const LatestActDesc& desc, LatestActState& state,
         state.startHp = ReadInt32LE(body, offset);
     }
 
+    // 721 实测（parse721_debug.log）：服务端 start_game 回包到 checkCode 就结束
+    // （body 共 20 字节：操作串 + result + checkCode），不下发 awardList。
+    // AS3 的 ActStartInfoDto.readFromStream 此处会读越界抛异常，但被框架吞掉——
+    // awardList 在 721 无消费者、checkCode 也是死代码，真客户端无感。这里同理：
+    // 开局成功 = result==0 且 checkCode 读到；awardList 有就尽力消费（DTO 尽量
+    // 读到底），没有不阻塞开局。
+    if (desc.id == LatestAct::ACT_STAR_PRINCESS) {
+        state.startPayloadReady = true;
+        if (offset + 4 > size) {
+            return;
+        }
+        const int awardNum = ReadInt32LE(body, offset);
+        if (awardNum < 0 || static_cast<size_t>(awardNum) > (size - offset) / 8) {
+            return;
+        }
+        for (int i = 0; i < awardNum; ++i) {
+            ReadInt32LE(body, offset);  // awardIdx
+            ReadInt32LE(body, offset);  // awardNum
+        }
+    }
+
     // 869 的 start_game 回包在 checkCode 之后还有 61 项星级布局（awardList）。
     // AS3 命中星星时执行 ++gameAwardList[awardId]，结算时把这张计数表回传；
     // 这里必须先读进来，否则 end_game 只能送全 0（等于 0 星通关）。
@@ -685,6 +631,40 @@ void ParseStartGame(const LatestActDesc& desc, LatestActState& state,
             }
         }
     }
+}
+
+// 721 ActEndGameDto.as:21-38：三项计数后，读取至多十组奖励对。
+// 先解析到局部变量，避免截断回包将半份结果发布给运行线程。
+bool ReadStarPrincessEndDto(const BYTE* body, size_t size, size_t& offset,
+                           int& starCount, int& coin, int& lilian) {
+    if (offset > size || size - offset < 12) {
+        return false;
+    }
+    starCount = ReadInt32LE(body, offset);
+    coin = ReadInt32LE(body, offset);
+    lilian = ReadInt32LE(body, offset);
+    constexpr int kRewardTypeCount = 10;  // EIdReflect.REFLECT_STRUCT.length
+    for (int i = 0; i < kRewardTypeCount; ++i) {
+        if (size - offset < 8) {
+            // 实测（parse721_debug.log 2026-10-24）：sweep_info 回包在三个计数
+            // 之后只剩一个 4 字节的 0——awardIdx=0 的终止符，awardNum 没有跟着
+            // 下发（接收端尾部还截了几字节）。AS3 在这里读越界抛异常被框架吞
+            // 掉，但它的奖励表本就由三计数现场构造（ActEndGameDto.as:26），展示
+            // 不受影响；本模块也只消费三计数。所以剩余 4 字节为 <=0 的终止符、
+            // 或尾部干净截断（0 字节），都按正常收尾放行——三计数才是结算判据。
+            return size - offset == 0 ||
+                   (size - offset == 4 && ReadInt32LE(body, offset) <= 0);
+        }
+        const int awardIdx = ReadInt32LE(body, offset);
+        ReadInt32LE(body, offset);  // awardNum
+        if (awardIdx <= 0) {
+            return true;
+        }
+        if (awardIdx >= kRewardTypeCount) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // sweep_info 响应：判断是否放行扫荡（各活动首个语义字段不同）。
@@ -723,13 +703,20 @@ void ParseSweepInfo(const LatestActDesc& desc, LatestActState& state,
             // 877 ActModel.as:292-321 result == 0 才读奖励。
             state.sweepReady = (first == 0);
             break;
+        case LatestAct::ACT_STAR_PRINCESS: {
+            // ActModel.decodeSeepInfo:287-291 不判断 resultType；
+            // 必须像 AS3 一样读完奖励 DTO，不能只收一个结果码就放行。
+            int starCount = 0;
+            int coin = 0;
+            int lilian = 0;
+            state.sweepReady = ReadStarPrincessEndDto(body, size, offset,
+                                                      starCount, coin, lilian);
+            break;
+        }
         case LatestAct::ACT_MAZE:
-        case LatestAct::ACT_STAR_PRINCESS:
         case LatestAct::ACT_TREASURE:
         default:
-            // 647 MazeModel.as:257-258、880 TreasureModel.as:307-356 的 AS3 都是
-            // result != 3 即放行；721 ActModel.decodeSeepInfo:287-292 只读 resultType
-            // 就无条件填奖励，取同一族惯例 result != 3。
+            // 647 MazeModel.as:257-258、880 TreasureModel.as:307-356：result != 3。
             state.sweepReady = (first != 3);
             break;
     }
@@ -756,10 +743,25 @@ void ParseSweepResult(const LatestActDesc& desc, LatestActState& state,
             // 742 KBHuluModel.as:129-177 if (result == 0 || result == 4) 才读奖励。
             state.sweepReady = (result == 0 || result == 4);
             break;
+        case LatestAct::ACT_STAR_PRINCESS: {
+            // ActModel.decodeSeep:294-300 与 end_game 的字段布局相同。
+            // 实际模型不判断 resultType；只有完整结算才算扫荡被接受，
+            // 旧错误码枚举不能替代 DTO，单独的错误码也不能视作成功。
+            state.sweepReady = false;
+            if (size - offset < 8) {
+                break;
+            }
+            offset += 8;  // playCount, frozenTime；流程随后通过 open_ui 回查
+            int starCount = 0;
+            int coin = 0;
+            int lilian = 0;
+            state.sweepReady = ReadStarPrincessEndDto(body, size, offset,
+                                                      starCount, coin, lilian);
+            break;
+        }
         case LatestAct::ACT_MAZE:
         case LatestAct::ACT_EXPLORE:
         case LatestAct::ACT_WORD_GAME:
-        case LatestAct::ACT_STAR_PRINCESS:
         case LatestAct::ACT_FIND_CORNEL:
         case LatestAct::ACT_FIGHT_EVILS:
         case LatestAct::ACT_TREASURE:
@@ -797,6 +799,9 @@ void ParseEndGame(const LatestActDesc& desc, LatestActState& state,
     }
     const int result = ReadInt32LE(body, offset);
     state.lastEndResult = result;
+    state.endStarCount = -1;
+    state.endCoin = -1;
+    state.endLilian = -1;
     switch (desc.id) {
         case LatestAct::ACT_MAZE:
         case LatestAct::ACT_EXPLORE:
@@ -809,9 +814,27 @@ void ParseEndGame(const LatestActDesc& desc, LatestActState& state,
             // GAME_END_BACK，其余分支只是补发一次 open_ui，等于这一局没结算。
             state.endSettled = (result == 0 || result == 4);
             break;
+        case LatestAct::ACT_STAR_PRINCESS: {
+            // ActModel.decodeEndGame:154-160：resultType, playCount, frozenTime, DTO。
+            state.endSettled = false;
+            if (size - offset < 8) {
+                break;
+            }
+            offset += 8;  // playCount, frozenTime；流程随后通过 open_ui 回查
+            int starCount = 0;
+            int coin = 0;
+            int lilian = 0;
+            if (ReadStarPrincessEndDto(body, size, offset, starCount, coin, lilian)) {
+                state.endStarCount = starCount;
+                state.endCoin = coin;
+                state.endLilian = lilian;
+                state.endSettled = true;
+            }
+            break;
+        }
         default:
             // 730 的 resultType 只是「是否通关」，不是「是否结算」，非 4 也可能正常发奖；
-            // 869/721/877 的 AS3 完全不看这个字段。收到回包即视为已结算。
+            // 869/877 的 AS3 完全不看这个字段。收到回包即视为已结算。
             state.endSettled = true;
             break;
     }
@@ -873,7 +896,7 @@ std::vector<int32_t> BuildEndGameBody(const LatestActDesc& desc, const LatestAct
         case LatestAct::ACT_STAR_PRINCESS:
             // [end_game] —— 721 的结算包不带任何参数
             // （ActMainView.as:284 与 :416 都只发操作串）。星级完全靠游戏内
-            // game_event 累计，见 TryPlayOnce 里补发的满额 game_event。
+            // game_event 累计，见 TryPlayOnce 里逐包发送的累计值序列。
             return {};
 
         case LatestAct::ACT_FIND_CORNEL: {
@@ -1018,10 +1041,8 @@ BOOL SendHuluEndGame(uint32_t activityId, const std::string& json) {
                                    .WriteBytes(body)
                                    .Build();
     if (packet.empty()) {
-        TraceActivity("SEND " + std::to_string(activityId) + " end_game <build failed>");
         return FALSE;
     }
-    TraceActivity("SEND " + std::to_string(activityId) + " end_game json=" + json);
     return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
 }
 
@@ -1055,34 +1076,89 @@ bool RunPlayProcess(const LatestActDesc& desc, LatestActState& state) {
         }
 
         case LatestAct::ACT_STAR_PRINCESS: {
-            // 721 采菊东篱下：整局就是不断拾星，每次拾到星客户端就把「当前累计值」上报一次。
-            //   ActMainView.as:699          每拾一颗 _pickCounterPer += 1
-            //   ActMainView.as:531/549      _pickCounterPer >= 5 时触发结算刷新
-            //   ActMainView.as:556-573      _starCount += _pickCounterPer，
-            //                               然后发 [GAME_EVENT, _starCount]
-            //   ActMainView.as:611-636      撞到飞行星 _starCount += 30，
-            //                               然后发 [GAME_EVENT, _starCount + 10000]
-            // 服务端以最后一次上报的累计值为准。所以每包只能涨 5（撞星涨 30），
-            // 一次报满额等于跳过整局——那不是「打了一局」，服务端也不会认。
-            int star = 0;
-            int step = 0;
-            while (star < desc.targetScore) {
-                if (!running()) {
+            // 721 采菊东篱下：过程包必须复现 AS3 真实一局的三类特征。
+            // 此前按「120ms × 400 包」的最小路径 48 秒打完一局且从不发飞星事件，
+            // 与真实客户端的行为画像对不上（时长只有 GAME_TIME 的一半多、事件频率
+            // 是真客户端的 8 倍、满 400 分里最多 270 分来自飞星却一条标记包没有），
+            // 服务端核账不过，这一局就废了。逐条对照 AS3：
+            //
+            //   ① 普通星：ActMainView.as:556-573  每次跳跃落地发一次【累计】分
+            //      _starCount（一跳捡 1~4 颗，不是每颗一包）；
+            //   ② 飞星：ActMainView.onTimer:408   每 10 秒出现一颗
+            //      （_starTimer % 10 == 0），checkCollesion:611-629 接住后
+            //      _starCount += 30 并发 _starCount + 10000 标记包；
+            //   ③ 时长：ActMainViewBase.as:21     GAME_TIME = 90，
+            //      onTimer:416 计时走完才发 end_game，整局必须撑满 90 秒。
+            //
+            // start_game 的 ActStartInfoDto.awardList 在 721 客户端没有任何
+            // 消费者（全仓库 grep 无读取点），不是计分脚本，不能拿它当账本。
+            //
+            // 重放节奏（用户指定）：发一条 game_event → 等服务端回包（1s
+            // 兜底；实测该 op 无回音，等效 ~1.3s 固定间隔）→ 300ms 后发下
+            // 一条。事件序列不变：10 的
+            // 倍数秒（t=10..80，共 8 颗）发飞星 +30 标记包；奇数秒发普通星
+            // 累计包（+4/+3 交替，收官 5 跳 +4）。末条恰好累计到满分 400，
+            // 交 end_game。playEventAcks 由回包处理器对 game_event 回音计数。
+            // 历史：200ms 固定间隔实测服务端只认 58/65 星（节流）；更早的
+            // 等回包版"只记 1 分"是误读——1 是 open_ui 的 maxScore（成功
+            // 标志位），当时 DTO 解析失败没读到真分数。
+            constexpr int kGameDurationSec = 90;    // ActMainViewBase.GAME_TIME
+            constexpr int kFlyStarPeriodSec = 10;   // ActMainView.onTimer 飞星周期
+            constexpr int kFlyStarBonus = 30;       // ActMainView.as:622
+            constexpr int kMaxScore = 400;          // EDataType.MAX_SCORE
+
+            state.playProcessFailValue = -1;
+            state.playProcessSendError = 0;
+
+            constexpr int kAckWaitMs = 1000;   // 兜底：回包超时也继续（实测
+                                               // game_event 无回音，等效固定间隔）
+            constexpr int kInterEventMs = 300; // 回包后再等 300ms 发下一条
+            const auto waitAckThenGap = [&]() {
+                const uint32_t expect =
+                    state.playEventAcks.load(std::memory_order_relaxed) + 1;
+                const auto deadline = std::chrono::steady_clock::now() +
+                                      std::chrono::milliseconds(kAckWaitMs);
+                while (std::chrono::steady_clock::now() < deadline) {
+                    if (state.playEventAcks.load(std::memory_order_relaxed) >= expect) {
+                        break;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(kInterEventMs));
+            };
+
+            int starCount = 0;
+            int regularSlot = 0;   // 奇数秒跳跃事件序号（共 45 个）
+            for (int sec = 1; sec <= kGameDurationSec; ++sec) {
+                if (!running() || ManagedThread::StopRequested()) {
+                    state.playProcessFailValue = -2;
                     return false;
                 }
-                const bool collide = (step % 8) == 7;   // 每拾取 8 次夹一次撞星
-                star += collide ? 30 : 5;
-                if (star > desc.targetScore) {
-                    star = desc.targetScore;
+                if (sec % kFlyStarPeriodSec == 0 && sec < kGameDurationSec) {
+                    starCount += kFlyStarBonus;
+                    if (!SendLatestPacketNoWait(desc.id, "game_event",
+                                                {starCount + 10000})) {
+                        state.playProcessFailValue = starCount;
+                        state.playProcessSendError = WSAGetLastError();
+                        return false;
+                    }
+                    waitAckThenGap();
+                } else if (sec % 2 == 1) {
+                    // +4/+3 交替凑满 160 颗普通星（45 跳 = 25×4 + 20×3），
+                    // 与飞星 240 合计恰为满分 400，收官一跳正好落在 400。
+                    const int inc = (regularSlot < 40) ? ((regularSlot % 2 == 0) ? 4 : 3) : 4;
+                    ++regularSlot;
+                    starCount += inc;
+                    if (!SendLatestPacketNoWait(desc.id, "game_event", {starCount})) {
+                        state.playProcessFailValue = starCount;
+                        state.playProcessSendError = WSAGetLastError();
+                        return false;
+                    }
+                    waitAckThenGap();
                 }
-                const int value = collide ? star + 10000 : star;
-                if (!SendLatestPacketNoWait(desc.id, "game_event", {value})) {
-                    return false;
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(120));
-                ++step;
             }
-            return star >= desc.targetScore;
+            // 全程单调、不越过满分（飞星后最高 380+10000，最后一条是干净的 400）。
+            return starCount == kMaxScore;
         }
 
         case LatestAct::ACT_FIGHT_EVILS: {
@@ -1189,6 +1265,11 @@ bool SweepRemaining(const LatestActDesc& desc, LatestActState& state, bool probe
     // （实测 880 结算后 open_ui 的 restCdTime = 1），此时扫荡必被拒。
     // 冷却秒数不可靠，唯一稳的做法是重试：隔 2 秒再发，最多 3 次。
     // 12（次数不足）与 3（校验失败）不重试，重试也只会再被拒一次。
+    //
+    // 冷却码有两套：730 一族（含 647/749/873/880）是 11，而 721 的
+    // Act721ErrorCode.errorCodeSweep 里 3 = 冷却中、1 = 还没成功打完一局、
+    // 2 = 次数不足。721 按 11 去重试等于永远不重试，冷却一过就整段放弃。
+    const int cooldownCode = (desc.id == LatestAct::ACT_STAR_PRINCESS) ? 3 : 11;
     constexpr int kSweepAttempts = 3;
     int sentCount = count;
     for (int attempt = 0; attempt < kSweepAttempts; ++attempt) {
@@ -1230,11 +1311,11 @@ bool SweepRemaining(const LatestActDesc& desc, LatestActState& state, bool probe
         if (state.sweepReady.load()) {
             return true;
         }
-        if (state.lastSweepResult.load() != 11) {
+        if (state.lastSweepResult.load() != cooldownCode) {
             return false;   // 不是冷却，重试无意义
         }
-        Notify(desc.id, L"扫荡遇到冷却（result=11），" + std::to_wstring(kSweepAttempts - attempt - 1) +
-                            L" 次重试机会");
+        Notify(desc.id, L"扫荡遇到冷却（result=" + std::to_wstring(cooldownCode) + L"），" +
+                            std::to_wstring(kSweepAttempts - attempt - 1) + L" 次重试机会");
     }
     return false;
 }
@@ -1251,6 +1332,7 @@ bool TryPlayOnce(const LatestActDesc& desc, LatestActState& state) {
 
     auto attemptStart = [&]() -> bool {
         state.checkCode = 0;
+        state.startPayloadReady = false;
         state.huluBoardReady = false;
         state.startHp = 0;
         state.lastStartResult = -1;
@@ -1265,16 +1347,25 @@ bool TryPlayOnce(const LatestActDesc& desc, LatestActState& state) {
         if (desc.id == LatestAct::ACT_HULU) {
             return state.huluBoardReady.load();
         }
-        // 服务端没下发种子时结算包必然无效；lastStartResult 留着给调用方报错。
+        // 721 的成功条件是 result == 0 且 ActStartInfoDto 已完整读完；
+        // checkCode 允许为 0，不能把它当成开局失败。
+        if (desc.id == LatestAct::ACT_STAR_PRINCESS) {
+            return state.lastStartResult.load() == 0 && state.startPayloadReady.load();
+        }
+        // 其他活动仍要求服务端下发非零校验种子。
         return state.checkCode.load() != 0;
     };
 
     bool started = attemptStart();
 
-    // 开局被明确拒绝时，最可能的原因是上一局会话没关（进程被杀 / 上次结算包被拒 /
-    // 断线），服务端仍认为「在游戏中」。先按 AS3 的自救方式把残留会话关掉，
-    // 再重开一次；不这么做，活动一旦卡住就再也打不开，只能等服务器重启。
-    if (!started && state.lastStartResult.load() > 0) {
+    // 721 ActModel.decodeBeginGame:127-147：1 = 次数不足，2 = 冷却，
+    // 3 才是「游戏中」；不使用该活动未被调用的旧错误码枚举。
+    // 只有明确存在残留对局时才清局，其他活动保留原来的恢复策略。
+    const int startResult = state.lastStartResult.load();
+    const bool hasStaleSession = (desc.id == LatestAct::ACT_STAR_PRINCESS)
+                                     ? startResult == 3
+                                     : startResult > 0;
+    if (!started && hasStaleSession) {
         Notify(desc.id, L"开局被拒绝（" + StartFailureText(desc, state.lastStartResult.load()) +
                             L"），先关闭上一局残留会话...");
         CloseStaleSession(desc, state);
@@ -1512,7 +1603,10 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
             Notify(activityId, L"次数已用完");
             return;
         }
-        if (desc.passScore > 0) {
+        if (desc.id == LatestAct::ACT_STAR_PRINCESS) {
+            Notify(activityId, L"今天还没有成功打完过一局（maxScore=" +
+                                   std::to_wstring(state.bestScore.load()) + L"），完整打一局...");
+        } else if (desc.passScore > 0) {
             Notify(activityId, L"成绩未达上限最高分（" + std::to_wstring(state.bestScore.load()) + L"/" +
                                    std::to_wstring(desc.passScore) + L"），完整打一局...");
         } else {
@@ -1523,7 +1617,14 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
             const int startResult = state.lastStartResult.load();
             const int endResult = state.lastEndResult.load();
             std::wstring reason;
-            if (startResult > 0) {
+            if (desc.id == LatestAct::ACT_STAR_PRINCESS && state.playProcessFailValue.load() >= 0) {
+                reason = L"过程包发送失败（game_event 累计值=" +
+                         std::to_wstring(state.playProcessFailValue.load()) +
+                         L"，WSA=" + std::to_wstring(state.playProcessSendError.load()) + L"）";
+            } else if (desc.id == LatestAct::ACT_STAR_PRINCESS &&
+                       state.playProcessFailValue.load() == -2) {
+                reason = L"过程包被停止";
+            } else if (startResult > 0) {
                 reason = L"开局被拒绝（" + StartFailureText(desc, startResult) + L"）";
             } else if (endResult >= 0) {
                 reason = L"结算被拒绝（result=" + std::to_wstring(endResult) + L"）";
@@ -1531,11 +1632,29 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
                 reason = L"没等到服务端回包（start=" + std::to_wstring(startResult) +
                          L"，end=" + std::to_wstring(endResult) + L"）";
             }
-            Notify(activityId, reason + L"，停止该活动（收发原文见 latest_act_trace.log）");
+            Notify(activityId, reason + L"，停止该活动");
             RefreshOneActivity(desc, state);
             return;
         }
-        Notify(activityId, L"已完整打完一局并成功结算");
+        // 721：服务端自己算出来的成绩才是这一局的得分（奖励按它发档），
+        // 顺手报出来——客户端报 400 星、服务端认 30 星的话，一眼就能看见。
+        if (desc.id == LatestAct::ACT_STAR_PRINCESS && state.endStarCount.load() >= 0) {
+            std::wstring done = L"已完整打完一局并成功结算（服务端认定 " +
+                                std::to_wstring(state.endStarCount.load()) + L"/" +
+                                std::to_wstring(desc.targetScore) + L" 星";
+            if (state.endCoin.load() >= 0) {
+                done += L"，铜钱 +" + std::to_wstring(state.endCoin.load());
+            }
+            if (state.endLilian.load() >= 0) {
+                done += L"，历练 +" + std::to_wstring(state.endLilian.load());
+            }
+            if (state.endStarCount.load() < desc.targetScore) {
+                done += L"；未满额，奖励按这一档发";
+            }
+            Notify(activityId, done + L"）");
+        } else {
+            Notify(activityId, L"已完整打完一局并成功结算");
+        }
 
         // 打完立刻重查：既刷新前端，也确认这一局确实扣了次数。
         if (!RefreshOneActivity(desc, state)) {
@@ -1551,6 +1670,25 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
         if (!WaitForCooldown(desc, state)) {
             Notify(activityId, L"冷却未结束，停止该活动");
             return;
+        }
+
+        // 721 扫荡策略（用户指定）：只有上一局拿到满分（服务端认定的
+        // endStarCount == targetScore=400）才扫荡剩余次数——扫荡奖励按
+        // 最好成绩那一档发，低分局扫掉等于把剩余次数按低档贱卖；不满额
+        // 就继续逐局打。（真客户端 ActEnterView.as:119 的 maxScore>0 只是
+        // 入口开关，不管档次；档次是服务端按最好成绩算的。）
+        if (desc.id == LatestAct::ACT_STAR_PRINCESS) {
+            if (state.bestScore.load() <= 0) {
+                Notify(activityId, L"今天还没有成功打完过一局（maxScore=0），不扫荡，继续打下一局");
+                continue;
+            }
+            if (state.endStarCount.load() < desc.targetScore) {
+                Notify(activityId, L"上一局成绩未满额（" +
+                                       std::to_wstring(state.endStarCount.load()) + L"/" +
+                                       std::to_wstring(desc.targetScore) +
+                                       L"），不扫荡，继续打下一局");
+                continue;
+            }
         }
 
         // 扫荡前必须先问服务端「有没有可扫的成绩」，否则扫了也是白扣次数。
@@ -1581,8 +1719,16 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
         }
         // 扫荡没成（冷却没清干净 / 服务端拒扫），剩下的次数只能继续用打的方式消耗，
         // 直接 return 会把当天剩余次数全部浪费。
-        Notify(activityId, L"扫荡被拒绝（result=" +
-                               std::to_wstring(state.lastSweepResult.load()) + L"），继续打下一局");
+        const int sweepResult = state.lastSweepResult.load();
+        // 「次数不足」不该再打一局：start_game 一样会被拒，白等两个超时。
+        // 721 用 2（Act721ErrorCode.errorCodeSweep），730 一族用 12。
+        const int noCountCode = (desc.id == LatestAct::ACT_STAR_PRINCESS) ? 2 : 12;
+        if (sweepResult == noCountCode) {
+            Notify(activityId, L"扫荡被回「次数不足」，今日已无剩余次数");
+            return;
+        }
+        Notify(activityId, L"扫荡被拒绝（result=" + std::to_wstring(sweepResult) +
+                               L"），继续打下一局");
     }
     Notify(activityId, L"达到单活动最大轮数，停止");
 }
@@ -1659,16 +1805,17 @@ void ProcessLatestActivityResponse(const GamePacket& packet) {
     if (!ReadBodyString(packet.body.data(), packet.body.size(), offset, operation)) {
         // 解析不出操作串时不要放行等待方：放行会让调用方读到尚未更新的 checkCode
         // 而误判成「服务端没下发种子」，真实原因（回包结构不是「操作串 + 参数」）
-        // 就被掩盖了。保持等待直到超时，收发原文已在 trace 里留证。
-        TraceReceive(packet.params, "<unparsable>", packet.body, 0);
+        // 就被掩盖了。保持等待直到超时。
         return;
     }
-
-    TraceReceive(packet.params, operation, packet.body, offset);
 
     // play_game / game_event 这类过程包即使被服务端回送也不在本模块的解析范围内。
     const PendingOp op = PendingOpOf(*desc, operation);
     if (op == PendingOp::None) {
+        // 721 的 game_event 回音不解析、只计数：RunPlayProcess 用它做事件间节拍。
+        if (operation == "game_event") {
+            state->playEventAcks.fetch_add(1, std::memory_order_relaxed);
+        }
         return;
     }
 
@@ -1678,9 +1825,6 @@ void ProcessLatestActivityResponse(const GamePacket& packet) {
     const uint32_t pending = state->pendingOp.load();
     if (pending != static_cast<uint32_t>(PendingOp::None) &&
         pending != static_cast<uint32_t>(op)) {
-        TraceActivity("DROP " + std::to_string(packet.params) + " " + operation +
-                      " pending=" + std::to_string(pending) + " op=" +
-                      std::to_string(static_cast<uint32_t>(op)));
         return;
     }
 
