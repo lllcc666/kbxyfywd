@@ -177,6 +177,11 @@ struct LatestActState {
     /// 3 = 校验失败，10 = 在游戏中，11 = 冷却中，12 = 次数不足。
     std::atomic<int> lastSweepResult{-1};
 
+    /// sweep_info 探测到的扫荡档位：回包 result=0 后首项 {id:0, num} 的 num，
+    /// 按服务端最好成绩那一档发放（873 WordGameActiveModel.as:114-118）。
+    /// -1 = 尚未探测或本活动不适用。用于「档位不满分就不首扫」。
+    std::atomic<int> sweepScore{-1};
+
     /// 当前正在等待的回包操作（PendingOp）。响应处理器只在 operation 与它一致时
     /// 放行等待方，避免上一轮迟到的回包提前清掉 waitingResponse——那会让调用方
     /// 读到未更新的 checkCode/sweepReady，既可能误判扫荡放行，也可能误判执行失败。
@@ -381,8 +386,18 @@ bool CanSweepDirectly(const LatestActDesc& desc, LatestActState& state) {
     if (desc.passScore > 0 && desc.scoreInOpenUi) {
         return ShouldAutoSweep(state.bestScore.load(), desc.passScore);
     }
-    // 无成绩字段，或本活动没有分数概念（742）：以服务端 sweep_info 回包为准。
-    return ProbeSweepReady(desc, state);
+    // 无成绩字段的活动（873 填字大作战）：sweep_info 免费探一次——result=0
+    // 表示有历史成绩，但那不代表满分；首项勋章数按最好成绩那档发放
+    // （WordGameActiveModel.as:114-118）。档位不满分就先完整打一局把最好
+    // 成绩顶上去再扫：打一局满分的收益等于扫这一局，不亏；低档首扫等于
+    // 把剩余次数按低档贱卖。result!=0（无成绩）同样去打。
+    if (!ProbeSweepReady(desc, state)) {
+        return false;
+    }
+    if (desc.id == LatestAct::ACT_WORD_GAME && desc.passScore > 0) {
+        return state.sweepScore.load() >= desc.passScore;
+    }
+    return true;
 }
 
 // 各活动通用的 checkCode 变换：checkCode & (uid % checkCode)
@@ -692,8 +707,13 @@ void ParseSweepInfo(const LatestActDesc& desc, LatestActState& state,
             state.sweepReady = (first == 0);
             break;
         case LatestAct::ACT_WORD_GAME:
-            // 873 WordGameActiveModel.SWEEP_INFO:110-157 result == 0 才读奖励。
+            // 873 WordGameActiveModel.SWEEP_INFO:110-157 result == 0 才读奖励；
+            // 首项 {id:0, num} 是按最好成绩那档发放的勋章数（进 sweepList
+            // 展示，即扫荡窗口第一行）。记下档位供「不满分不首扫」判定。
             state.sweepReady = (first == 0);
+            if (first == 0 && offset + 4 <= size) {
+                state.sweepScore = ReadInt32LE(body, offset);
+            }
             break;
         case LatestAct::ACT_EXPLORE:
             // 749 ExploreModel.as:87-88 if (params.result == 0)。
@@ -1227,6 +1247,7 @@ bool CloseStaleSession(const LatestActDesc& desc, LatestActState& state) {
 // 「SendAct822SweepInfoPacket(); WaitForAct822Response() && g_act822SweepAvailable」同一形状。
 bool ProbeSweepReady(const LatestActDesc& desc, LatestActState& state) {
     state.sweepReady = false;
+    state.sweepScore = -1;  // 每次探测重置档位，防止读到上一轮的旧值
     PendingOpGuard guard(state, PendingOp::SweepInfo);
     if (!SendLatestPacket(desc.id, "sweep_info") ||
         !WaitForResponse(state, kQueryTimeoutMs + kWaitMarginMs)) {
@@ -1694,6 +1715,17 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
         // 扫荡前必须先问服务端「有没有可扫的成绩」，否则扫了也是白扣次数。
         if (!ProbeSweepReady(desc, state)) {
             Notify(activityId, L"服务端暂无可扫荡成绩，继续打下一局");
+            continue;
+        }
+
+        // 873：sweep_info 首项勋章数按最好成绩那档发放，不满分不扫，
+        // 继续逐局打（与 721「上一局满分才扫」同一策略：低档扫荡 = 贱卖次数）。
+        if (desc.id == LatestAct::ACT_WORD_GAME && desc.passScore > 0 &&
+            state.sweepScore.load() < desc.passScore) {
+            Notify(activityId, L"扫荡档位未满额（" +
+                                   std::to_wstring(state.sweepScore.load()) + L"/" +
+                                   std::to_wstring(desc.passScore) +
+                                   L"），不扫荡，继续打下一局");
             continue;
         }
 
