@@ -1636,6 +1636,242 @@
             box-shadow: 0 3px 8px rgba(0, 120, 212, 0.16);
         }
 
+        /* ====================================================================
+           辅助日志面板
+           可用高度仅约 120px：工具栏 + 表头固定贴顶，列表独占剩余高度并内部
+           滚动。列宽用 CSS 变量与表头共享，保证表头与数据行严格对齐。
+           ==================================================================== */
+        #helper-log.tab-content.active {
+            padding: 3px 6px 4px 6px !important;
+            overflow: hidden;
+        }
+
+        .log-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            flex: 1 1 auto;
+            min-height: 0;
+        }
+
+        /* 顶部工具栏：状态点 + 计数 + 清空 */
+        .log-toolbar {
+            flex: 0 0 auto;
+            height: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .log-toolbar-left {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            min-width: 0;
+        }
+        .log-status-dot {
+            flex: 0 0 auto;
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--color-primary);
+            box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.13);
+        }
+        .log-count {
+            font-size: 10px;
+            line-height: 1;
+            color: var(--color-text-secondary);
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+        .log-count b {
+            font-weight: 600;
+            color: var(--color-primary);
+            margin: 0 1px;
+        }
+        .log-clear-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            height: 16px;
+            padding: 0 7px;
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-sm);
+            background: var(--color-background);
+            color: var(--color-text-secondary);
+            font-size: 9.5px;
+            line-height: 1;
+            cursor: pointer;
+            transition: background var(--duration-fast) var(--easing-standard),
+                        color var(--duration-fast) var(--easing-standard),
+                        border-color var(--duration-fast) var(--easing-standard);
+        }
+        .log-clear-btn svg {
+            width: 10px;
+            height: 10px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 1.4;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .log-clear-btn:hover {
+            color: #c62828;
+            border-color: rgba(198, 40, 40, 0.4);
+            background: #fff6f6;
+        }
+        .log-clear-btn:active {
+            background: #ffecec;
+        }
+
+        /* 表格骨架：表头与数据行同处一个滚动容器（sticky 贴顶），列宽天然一致，
+           不依赖任何滚动条宽度补偿，滚动条出现/消失都不会错位 */
+        .log-table {
+            --log-cols: 34px 60px minmax(0, 1fr);
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid var(--color-border);
+            border-radius: 4px;
+            background: var(--color-background);
+            overflow: hidden;
+        }
+        /* 列表用 block 流式布局：flex 容器在子节点增多时会反复重排，
+           数千条日志下明显卡顿；这里只靠 sticky 表头 + 自动滚动。 */
+        .log-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            overscroll-behavior: contain;
+        }
+        .log-thead,
+        .log-row {
+            display: grid;
+            grid-template-columns: var(--log-cols);
+            column-gap: 8px;
+            align-items: center;
+            padding: 0 8px;
+            box-sizing: border-box;
+            flex: 0 0 auto;
+        }
+        .log-thead {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            height: 17px;
+            font-size: 9px;
+            font-weight: 600;
+            letter-spacing: 0.4px;
+            color: #5b6b7c;
+            background: linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
+            border-bottom: 1px solid var(--color-border);
+            user-select: none;
+        }
+        .log-thead .log-cell {
+            color: #5b6b7c;
+            font-family: inherit;
+            font-size: 9px;
+            font-weight: 600;
+        }
+        .log-body::-webkit-scrollbar {
+            width: 5px;
+        }
+        .log-body::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .log-body::-webkit-scrollbar-thumb {
+            background: #d7dde5;
+            border-radius: var(--radius-full);
+        }
+        .log-body::-webkit-scrollbar-thumb:hover {
+            background: var(--color-primary);
+        }
+
+        /* 数据行 */
+        .log-row {
+            min-height: 17px;
+            font-size: 10px;
+            line-height: 1.35;
+            color: var(--color-text-primary);
+            border-bottom: 1px solid #f1f4f8;
+            position: relative;
+            transition: background var(--duration-fast) var(--easing-standard);
+        }
+        .log-row:last-child {
+            border-bottom: none;
+        }
+        /* 表头是列表的第一个子元素，数据行从第 2 个子元素起算，
+           因此用 odd 让可见的第一条日志保持无底色 */
+        .log-row:nth-child(odd) {
+            background: #f8fbfe;
+        }
+        .log-row:hover {
+            background: #eaf4fe;
+        }
+        /* 悬停时左侧强调条，快速定位当前行 */
+        .log-row::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: var(--color-primary);
+            opacity: 0;
+            transition: opacity var(--duration-fast) var(--easing-standard);
+        }
+        .log-row:hover::before {
+            opacity: 1;
+        }
+        .log-cell {
+            min-width: 0;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+        .log-cell-index {
+            text-align: right;
+            font-size: 9.5px;
+            color: var(--color-text-tertiary);
+            font-variant-numeric: tabular-nums;
+        }
+        .log-cell-time {
+            text-align: left;
+            font-size: 9.5px;
+            color: var(--color-text-secondary);
+            font-family: Consolas, 'Cascadia Mono', ui-monospace, monospace;
+            font-variant-numeric: tabular-nums;
+        }
+        .log-cell-text {
+            text-align: left;
+        }
+
+        /* 空状态：block 容器内用 min-height 撑满剩余高度并居中 */
+        .log-empty {
+            min-height: 100%;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            color: var(--color-text-tertiary);
+            font-size: 10px;
+            user-select: none;
+        }
+        .log-empty svg {
+            width: 18px;
+            height: 18px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 1.2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            opacity: 0.45;
+        }
+
         #wpe button {
             position: relative;
             will-change: transform, box-shadow, filter;
@@ -2142,25 +2378,40 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             </div>
             <!-- 辅助日志标签页 -->
             <div id="helper-log" class="tab-content">
-                <div style="display: flex; flex-direction: column; height: 100%; gap: 6px; padding: 6px 12px 6px 12px;">
-                    <!-- 顶部栏：总记录数和清空按钮 -->
-                    <div style="display: flex; justify-content: space-between; align-items: center; min-height: 16px;">
-                        <span id="helper-log-count" style="font-size: 10px; color: var(--color-text-secondary);">总记录数: 0</span>
-                        <button onclick="window.clearHelperLog()" style="padding: 2px 8px; font-size: 10px; background: var(--color-background); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; transition: all var(--duration-fast) var(--easing-standard);">清空日志</button>
+                <div class="log-panel">
+                    <!-- 顶部工具栏：状态点 + 记录数 + 清空 -->
+                    <div class="log-toolbar">
+                        <div class="log-toolbar-left">
+                            <span class="log-status-dot"></span>
+                            <span class="log-count" id="helper-log-count">共 <b>0</b> 条</span>
+                        </div>
+                        <button class="log-clear-btn" type="button" onclick="window.clearHelperLog()" title="清空全部日志">
+                            <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M3.1 4.9h9.8"/>
+                                <path d="M6.3 4.9V3.5a.9.9 0 0 1 .9-.9h1.6a.9.9 0 0 1 .9.9v1.4"/>
+                                <path d="M4.5 4.9l.6 7.3a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-7.3"/>
+                            </svg>
+                            <span>清空</span>
+                        </button>
                     </div>
 
-                    <!-- 日志列表 -->
-                    <div style="flex: 1; border: 1px solid var(--color-border); border-radius: 3px; overflow: hidden; background: var(--color-background); display: flex; flex-direction: column; min-height: 100px;">
-                        <!-- 列表表头 -->
-                        <div style="display: grid; grid-template-columns: 60px 90px 1fr; background: var(--color-background-hover); padding: 3px 8px; border-bottom: 1px solid var(--color-border); font-size: 10px; font-weight: 600; color: var(--color-text-primary); flex-shrink: 0;">
-                            <div style="text-align: center;">序号</div>
-                            <div style="text-align: center;">时间</div>
-                            <div style="text-align: center;">内容</div>
-                        </div>
-
-                        <!-- 列表内容 -->
-                        <div id="helper-log-list" style="overflow-y: auto; flex: 1; font-size: 10.5px; min-height: 90px;">
-                            <div style="text-align: center; padding: 30px; color: var(--color-text-tertiary);">暂无日志记录</div>
+                    <!-- 日志表格 -->
+                    <div class="log-table">
+                        <div class="log-body" id="helper-log-list">
+                            <div class="log-thead">
+                                <div class="log-cell log-cell-index">#</div>
+                                <div class="log-cell log-cell-time">时间</div>
+                                <div class="log-cell log-cell-text">内容</div>
+                            </div>
+                            <div class="log-empty">
+                                <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M4.4 2.4h4.9l2.9 2.9v8.3a.9.9 0 0 1-.9.9H4.4a.9.9 0 0 1-.9-.9V3.3a.9.9 0 0 1 .9-.9z"/>
+                                    <path d="M9.3 2.4v2.9h2.9"/>
+                                    <path d="M5.9 8.7h4.2"/>
+                                    <path d="M5.9 11.2h4.2"/>
+                                </svg>
+                                <span>暂无日志记录</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -4480,15 +4731,66 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
         // 辅助日志管理
         window.helperLogData = [];
 
+        // 自动滚到底部：合并到下一帧，避免每条日志都触发一次强制同步布局
+        // （日志列表是滚动容器，逐条读 scrollHeight 会累积成 O(n^2)）
+        window.scheduleHelperLogScroll = function() {
+            if (window.__helperLogScrollPending) return;
+            window.__helperLogScrollPending = true;
+            var run = function() {
+                window.__helperLogScrollPending = false;
+                var logList = document.getElementById('helper-log-list');
+                if (logList) {
+                    logList.scrollTop = logList.scrollHeight;
+                }
+            };
+            if (window.requestAnimationFrame) {
+                window.requestAnimationFrame(run);
+            } else {
+                window.setTimeout(run, 0);
+            }
+        };
+
+        // 更新日志计数（样式依赖 <b> 高亮数字）
+        window.updateHelperLogCount = function() {
+            var logCount = document.getElementById('helper-log-count');
+            if (logCount) {
+                logCount.innerHTML = '共 <b>' + window.helperLogData.length + '</b> 条';
+            }
+        };
+
+        // 渲染空状态占位（表头是滚动容器的固定首个子元素，这里只增删行与占位）
+        window.renderHelperLogEmpty = function() {
+            var logList = document.getElementById('helper-log-list');
+            if (!logList) return;
+            // 移除所有数据行与已有占位，保留表头
+            var olds = logList.querySelectorAll('.log-row, .log-empty');
+            for (var i = 0; i < olds.length; i++) {
+                logList.removeChild(olds[i]);
+            }
+            var empty = document.createElement('div');
+            empty.className = 'log-empty';
+            empty.innerHTML =
+                '<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">' +
+                    '<path d="M4.4 2.4h4.9l2.9 2.9v8.3a.9.9 0 0 1-.9.9H4.4a.9.9 0 0 1-.9-.9V3.3a.9.9 0 0 1 .9-.9z"/>' +
+                    '<path d="M9.3 2.4v2.9h2.9"/>' +
+                    '<path d="M5.9 8.7h4.2"/>' +
+                    '<path d="M5.9 11.2h4.2"/>' +
+                '</svg>' +
+                '<span>暂无日志记录</span>';
+            logList.appendChild(empty);
+        };
+
         // 添加辅助日志
         window.addHelperLog = function(text) {
             var logList = document.getElementById('helper-log-list');
-            var logCount = document.getElementById('helper-log-count');
             if (!logList) return;
 
-            // 如果是第一条日志，清空"暂无日志记录"提示
+            // 如果是第一条日志，移除"暂无日志记录"提示（不动表头）
             if (window.helperLogData.length === 0) {
-                logList.innerHTML = '';
+                var olds = logList.querySelectorAll('.log-row, .log-empty');
+                for (var i = 0; i < olds.length; i++) {
+                    logList.removeChild(olds[i]);
+                }
             }
 
             // 创建时间戳
@@ -4505,42 +4807,39 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             };
             window.helperLogData.push(logItem);
 
-            // 添加到UI
+            // 添加到UI：用 textContent 填充内容，避免日志文本破坏表格布局
             var logDiv = document.createElement('div');
-            logDiv.style.display = 'grid';
-            logDiv.style.gridTemplateColumns = '60px 90px 1fr';
-            logDiv.style.padding = '3px 8px';
-            logDiv.style.borderBottom = '1px solid var(--color-border)';
-            logDiv.style.alignItems = 'center';
-            logDiv.style.fontSize = '10.5px';
-            logDiv.style.color = 'var(--color-text-primary)';
+            logDiv.className = 'log-row';
 
-            logDiv.innerHTML = `
-                <div style="text-align: center; color: var(--color-text-secondary); font-weight: 500;">${logItem.index}</div>
-                <div style="text-align: center; color: var(--color-text-secondary);">${logItem.time}</div>
-                <div style="text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${logItem.content}</div>
-            `;
+            var cellIndex = document.createElement('div');
+            cellIndex.className = 'log-cell log-cell-index';
+            cellIndex.textContent = logItem.index;
+
+            var cellTime = document.createElement('div');
+            cellTime.className = 'log-cell log-cell-time';
+            cellTime.textContent = logItem.time;
+
+            var cellText = document.createElement('div');
+            cellText.className = 'log-cell log-cell-text';
+            cellText.textContent = logItem.content;
+            cellText.title = logItem.content;
+
+            logDiv.appendChild(cellIndex);
+            logDiv.appendChild(cellTime);
+            logDiv.appendChild(cellText);
 
             logList.appendChild(logDiv);
-            logList.scrollTop = logList.scrollHeight;
+            window.scheduleHelperLogScroll();
 
             // 更新统计信息
-            if (logCount) {
-                logCount.textContent = '总记录数: ' + window.helperLogData.length;
-            }
+            window.updateHelperLogCount();
         };
 
         // 清空辅助日志
         window.clearHelperLog = function() {
             window.helperLogData = [];
-            var logList = document.getElementById('helper-log-list');
-            var logCount = document.getElementById('helper-log-count');
-            if (logList) {
-                logList.innerHTML = '<div style="text-align: center; padding: 30px; color: var(--color-text-tertiary);">暂无日志记录</div>';
-            }
-            if (logCount) {
-                logCount.textContent = '总记录数: 0';
-            }
+            window.renderHelperLogEmpty();
+            window.updateHelperLogCount();
         };
 
         // 更新辅助提示文本
