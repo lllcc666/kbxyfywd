@@ -8,13 +8,13 @@
 #include <string>
 #include <vector>
 
+#include "hook_shared.h"
 #include "managed_thread.h"
 #include "packet_builder.h"
 #include "packet_protocol.h"
 #include "task_zone_internal.h"
+#include "ui_bridge.h"
 #include "wpe_hook.h"
-
-extern bool PostScriptToUI(const std::wstring& jsCode);
 
 // 活动总线实现。两条总线的报文形状见 activity_bus.h 的注释。
 
@@ -83,25 +83,13 @@ struct ReportOnExit {
 
 BOOL SendEmptyPacket(uint32_t opcode, uint32_t params) {
     auto packet = PacketBuilder().SetOpcode(opcode).SetParams(params).Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 // 读 body 开头的 u16 长度前缀字符串（ASCII），与 PacketBuilder::WriteString 对称。
+// length==0 时 ReadPacketString 同样返回空串并返回 true，语义一致。
 bool ReadBodyString(const GamePacket& packet, size_t& offset, std::string& out) {
-    if (offset + 2 > packet.body.size()) {
-        return false;
-    }
-    const uint16_t length = ReadUInt16LE(packet.body.data(), offset);
-    if (length == 0) {
-        out.clear();
-        return true;
-    }
-    if (offset + length > packet.body.size()) {
-        return false;
-    }
-    out.assign(reinterpret_cast<const char*>(packet.body.data() + offset), length);
-    offset += length;
-    return true;
+    return ReadPacketString(packet.body.data(), packet.body.size(), offset, out);
 }
 
 }  // namespace
@@ -110,12 +98,8 @@ BOOL SendActivityAction(int activityId, const char* action) {
     if (action == nullptr) {
         return FALSE;
     }
-    auto packet = PacketBuilder()
-                      .SetOpcode(Opcode::ACTIVITY_ACTION_SEND)
-                      .SetParams(static_cast<uint32_t>(activityId))
-                      .WriteString(action)
-                      .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(BuildActivityPacket(Opcode::ACTIVITY_ACTION_SEND,
+                                               static_cast<uint32_t>(activityId), action, {}));
 }
 
 BOOL SendActivityActionWithInts(int activityId,
@@ -124,18 +108,9 @@ BOOL SendActivityActionWithInts(int activityId,
     if (action == nullptr) {
         return FALSE;
     }
-
-    PacketBuilder builder;
-    builder.SetOpcode(Opcode::ACTIVITY_ACTION_SEND)
-        .SetParams(static_cast<uint32_t>(activityId))
-        .WriteString(action);
-
-    for (const int32_t value : bodyValues) {
-        builder.WriteInt32(value);
-    }
-
-    auto packet = builder.Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(BuildActivityPacket(Opcode::ACTIVITY_ACTION_SEND,
+                                               static_cast<uint32_t>(activityId), action,
+                                               bodyValues));
 }
 
 BOOL SendActivityQingyangPacket(int commandCode, const std::vector<int32_t>& bodyValues) {
@@ -147,8 +122,7 @@ BOOL SendActivityQingyangPacket(int commandCode, const std::vector<int32_t>& bod
         builder.WriteInt32(value);
     }
 
-    auto packet = builder.Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(builder.Build());
 }
 
 void ProcessRunCompetitionResponse(const GamePacket& packet) {

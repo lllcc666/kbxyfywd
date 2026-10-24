@@ -46,6 +46,11 @@ constexpr uint32_t DECOMPOSE_RESPONSE = RESOLVE_SPIRIT_BACK;
 
 constexpr uint32_t MONSTER_LIST = 1318401;
 
+// 副本跳层（跳关）请求/回包。副本跳层与双台谷走同一条协议。
+constexpr uint32_t JUMP_LAYER_SEND = 1186180;
+constexpr uint32_t JUMP_LAYER_BACK = 1317252;
+
+
 // 小游戏总线（AS3 MsgDoc.as:1012 OP_CLIENT_LITTLE_GAME，send=1184789 / back=1315861）。
 // params=gameType，body 由 gameType 决定（LittlegameControl.as:57/63/78）：
 //   开始 [0,0,0,0,0,0]（PK 局 [0,0,0,0,playerid,playerScore]）
@@ -56,19 +61,11 @@ constexpr uint32_t DEEP_DIG_SEND = 1184789;
 constexpr uint32_t DEEP_DIG_BACK = 1315861;
 constexpr uint32_t LITTLE_GAME_SEND = DEEP_DIG_SEND;
 constexpr uint32_t LITTLE_GAME_BACK = DEEP_DIG_BACK;
-constexpr uint32_t ACTIVITY_QUERY_BACK = 1316501;
 
 // 小游戏 bus 的 params（gameType）。AS3 侧没有枚举表，只能按服务端
 // littleGameStart 事件里的 gameid 识别。
 constexpr int GAME_TYPE_DEEP_DIG = 12;      // 深度挖掘（DeepHole.as：一局 4 宝箱 / 100 秒）
 constexpr int GAME_TYPE_KNOWLEDGE = 10003;  // 知识小天地
-
-constexpr uint32_t PLAYER_ENTER_SCENE = 1315075;
-constexpr uint32_t PLAYER_LEAVE_SCENE = 1315328;
-constexpr uint32_t PLAYER_MOVING = 1315076;
-constexpr uint32_t CHAT_MESSAGE = 1315083;
-constexpr uint32_t FAMILY_CHAT = 1316376;
-constexpr uint32_t BEIBEI_HEAL_SEND = 1186818;
 
 constexpr uint32_t DANCE_STAGE_SEND = 1187368;
 constexpr uint32_t DANCE_STAGE_BACK = 1318440;
@@ -109,19 +106,15 @@ constexpr uint32_t TASK_DAILY_REPORT_BACK = 1315884;
 constexpr uint32_t TASK_ARCHIVES_SEND = 1184811;
 constexpr uint32_t TASK_ARCHIVES_BACK = 1315883;
 
-constexpr uint32_t MALL_SEND = 1184833;
-constexpr uint32_t MALL_BACK = 1316515;
-constexpr uint32_t TRIAL_BACK = 1324097;
 
 constexpr uint32_t COLLECT_STATUS_SEND = 1187106;
 constexpr uint32_t COLLECT_STATUS_BACK = 1318178;
 constexpr uint32_t CHECK_ACCOUNT_SEND = 1183744;
 constexpr uint32_t ENTER_SCENE_SEND = 1184313;
+constexpr uint32_t EXIT_WORLD_SEND = 1184002;   // 退出世界回到个人空间（params=userId）
 
 constexpr uint32_t BATTLE_READY = 1186049;
-constexpr uint32_t BATTLE_LOOK_READY = 1186233;
 constexpr uint32_t BATTLE_PLAY_OVER = 1186056;
-constexpr uint32_t TOWER_BATTLE_START = 1184788;
 constexpr uint32_t BATTLE_END_SEND = 1186323;
 constexpr uint32_t CLICK_NPC = 1186048;
 
@@ -158,13 +151,15 @@ constexpr uint32_t GET_MAGIC_INDEX_SEND = 1184797;
 constexpr uint32_t GET_MAGIC_INDEX_BACK = 1316125;
 
 constexpr uint32_t BATTLE_MD5_CHECK = 1317264;
-constexpr uint32_t BATTLE_MD5_SEND = 1186193;
-constexpr uint32_t BATTLE_MD5_FAIL = 1317266;
 
 // 新活动总线（AS3 MsgDoc.as:1580 OP_CLIENT_ACTIVITY_QINGYANG_NEW，send=1185429 / back=1316501）。
 // params=活动ID，body="u16 长度 + ASCII 动作名"。动作名表在各活动 SWF 的 Define 类里，
 // 例如障碍赛跑 Act810Define.as 有 open_ui / start_game / sweep_info / sweep / reward / exchange。
 // 障碍赛跑(810)、金平府祈愿(688)、灵兽采集(754)、坐骑大赛(665) 全部走这一条。
+//
+// 下面这段是「新活动总线」的权威取值：本文件后面出现的所有同值名字都是指它，
+// 只是按模块叫法起的别名（坐骑大赛/采集/草莓…) 。别名直接引用权威常量，
+// 保证协议值只在这里写一次——此前同一个魔数被硬编码了 5 遍。
 constexpr uint32_t ACTIVITY_ACTION_SEND = 1185429;
 constexpr uint32_t ACTIVITY_ACTION_BACK = 1316501;
 
@@ -172,6 +167,11 @@ constexpr uint32_t ACTIVITY_ACTION_BACK = 1316501;
 // params 是活动子命令码（900/902/325/154/182/142/332…），body 是参数列表。
 constexpr uint32_t ACTIVITY_QINGYANG_SEND = 1184833;
 constexpr uint32_t ACTIVITY_QINGYANG_BACK = 1324097;
+
+// 下面两个是上面两条活动总线回包的模块别名。定义放在总线之后，
+// 因为 constexpr 别名必须引用已声明的常量（此前写在文件前部会编译失败）。
+constexpr uint32_t ACTIVITY_QUERY_BACK = ACTIVITY_ACTION_BACK;
+constexpr uint32_t TRIAL_BACK = ACTIVITY_QINGYANG_BACK;
 
 // 活动 ID（新总线的 params）与相关场景、NPC
 constexpr int ACT_RUN_COMPETITION = 810;   // 障碍赛跑 Act810RunMain
@@ -181,28 +181,24 @@ constexpr int SCENE_GOMOKU = 1010;         // 五子棋所在场景
 constexpr int NPC_GOMOKU = 18004;          // 五子棋 NPC
 constexpr int SCENE_JINPINGFU = 22004;     // 金平府场景
 
-constexpr uint32_t ACTIVITY_QINGYANG_NEW_SEND = 1185429;
+constexpr uint32_t ACTIVITY_QINGYANG_NEW_SEND = ACTIVITY_ACTION_SEND;
 constexpr uint32_t ACTIVITY_LUA_V3_SEND = 1185432;
 constexpr uint32_t ACTIVITY_LUA_V3_BACK = 1316503;
-constexpr uint32_t STRAWBERRY_SEND = 1185429;
-constexpr uint32_t STRAWBERRY_BACK = 1316501;
 
-constexpr uint32_t HORSE_COMPETITION_SEND = 1185429;
-constexpr uint32_t HORSE_COMPETITION_BACK = 1316501;
-constexpr uint32_t HORSE_GAME_CMD_SEND = 1185432;
+constexpr uint32_t HORSE_COMPETITION_SEND = ACTIVITY_ACTION_SEND;
+constexpr uint32_t HORSE_COMPETITION_BACK = ACTIVITY_ACTION_BACK;
+constexpr uint32_t HORSE_GAME_CMD_SEND = ACTIVITY_LUA_V3_SEND;
 constexpr int HORSE_COMPETITION_ACT_ID = 665;
 
-constexpr uint32_t HEAVEN_FURUI_SEND = 1184833;
-constexpr uint32_t HEAVEN_FURUI_BACK = 1324097;
+constexpr uint32_t HEAVEN_FURUI_SEND = ACTIVITY_QINGYANG_SEND;
+constexpr uint32_t HEAVEN_FURUI_BACK = ACTIVITY_QINGYANG_BACK;
 
 constexpr uint32_t SPIRIT_PRESURES_SEND = 1187124;
 constexpr uint32_t SPIRIT_PRESURES_BACK = 1330484;
-constexpr uint32_t SPIRIT_SEND_SPIRIT_SEND = 1187129;
 constexpr uint32_t SPIRIT_SEND_SPIRIT_BACK = 1330489;
 constexpr uint32_t SPIRIT_PLAYER_INFO_SEND = 1187585;
 constexpr uint32_t SPIRIT_PLAYER_INFO_BACK = 1318657;
-constexpr uint32_t SPIRIT_COLLECT_SEND = 1185429;
-constexpr uint32_t SPIRIT_COLLECT_BACK = 1316501;
+constexpr uint32_t SPIRIT_COLLECT_BACK = ACTIVITY_ACTION_BACK;
 constexpr int SPIRIT_COLLECT_ACT_ID = 754;
 
 constexpr uint32_t BUY_GOODS_SEND = 1183760;
@@ -226,10 +222,7 @@ constexpr uint32_t BATTLESIX_PREPARE_COMBAT_BACK = 1315355;
 constexpr uint32_t BATTLESIX_COMBAT_OVER_BACK = 1315356;
 constexpr uint32_t BATTLESIX_SELF_BAN_SPIRIT_BACK = 1315357;
 constexpr uint32_t BATTLESIX_FINISH_FIRST_SPIRIT_BACK = 1315358;
-constexpr uint32_t BATTLESIX_BATTLE_START_BACK = 1317120;
-constexpr uint32_t BATTLESIX_BATTLE_ROUND_START_BACK = 1317121;
-constexpr uint32_t BATTLESIX_BATTLE_ROUND_RESULT_BACK = 1317122;
-constexpr uint32_t BATTLESIX_BATTLE_END_BACK = 1317125;
-constexpr uint32_t BATTLESIX_USER_OP_SEND = 1186050;
+// 与通用战斗操作同一条协议，保留别名只是为了调用处读起来贴合六强赛语境。
+constexpr uint32_t BATTLESIX_USER_OP_SEND = USER_OP_SEND;
 
 }  // namespace Opcode

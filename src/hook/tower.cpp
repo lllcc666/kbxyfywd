@@ -32,8 +32,6 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 CRITICAL_SECTION g_towerCS;  // 玄塔临界区
 
 // 玄塔活动全局变量
@@ -60,26 +58,26 @@ static bool g_towerBuyBonesSuccess = false;        // 购买是否成功
 static int g_towerBuyBonesNum = 0;                 // 购买后的骰子数量
 
 // 查询玄塔信息
-// Opcode: 1184833, Params: 341, Body: [1] (CHECK_INFO)
+// Opcode: 旧活动总线, Params: 341, Body: [1] (CHECK_INFO)
 BOOL SendTowerCheckInfoPacket() {
     auto packet = PacketBuilder()
-        .SetOpcode(1184833)
+        .SetOpcode(Opcode::ACTIVITY_QINGYANG_SEND)
         .SetParams(341)
         .WriteInt32(1)
         .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 // 购买骰子（18个）
-// Opcode: 1184833, Params: 341, Body: [6, 18] (BUY_BONES, 数量18)
+// Opcode: 旧活动总线, Params: 341, Body: [6, 18] (BUY_BONES, 数量18)
 BOOL SendBuyDicePacket() {
     auto packet = PacketBuilder()
-        .SetOpcode(1184833)
+        .SetOpcode(Opcode::ACTIVITY_QINGYANG_SEND)
         .SetParams(341)
         .WriteInt32(6)
         .WriteInt32(18)
         .Build();
-    BOOL result = SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    BOOL result = SendPacketBytes(packet);
     if (result) {
         UIBridge::Instance().UpdateHelperText(L"已购买18个骰子");
     }
@@ -87,45 +85,45 @@ BOOL SendBuyDicePacket() {
 }
 
 // 投掷骰子
-// Opcode: 1184833, Params: 341, Body: [2] (THROW_BONES)
+// Opcode: 旧活动总线, Params: 341, Body: [2] (THROW_BONES)
 BOOL SendThrowBonesPacket() {
     auto packet = PacketBuilder()
-        .SetOpcode(1184833)
+        .SetOpcode(Opcode::ACTIVITY_QINGYANG_SEND)
         .SetParams(341)
         .WriteInt32(2)
         .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 // 退出世界（回家第一步）
-// Opcode: 1184002, Params: userId
+// Opcode: 退出世界, Params: userId
 BOOL SendExitScenePacket(uint32_t userId) {
     auto packet = PacketBuilder()
-        .SetOpcode(1184002)
+        .SetOpcode(Opcode::EXIT_WORLD_SEND)
         .SetParams(userId)
         .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 // 查询玄塔结果
-// Opcode: 1184833, Params: 341, Body: [4] (REACH_RESULT)
+// Opcode: 旧活动总线, Params: 341, Body: [4] (REACH_RESULT)
 BOOL SendTowerResultPacket() {
     auto packet = PacketBuilder()
-        .SetOpcode(1184833)
+        .SetOpcode(Opcode::ACTIVITY_QINGYANG_SEND)
         .SetParams(341)
         .WriteInt32(4)
         .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 // 重新进入玄塔地图（回家第二步）
-// Opcode: 1184313, Params: 1002
+// Opcode: 进场景, Params: 1002
 BOOL SendReenterTowerMapPacket() {
     auto packet = PacketBuilder()
         .SetOpcode(Opcode::ENTER_SCENE_SEND)
         .SetParams(1002)
         .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 // 玄塔自动跑塔线程

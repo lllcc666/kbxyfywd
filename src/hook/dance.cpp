@@ -32,8 +32,6 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 enum DanceFailReason {
     DANCE_FAIL_NONE = 0,
     DANCE_FAIL_ENTER_MAP,      ///< 进入地图失败
@@ -126,7 +124,7 @@ BOOL SendDanceStagePacketEx(int params, const std::vector<int32_t>& bodyValues) 
         .WriteInt32Array(bodyValues)
         .Build();
     
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 // 跳舞大赛 - 进入活动（发送进入封包）
@@ -183,8 +181,6 @@ BOOL SendDanceExitPacketEx() {
 BOOL SendDanceSubmitScorePacket(int serverScore) {
     return SendDanceActivityPacketEx(6, {7, serverScore});
 }
-
-
 
 // 处理跳舞大赛活动响应
 void ProcessDanceActivityResponse(const GamePacket& packet) {

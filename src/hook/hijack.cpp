@@ -32,8 +32,6 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 // 封包标签化功能
 // ============================================================================
 

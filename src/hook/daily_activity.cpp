@@ -33,8 +33,6 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 struct DailyTaskData {
     DWORD flags;
     HWND hwnd;
@@ -49,7 +47,7 @@ BOOL SendDailyCardPacket() {
         .SetOpcode(1184815)
         .SetParams(22)
         .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 // 每日礼包
@@ -59,7 +57,7 @@ BOOL SendDailyGiftPacket() {
         .SetOpcode(1186300)
         .SetParams(0)
         .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 // 每周礼包
@@ -69,7 +67,7 @@ BOOL SendWeeklyGiftPacket() {
         .SetOpcode(1186290)
         .SetParams(0)
         .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 // 家族考勤
@@ -79,7 +77,7 @@ BOOL SendFamilyCheckinPacket() {
         .SetOpcode(1184770)
         .SetParams(0)
         .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 // 家族报道
@@ -89,7 +87,7 @@ BOOL SendFamilyReportPacket() {
         .SetOpcode(1185336)
         .SetParams(0)
         .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 // 家族保卫战
@@ -101,7 +99,7 @@ BOOL SendFamilyDefendPacket() {
         .SetParams(0)
         .WriteInt32(0)
         .Build();
-    SendPacket(0, packet1.data(), static_cast<DWORD>(packet1.size()));
+    SendPacketBytes(packet1);
     Sleep(300);
     
     // 封包2: Opcode=1185313, Params=1, Body=[6]
@@ -110,7 +108,7 @@ BOOL SendFamilyDefendPacket() {
         .SetParams(1)
         .WriteInt32(6)
         .Build();
-    SendPacket(0, packet2.data(), static_cast<DWORD>(packet2.size()));
+    SendPacketBytes(packet2);
     Sleep(300);
     
     // 封包3: Opcode=1184801, Params=3
@@ -118,22 +116,22 @@ BOOL SendFamilyDefendPacket() {
         .SetOpcode(1184801)
         .SetParams(3)
         .Build();
-    SendPacket(0, packet3.data(), static_cast<DWORD>(packet3.size()));
+    SendPacketBytes(packet3);
     
     return TRUE;
 }
 
 // 商城惊喜
-// 循环发送3次: Opcode=1184833, Params=154, Body=[1]
+// 循环发送3次: Opcode=旧活动总线, Params=154, Body=[1]
 BOOL SendShopSurprisePacket() {
     auto packet = PacketBuilder()
-        .SetOpcode(1184833)
+        .SetOpcode(Opcode::ACTIVITY_QINGYANG_SEND)
         .SetParams(154)
         .WriteInt32(1)
         .Build();
     
     for (int i = 0; i < 3; i++) {
-        SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+        SendPacketBytes(packet);
         if (i < 2) Sleep(300);
     }
     
@@ -149,9 +147,8 @@ BOOL SendBeibeiHealPacket() {
         .SetOpcode(1186818)
         .SetParams(1)
         .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
-
 
 DWORD WINAPI DailyTaskThreadProc(LPVOID lpParam) {
     DailyTaskData* taskData = static_cast<DailyTaskData*>(lpParam);

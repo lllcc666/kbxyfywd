@@ -10,9 +10,8 @@
 #include "managed_thread.h"
 #include "packet_builder.h"
 #include "packet_protocol.h"
+#include "ui_bridge.h"
 #include "wpe_hook.h"
-
-extern bool PostScriptToUI(const std::wstring& jsCode);
 
 // 小游戏总线实现。报文格式见 little_game.h 的注释与
 // AS3 LittlegameControl.as:57/63/78。
@@ -28,7 +27,7 @@ BOOL SendLittleGameStart(int gameType) {
                       .WriteInt32(0)
                       .WriteInt32(0)
                       .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 BOOL SendLittleGameStartCompact(int gameType) {
@@ -37,7 +36,7 @@ BOOL SendLittleGameStartCompact(int gameType) {
                       .SetParams(static_cast<uint32_t>(gameType))
                       .WriteInt32(0)
                       .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 BOOL SendLittleGameEnd(int gameType, int level, int score, int sessionId) {
@@ -51,7 +50,7 @@ BOOL SendLittleGameEnd(int gameType, int level, int score, int sessionId) {
                       .WriteInt32(0)
                       .WriteInt32(0)
                       .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 BOOL SendLittleGameEndCompact(int gameType, int level, int score, int sessionId) {
@@ -63,7 +62,7 @@ BOOL SendLittleGameEndCompact(int gameType, int level, int score, int sessionId)
                       .WriteInt32(score)
                       .WriteInt32(sessionId)
                       .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 namespace {

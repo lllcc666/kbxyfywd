@@ -41,17 +41,6 @@ bool TryParseHexBytePair(char high, char low, BYTE& value) {
     return true;
 }
 
-std::string BytesToHexString(const BYTE* data, DWORD len) {
-    std::string result;
-    result.reserve(static_cast<size_t>(len) * 2);
-    for (DWORD i = 0; i < len; ++i) {
-        BYTE value = data[i];
-        result.push_back(HEX_DIGITS[(value >> 4) & 0x0F]);
-        result.push_back(HEX_DIGITS[value & 0x0F]);
-    }
-    return result;
-}
-
 static const PacketLabelEntry g_packetLabelEntries[] = {
     {1186049, "战斗准备"},
     {1317120, "战斗开始"},
@@ -120,18 +109,18 @@ std::wstring GetItemName(uint32_t itemId) {
     return std::to_wstring(itemId);
 }
 
-std::string HexToString(const BYTE* pData, DWORD dwSize) {
+std::string HexToString(const BYTE* pData, DWORD dwSize, bool spaced) {
     if (dwSize == 0) {
         return "";
     }
 
     std::string result;
-    result.reserve(static_cast<size_t>(dwSize) * 3 - 1);
+    result.reserve(static_cast<size_t>(dwSize) * (spaced ? 3 : 2) - (spaced ? 1 : 0));
     for (DWORD i = 0; i < dwSize; i++) {
         BYTE value = pData[i];
         result.push_back(HEX_DIGITS[(value >> 4) & 0x0F]);
         result.push_back(HEX_DIGITS[value & 0x0F]);
-        if (i < dwSize - 1) {
+        if (spaced && i < dwSize - 1) {
             result.push_back(' ');
         }
     }
@@ -169,12 +158,12 @@ std::vector<BYTE> StringToHex(const std::string& str) {
 BOOL ExtractLoginKeyFromPacket(const BYTE* pData, DWORD len) {
     if (len < 12) return FALSE;
 
-    std::string hexPacket = BytesToHexString(pData, len);
+    std::string hexPacket = HexToString(pData, len, false);
     for (auto& c : hexPacket) {
         c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
     }
 
-    g_loginKey = Utf8ToWide(hexPacket);
+    SetLoginKey(Utf8ToWide(hexPacket));
     return TRUE;
 }
 

@@ -17,13 +17,9 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 // ============================================================================
 // 万妖盛会流程机制（阶段/token/看门狗/PP 修正）
 // ============================================================================
-
-
 
 // 万妖盛会流程 owner：阶段、token 和结算标记统一由该流程维护。
 std::atomic<bool> g_battleSixMatching{false};  ///< 是否正在匹配
@@ -77,8 +73,6 @@ void ScheduleBattleSixRecoveryViaCombatInfo(DWORD delayMs) {
         delete pDelay;
     }
 }
-
-
 
 static void AdjustBattleSixSpiritSkillPP(std::vector<BattleSixSpiritInfo>& spirits,
                                          int spiritSid,
@@ -709,7 +703,7 @@ BOOL SendBattleSixCombatInfoPacket() {
         .WriteBytes(body)
         .Build();
     
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 static BOOL SendBattleSixMatchPacketOnce() {
@@ -720,7 +714,7 @@ static BOOL SendBattleSixMatchPacketOnce() {
         .WriteBytes(body)
         .Build();
 
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 static void StartBattleSixMatchRetryLoop(unsigned long long token) {
@@ -781,7 +775,7 @@ BOOL SendBattleSixCancelMatchPacket() {
     
     ResetBattleSixFlowState();
     
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 BOOL SendBattleSixReqStartPacket() {
@@ -793,7 +787,7 @@ BOOL SendBattleSixReqStartPacket() {
         .Build();
 
     g_battleSixReadySupplementSent = false;
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 BOOL SendBattleSixUserOpPacket(int opType, int param1, int param2) {
@@ -819,7 +813,7 @@ BOOL SendBattleSixUserOpPacket(int opType, int param1, int param2) {
     
     auto finalPacket = packet.Build();
     
-    return SendPacket(0, finalPacket.data(), static_cast<DWORD>(finalPacket.size()));
+    return SendPacketBytes(finalPacket);
 }
 
 BOOL SendBattleSixEndPacket() {
@@ -835,7 +829,7 @@ BOOL SendNormalBattleEndPacket() {
         .SetParams(0)
         .Build();
 
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 BOOL SendBattleReadyPacket() {
@@ -844,7 +838,7 @@ BOOL SendBattleReadyPacket() {
         .SetParams(0)
         .Build();
 
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 BOOL SendBattlePlayOverPacket() {
@@ -855,7 +849,7 @@ BOOL SendBattlePlayOverPacket() {
         .SetParams(0)
         .Build();
 
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 // 万妖盛会响应处理函数实现

@@ -15,8 +15,6 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 // ============================================================================
 // 精魄赠送系统功能实现 (SpiritCollect)
 // ============================================================================

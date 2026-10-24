@@ -210,7 +210,7 @@ void HandleSendRawPacketCommand(const std::wstring& msg) {
 
     auto data = StringToHex(WideToUtf8(hexW));
     LaunchDetachedStdThread([data = std::move(data)]() {
-        const BOOL result = SendPacket(0, data.data(), static_cast<DWORD>(data.size()));
+        const BOOL result = SendPacketBytes(data);
         if (!result) {
             SetHelperText(L"封包发送失败：未连接到游戏服务器");
         }
@@ -841,17 +841,18 @@ void HandleSpiritCollectCommand(const std::wstring& msg) {
 }
 
 void CopyLoginKeyToClipboard() {
-    if (g_loginKey.empty() || !OpenClipboard(nullptr)) {
+    const std::wstring loginKey = GetLoginKey();
+    if (loginKey.empty() || !OpenClipboard(nullptr)) {
         return;
     }
 
     EmptyClipboard();
-    const size_t len = (g_loginKey.length() + 1) * sizeof(wchar_t);
+    const size_t len = (loginKey.length() + 1) * sizeof(wchar_t);
     HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, len);
     if (hMem) {
         void* locked = GlobalLock(hMem);
         if (locked) {
-            memcpy(locked, g_loginKey.c_str(), len);
+            memcpy(locked, loginKey.c_str(), len);
             GlobalUnlock(hMem);
             SetClipboardData(CF_UNICODETEXT, hMem);
         } else {

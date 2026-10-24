@@ -13,15 +13,20 @@
 
 #include "activity_states_internal.h"
 #include "packet_builder.h"
+#include "ui_bridge.h"
 #include "utils.h"
-
-extern bool PostScriptToUI(const std::wstring& jsCode);
 
 namespace {
 
 // 坐骑大赛模块 owner：运行线程、运行标记和进度回调统一由这里维护。
 std::thread g_horseGameThread;
-std::atomic<bool> g_horseGameRunning{false};
+
+// 比赛线程的存亡开关，**不是**「一键流程在跑」。
+//   g_horseRaceThreadRunning : 比赛内主循环（跑圈计时）是否继续，只由 Start/Stop 游戏线程改写
+//   state.isRunning         : 整轮一键流程（拉 ui_info → 入房 → 跑圈 → 结算 → 退房）是否在跑
+// 两者生命周期不同：流程可能在入房阶段就放弃（比赛线程根本没起），
+// 也可能一局结束线程已退出但流程还要接着跑下一局。别合并。
+std::atomic<bool> g_horseRaceThreadRunning{false};
 HorseProgressCallback g_horseProgressCallback = nullptr;
 
 // 游戏线程的启动/停止来自不同线程：StartHorseCompetitionGame 由收包分发线程触发
@@ -142,7 +147,6 @@ std::vector<uint8_t> BuildHorsePacketBody(
     return body;
 }
 
-
 std::vector<uint8_t> WrapHorsePacketBody(const std::vector<uint8_t>& body, bool useGameCmd) {
     const uint32_t opcode = useGameCmd ? Opcode::HORSE_GAME_CMD_SEND : Opcode::HORSE_COMPETITION_SEND;
 
@@ -155,7 +159,7 @@ std::vector<uint8_t> WrapHorsePacketBody(const std::vector<uint8_t>& body, bool 
 
 BOOL SendHorsePacketBody(const std::vector<uint8_t>& body, bool useGameCmd) {
     const std::vector<uint8_t> packet = WrapHorsePacketBody(body, useGameCmd);
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 bool ReadHorseJsonPayload(const GamePacket& packet, size_t& offset, std::string& json) {
@@ -305,7 +309,7 @@ void HorseGameMainLoop() {
     const auto gameStart = lastTick;
     auto accumulator = std::chrono::duration<double, std::milli>(0.0);
 
-    while (g_horseGameRunning && state.isGaming) {
+    while (g_horseRaceThreadRunning && state.isGaming) {
         const auto now = std::chrono::steady_clock::now();
         accumulator += std::chrono::duration<double, std::milli>(now - lastTick);
         lastTick = now;
@@ -322,10 +326,9 @@ void HorseGameMainLoop() {
 
         int steps = 0;
         while (accumulator >= frameDuration && steps < kMaxStepsPerTick
-               && g_horseGameRunning && state.isGaming && !state.localFinished) {
+               && g_horseRaceThreadRunning && state.isGaming && !state.localFinished) {
             accumulator -= frameDuration;
             ++steps;
-
 
             {
                 if (accCooldownFrames > 0) {
@@ -825,7 +828,6 @@ bool ApplyHorseSelfFromMembersArray(HorseCompetitionState& state, const std::str
     return ApplyHorseSelfFromMemberObject(state, selfJson);
 }
 
-
 // 判断一个带房间号的回包是不是「另一个房间」的包。
 //
 // 这里刻意不用 staleRoomId 兜底：服务器会复用房间号，上一局的房号极可能就是
@@ -959,7 +961,7 @@ void HandleHorseJoinGameResponse(HorseCompetitionState& state, const std::string
     // （MemberInfo.init 里 horse_info / items 是每个成员各自持有的）。
     // 这里必须做同样的区分，否则别人入房的包会用他的 horse_info / items 覆盖
     // 本方状态；而且下面的 SetHorsePhase(WAITING_START) 会把 isGaming 置回 false，
-    // 令比赛中的主循环（while (g_horseGameRunning && state.isGaming)）立即退出。
+    // 令比赛中的主循环（while (g_horseRaceThreadRunning && state.isGaming)）立即退出。
     const uint32_t playerId = ExtractJsonUInt(json, "player_id");
     if (playerId != 0 && playerId != g_userId.load()) {
         return;  // 其他成员入房，不影响本方状态
@@ -1402,8 +1404,8 @@ BOOL StartHorseCompetitionGame() {
     state.raceAborted = false;
 
     // 先回收上一局的线程，再置运行标志——顺序反过来会挂死：
-    // 旧线程的循环条件是 g_horseGameRunning && state.isGaming，
-    // 若先写 g_horseGameRunning=true / phase=GAMING 再去 join，旧线程会在这
+    // 旧线程的循环条件是 g_horseRaceThreadRunning && state.isGaming，
+    // 若先写 g_horseRaceThreadRunning=true / phase=GAMING 再去 join，旧线程会在这
     // 16ms 窗口里看到条件重新为真而"复活"，join 就永久阻塞，而这里跑在收包
     // 分发线程上，整个收包链路当场卡死。
     //
@@ -1417,12 +1419,12 @@ BOOL StartHorseCompetitionGame() {
         if (state.isGaming) {
             return FALSE;
         }
-        g_horseGameRunning = false;
+        g_horseRaceThreadRunning = false;
         if (g_horseGameThread.joinable()) {
             g_horseGameThread.join();
         }
         SetHorsePhase(state, HORSE_PHASE_GAMING);
-        g_horseGameRunning = true;
+        g_horseRaceThreadRunning = true;
         g_horseGameThread = std::thread(HorseGameMainLoop);
     }
 
@@ -1435,7 +1437,7 @@ void StopHorseCompetitionGame() {
     // 与 StartHorseCompetitionGame 共用同一把锁，避免「线程已退出、phase 还是
     // GAMING」这种两边交错留下的错位状态。
     std::lock_guard<std::mutex> lock(g_horseGameThreadMutex);
-    g_horseGameRunning = false;
+    g_horseRaceThreadRunning = false;
     if (g_horseGameThread.joinable()) {
         g_horseGameThread.join();
     }

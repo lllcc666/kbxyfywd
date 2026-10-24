@@ -26,11 +26,10 @@
 // uint16 长度前缀字符串读取；越界返回 false，不推进 offset。
 bool ReadPacketString(const BYTE* body, size_t bodySize, size_t& offset, std::string& out);
 
-// 活动通用发包：opcode=ACTIVITY_QINGYANG_NEW_SEND，body 由 activityId + operation +
-// bodyValues 组成。activityId 同时作为 params 参与回包匹配。
-BOOL SendActivityPacket(uint32_t activityId, const std::string& operation,
-                        const std::vector<int32_t>& bodyValues = {});
-
+// 把单个活动的剩余次数回填到前端（window.updateActivityCounts）。
+// 原先 activity_counts.cpp 与 latest_activities.cpp 各有一份逐字相同的实现。
+// remainingCount < 0 表示尚未解析到。
+void ReportActivityCount(uint32_t activityId, int remainingCount);
 
 // 精魄系统的三条 UI 提示（window.handleSpiritCollectData）。
 void NotifySpiritAlert(const std::wstring& message);

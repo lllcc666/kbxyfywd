@@ -30,8 +30,6 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 // ============================================================================
 // 最新活动：剩余次数查询与回填
 //
@@ -80,16 +78,6 @@ constexpr int kActivityCountTargetNum =
 int GetActivityRemainingCount(uint32_t activityId) {
     // 最新活动（周活动小游戏）由独立模块维护次数，其余活动不再有一键入口。
     return IsLatestActivity(activityId) ? GetLatestActivityPlayCount(activityId) : -1;
-}
-
-void ReportActivityCount(uint32_t activityId, int remainingCount) {
-    wchar_t jsCode[256];
-    swprintf_s(
-        jsCode,
-        L"if(window.updateActivityCounts) { window.updateActivityCounts({ %u: %d }); }",
-        activityId,
-        remainingCount);
-    UIBridge::Instance().ExecuteJS(jsCode);
 }
 
 // 直接构造进入活动的探针封包，协议字节与各活动 SendActNNNOpenUIPacket 一致，

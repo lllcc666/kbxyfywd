@@ -67,14 +67,11 @@ void ProcessSpiritPresuresResponse(const GamePacket& packet);
 void ProcessSpiritCollectResponse(const GamePacket& packet);
 void ProcessSpiritSendSpiritResponse(const GamePacket& packet);
 void ProcessSpiritPlayerInfoResponse(const GamePacket& packet);
-void ProcessAct808Response(const GamePacket& packet);
 static void ProcessStoryTaskTalkResponse(const GamePacket& packet);
 static void ProcessStoryNpcTaskListResponse(const GamePacket& packet);
 static void ProcessStoryNpcListResponse(const GamePacket& packet);
 static void ProcessStoryMagicIndexResponse(const GamePacket& packet);
 static void ProcessStoryTaskFinishedResponse(const GamePacket& packet);
-
-extern bool PostScriptToUI(const std::wstring& jsCode);
 
 // 嵌入资源
 #include "embedded/minhook_data.h"
@@ -88,7 +85,6 @@ extern std::unordered_map<int, int> g_skillPowers;
 extern std::unordered_map<int, int> g_skillRanges;
 extern std::unordered_map<int, int> g_petElems;
 
-
 // MinHook 宏定义
 #ifndef MH_ALL_HOOKS
 #define MH_ALL_HOOKS (nullptr)
@@ -98,12 +94,8 @@ extern std::unordered_map<int, int> g_petElems;
 // 前向声明
 // ============================================================================
 
-struct ICoreWebView2;
-extern ICoreWebView2* g_webview;
-
 // 前向声明
 void ProcessMD5CheckAndReply(const std::vector<BYTE>& body, uint32_t params);
-
 
 // ============================================================================
 // 内部命名空间 - 封装实现细节
@@ -195,13 +187,17 @@ inline bool IsDefaultBlockedPacket(uint32_t opcode, uint32_t params,
 // 临界区管理（RAII）
 // -------------------------
 
-CriticalSectionScope g_pendingPacketsCS;   ///< 暂存封包临界区
+// 全局临界区一律 leakOnExit：静态析构阶段 hook 线程未必退干净，
+// 删锁的代价（进入已删除的锁 = UB）远大于把这一小块内存留给进程回收。
+CriticalSectionScope g_pendingPacketsCS(true);   ///< 暂存封包临界区
 
 // -------------------------
 // 全局状态
 // -------------------------
 
-bool g_bInitialized = false;                         ///< 初始化标志
+// hook 线程在 HookedSend/HookedRecv 里读它判断要不要拦，UI 线程在
+// StopIntercept/CleanupWpeHook 里写，必须是原子量。
+std::atomic<bool> g_bInitialized{false};             ///< 初始化标志
 
 std::vector<std::tuple<BOOL, std::vector<BYTE>, DWORD, DWORD>> g_PendingPackets;
 
@@ -210,10 +206,7 @@ std::atomic<bool> g_bInterceptSend{true};    ///< 是否拦截发送包
 std::atomic<bool> g_bInterceptRecv{false};   ///< 是否拦截接收包
 std::atomic<bool> g_bInterceptEnabled{false};///< 是否启用拦截
 
-
-
 // 自动发送状态
-
 
 }  // anonymous namespace
 
@@ -223,13 +216,13 @@ std::atomic<bool> g_bInterceptEnabled{false};///< 是否启用拦截
 // ============================================================================
 // 网络状态
 std::atomic<bool> g_blockOpcodeSend{false};  ///< 是否阻止特定Opcode发送
-// 劫持功能
-bool g_bHijackEnabled = false;    ///< 是否启用劫持功能
-CriticalSectionScope g_packetListCS;       ///< 封包列表临界区
+// 劫持功能：UI 线程写、游戏 socket 线程读，必须是原子量。
+std::atomic<bool> g_bHijackEnabled{false};    ///< 是否启用劫持功能
+CriticalSectionScope g_packetListCS(true);       ///< 封包列表临界区
 // 封包列表
 std::vector<PACKET> g_PacketList;
 std::vector<HijackRule> g_HijackRules;  ///< 劫持规则列表
-CriticalSectionScope g_hijackRulesCS;   ///< 劫持规则临界区
+CriticalSectionScope g_hijackRulesCS(true);   ///< 劫持规则临界区
 std::atomic<bool> g_bStopAutoSend{false};    ///< 停止自动发送标志
 EXECUTE_SCRIPT_FUNC g_ExecuteScriptFunc = nullptr;  ///< JS执行函数指针
 
@@ -257,10 +250,6 @@ std::atomic<bool> g_collectFinished{false};  ///< 采集完成标志
 std::atomic<bool> g_collectAutoMode{false};  ///< 一键采集模式
 std::atomic<int> g_collectStatus{0};  ///< 采集状态
 
-
-
-
-
 // 背包缓存 owner：位置映射和物品列表统一由这一组维护。
 std::map<uint32_t, uint32_t> g_itemPositionMap;
 std::vector<PackItemInfo> g_packItems;
@@ -268,18 +257,28 @@ std::vector<PackItemInfo> g_packItems;
 // 万妖盛会状态变量
 BattleSixAutoBattle g_battleSixAuto;
 
-
-
-
 // 登录 key 捕获 owner：原始 key 字符串由这里维护。
-std::wstring g_loginKey;                     ///< 整个封包的十六进制字符串（大写）
+// 写点在游戏 socket 线程（ExtractLoginKeyFromPacket），读点在 UI 线程
+// （CopyLoginKeyToClipboard）；std::wstring 赋值会释放旧缓冲区，
+// 无锁并发读写即 UB，故对外只暴露两个加锁函数，变量本身不出本文件。
+static std::wstring s_loginKey;
+static std::mutex s_loginKeyMutex;
+
+void SetLoginKey(const std::wstring& key) {
+    std::lock_guard<std::mutex> lock(s_loginKeyMutex);
+    s_loginKey = key;
+}
+
+std::wstring GetLoginKey() {
+    std::lock_guard<std::mutex> lock(s_loginKeyMutex);
+    return s_loginKey;
+}
 
 namespace {
 
 // 跳舞大赛 owner：进程、响应状态和进度统一由该状态对象维护。
 
 // 单次跳舞失败原因：用于在重试日志中说明是哪一步出的问题。
-
 
 // -------------------------
 // 回调函数
@@ -339,7 +338,6 @@ inline uint32_t ReadOpcode(const BYTE* pData) {
 // 玄塔活动临界区（在匿名命名空间外）
 // ============================================================================
 
-
 // ============================================================================
 // 初始化与清理
 // ============================================================================
@@ -348,43 +346,10 @@ void SetExecuteScriptFunction(EXECUTE_SCRIPT_FUNC func) {
     g_ExecuteScriptFunc = func;
 }
 
-// 启动诊断：把关键步骤追加到 %TEMP%\kbwebui_boot.log。
-// 用户报「双击没反应」时，让他把该文件发回来，就能看到停在哪一步。
-static void BootLog(const char* stage) {
-    wchar_t tempPath[MAX_PATH] = {};
-    if (GetTempPathW(MAX_PATH, tempPath) == 0) {
-        return;
-    }
-    if (wcslen(tempPath) + 16 >= MAX_PATH) {
-        return;
-    }
-    wcscat_s(tempPath, L"kbwebui_boot.log");
-
-    HANDLE hFile = CreateFileW(tempPath, FILE_APPEND_DATA, FILE_SHARE_READ,
-                               nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (hFile == INVALID_HANDLE_VALUE) {
-        return;
-    }
-
-    SYSTEMTIME st = {};
-    GetLocalTime(&st);
-    char line[512] = {};
-    const int len = wsprintfA(line, "[%04d-%02d-%02d %02d:%02d:%02d] %s\r\n",
-                              st.wYear, st.wMonth, st.wDay,
-                              st.wHour, st.wMinute, st.wSecond, stage);
-    if (len > 0) {
-        DWORD written = 0;
-        WriteFile(hFile, line, static_cast<DWORD>(len), &written, nullptr);
-    }
-    CloseHandle(hFile);
-}
-
 BOOL InitializeWpeHook() {
     if (g_bInitialized) {
         return TRUE;
     }
-
-    BootLog("InitializeWpeHook: enter");
 
     // 初始化玄塔临界区
     InitializeTowerState();
@@ -396,26 +361,19 @@ BOOL InitializeWpeHook() {
     try {
         // 初始化解析器
         if (!PacketParser::Initialize()) {
-            BootLog("InitializeWpeHook: PacketParser::Initialize returned false");
             CleanupTowerState();
             return FALSE;
         }
-        BootLog("InitializeWpeHook: after PacketParser::Initialize");
 
         // 初始化响应处理器（启动期单线程，内部走无锁版本）
         ResponseDispatcher::Instance().InitializeDefaultHandlers();
-        BootLog("InitializeWpeHook: after InitializeDefaultHandlers");
-    } catch (const std::exception& e) {
-        BootLog(e.what());
-        BootLog("InitializeWpeHook: std::exception caught, hook disabled");
+    } catch (const std::exception&) {
         return FALSE;
     } catch (...) {
-        BootLog("InitializeWpeHook: unknown exception caught, hook disabled");
         return FALSE;
     }
 
     g_bInitialized = true;
-    BootLog("InitializeWpeHook: done");
     return TRUE;
 }
 
@@ -427,16 +385,20 @@ VOID CleanupWpeHook() {
 
     if (!g_bInitialized) return;
 
+    // 赛马主循环是模块内的 std::thread，不在 ManagedThread 登记表里，
+    // RequestStopAll/JoinAll 收不住它。它自己持 g_horseRaceThreadRunning
+    // 和 state.isGaming 两个退出条件，必须走 Stop 让它 join 掉。
+    // 必须在关拦截之前：线程可能正阻塞在等退房回包，拦截先关掉的话
+    // 收包链不再喂等待器，join 只能干等到 SendPacket 超时。
+    StopHorseCompetitionGame();
+
     // 停止拦截并标记为未初始化
     g_bInterceptEnabled = false;
     g_bInitialized = false;
-    
+
     // 停止脚本执行回调
     SetExecuteScriptFunction(nullptr);
-    
-    // TODO: 任务执行器关闭（待完善）
-    // TaskExecutor::Instance().Shutdown();
-    
+
     // 等待可能的 Hook 函数退出
     Sleep(10);
     
@@ -801,8 +763,6 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
 // 接收封包处理器（拆分自 HookedRecv）
 // ============================================================================
 
-
-
 namespace {
 
 /**
@@ -1081,7 +1041,6 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
                 g_battleCounter = newCounter & 65535;
             }
 
-
             // 屏蔽战斗功能
             if (g_blockBattle.load()) {
                 shouldFilterBattleStart = true;
@@ -1126,19 +1085,13 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
                 return 0;
             }, nullptr);
         }
-
-        // 4. 劫持检测和修改（接收包）
-        if (g_bHijackEnabled) {
-            std::vector<BYTE> packetData = BuildReceivedPacketBytes(gp);
-            
-            std::vector<BYTE> modifiedData;
-            DWORD modifiedSize = static_cast<DWORD>(packetData.size());
-
-            if (ProcessHijack(false, packetData.data(), &modifiedSize, &modifiedData)) {
-                // TODO: 实现封包替换功能
-            }
-        }
     }
+
+    // 注意：接收方向没有劫持钩子。ProcessHijack 在这里算出的
+    // modifiedSize / modifiedData 没有任何消费方，每个包都要白跑一次
+    // BuildReceivedPacketBytes（堆分配 + 头拼接），故此路径已移除。
+    // 真正生效的屏蔽走上面的 IsDefaultBlockedPacket + g_blockBattle，
+    // 劫持替换只在发送方向（HookedSend）实现。
 
     // ========================================================================
     // 第三步：重构封包缓冲区（过滤掉需要屏蔽的封包）
@@ -1314,15 +1267,11 @@ VOID SetInterceptType(BOOL bSend, BOOL bRecv) {
     g_bInterceptRecv = bRecv;
 }
 
-
-
 // ============================================================================
 
 // ResponseDispatcher 实现
 
 // ============================================================================
-
-
 
 ResponseDispatcher& ResponseDispatcher::Instance() {
     static ResponseDispatcher instance;
@@ -1497,17 +1446,6 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
                 ProcessShuangTaiBattleEndResponse(gp);
             }
         }
-
-        if (gp.opcode == Opcode::BATTLE_BUF ||
-            gp.opcode == Opcode::BATTLE_BUF_DIS ||
-            gp.opcode == Opcode::BATTLE_BUFS ||
-            gp.opcode == Opcode::BATTLE_FSPK ||
-            gp.opcode == Opcode::COMBAT_SITE_OPTION ||
-            gp.opcode == Opcode::COMBAT_SITE_EFFECT ||
-            gp.opcode == Opcode::COMBAT_NET_PROBE_REQ ||
-            gp.opcode == Opcode::COMBAT_NET_REPORT) {
-            return;
-        }
     };
     const ResponseHandler processLingyu = [](const GamePacket& gp) {
         PacketParser::ProcessLingyuPacket(gp);
@@ -1620,47 +1558,20 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerParams(Opcode::SPIRIT_COLLECT_BACK, SPIRIT_COLLECT_ACT_ID, ProcessSpiritCollectResponse);
 }
 
-
-
     
-
-
 
     // ============================================================================
 
-
-
     // ActivityStateManager 实现
 
-
-
-
-
-
     
 
-
-
     
-
-
 
     ActivityStateManager& ActivityStateManager::Instance() {
         static ActivityStateManager instance;
         return instance;
     }
-
-
-
-
-
-
-
-
-
-
-
-
 
     HorseCompetitionState& ActivityStateManager::GetHorseCompetitionState() {
         return m_horseCompetitionState;
@@ -1670,10 +1581,7 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
 
                     // 封包发送（带超时、重试和自动等待响应）
 
-
-
     // ============================================================================
-
 
 BOOL SendPacket(
     SOCKET s,
@@ -1775,6 +1683,25 @@ BOOL SendPacket(
 
     return FALSE;
 }
+
+BOOL SendPacketBytes(const std::vector<BYTE>& packet) {
+    if (packet.empty()) {
+        return FALSE;
+    }
+    // 不带期望回包的发送：expectedOpcode 传 0，SendPacket 内部按 shouldWait=false
+    // 直接返回，不会进入 ResponseWaiter 的等待分支。
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()), 0, 0);
+}
+
+BOOL SendPacketBytes(const std::vector<BYTE>& packet, uint32_t expectedOpcode,
+                     DWORD timeoutMs, uint32_t expectedParams, bool matchExpectedParams) {
+    if (packet.empty()) {
+        return FALSE;
+    }
+    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()), expectedOpcode,
+                      timeoutMs, expectedParams, matchExpectedParams);
+}
+
 // ============================================================================
 
 static void ProcessStoryTaskTalkResponse(const GamePacket& packet) {
@@ -1801,7 +1728,6 @@ static void ProcessStoryTaskFinishedResponse(const GamePacket& packet) {
 // ============================================================================
 // 坐骑大赛实现已迁移到 src/hook/horse_competition.cpp.
 // ============================================================================
-
 
 SOCKET GetLastGameSocket() {
     return g_LastGameSocket.load();

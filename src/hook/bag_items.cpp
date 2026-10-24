@@ -38,9 +38,6 @@ namespace {
 std::mutex g_packItemsMutex;
 }
 
-
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 // ============ 灵玉相关功能实现 ============
 
 // 解析 JSON 数组字符串，如 ["37","52"] 或 ['37','52']，返回 "37_52" 格式
@@ -109,80 +106,59 @@ static std::string ParseIndicesArray(const std::wstring& jsonArray) {
 BOOL SendQueryLingyuPacket() {
     // 查询灵玉背包列表（背包中的灵玉）
     // sendMessage(MsgDoc.OP_CLIENT_SPIRIT_EQUIP_ALL.send, userId, [1])
-    // 封包格式: Magic(2) + Length(2) + Opcode(4) + Params(4) + Body(8)
-    // Body: 数组长度(4字节) + 元素值(4字节)
+    // Body: int32 数组长度(1) + int32 元素值
     
     // 检查是否有卡布号
     if (g_userId == 0) {
         return FALSE;
     }
-    
-    // 查询封包1: 查询背包中的灵玉 (params=userId, body=[1])
-    // Opcode: 1185809 (0x00121811)
-    BYTE packet1[20] = {
-        0x44, 0x53,  // Magic: "SD"
-        0x08, 0x00,  // Length: 8 bytes (数组长度4 + 元素值4)
-        0x11, 0x18, 0x12, 0x00,  // Opcode: 0x00121811 (1185809)
-        0x00, 0x00, 0x00, 0x00,  // Params: userId (动态填充)
-        0x01, 0x00, 0x00, 0x00,  // Body: 数组长度 = 1
-        0x01, 0x00, 0x00, 0x00   // Body: 元素值 = 1 (背包灵玉)
-    };
-    // 填充卡布号到Params字段 (小端序)
-    packet1[8] = static_cast<BYTE>(g_userId & 0xFF);
-    packet1[9] = static_cast<BYTE>((g_userId >> 8) & 0xFF);
-    packet1[10] = static_cast<BYTE>((g_userId >> 16) & 0xFF);
-    packet1[11] = static_cast<BYTE>((g_userId >> 24) & 0xFF);
 
-    // 查询封包2: 查询已装备的灵玉 (params=userId, body=[2])
-    // Opcode: 1185809 (0x00121811)
-    BYTE packet2[20] = {
-        0x44, 0x53,  // Magic: "SD"
-        0x08, 0x00,  // Length: 8 bytes
-        0x11, 0x18, 0x12, 0x00,  // Opcode: 0x00121811 (1185809)
-        0x00, 0x00, 0x00, 0x00,  // Params: userId (动态填充)
-        0x01, 0x00, 0x00, 0x00,  // Body: 数组长度 = 1
-        0x02, 0x00, 0x00, 0x00   // Body: 元素值 = 2 (已装备灵玉)
-    };
-    // 填充卡布号到Params字段 (小端序)
-    packet2[8] = static_cast<BYTE>(g_userId & 0xFF);
-    packet2[9] = static_cast<BYTE>((g_userId >> 8) & 0xFF);
-    packet2[10] = static_cast<BYTE>((g_userId >> 16) & 0xFF);
-    packet2[11] = static_cast<BYTE>((g_userId >> 24) & 0xFF);
+    const uint32_t userId = g_userId.load();
 
-    BOOL result1 = SendPacket(0, packet1, sizeof(packet1));
+    // 封包1 查背包中的灵玉（body 元素值 = 1），封包2 查已装备的灵玉（= 2），
+    // 两者只差 body 那个元素，用同一个构造式生成。
+    // body 布局：int32 数组长度(固定 1) + int32 元素值。
+    const auto buildQuery = [userId](int32_t slot) {
+        return PacketBuilder()
+            .SetOpcode(1185809)
+            .SetParams(userId)
+            .WriteInt32(1)
+            .WriteInt32(slot)
+            .Build();
+    };
+
+    const auto packet1 = buildQuery(1);
+    BOOL result1 = SendPacketBytes(packet1);
 
     // 延迟300ms发送第二个封包
     Sleep(300);
 
-    BOOL result2 = SendPacket(0, packet2, sizeof(packet2));
+    const auto packet2 = buildQuery(2);
+    BOOL result2 = SendPacketBytes(packet2);
 
     return result1 && result2;
 }
 
 // 发送查询背包封包（2个包）
 BOOL SendQueryBagPacket() {
-    // 查询封包1: 44 53 00 00 18 18 12 00 00 00 00 00
-    BYTE packet1[] = {
-        0x44, 0x53,  // Magic: "SD"
-        0x00, 0x00,  // Length: 0x0000
-        0x18, 0x18, 0x12, 0x00,  // Opcode: 0x00121818
-        0x00, 0x00, 0x00, 0x00   // Params: 0
-    };
+    // 封包1: 44 53 00 00 18 18 12 00 00 00 00 00（空 body，params=0）
+    const auto packet1 = PacketBuilder()
+        .SetOpcode(0x00121818)
+        .SetParams(0)
+        .Build();
 
-    // 查询封包2: 44 53 00 00 11 10 12 00 FF FF FF FF
-    BYTE packet2[] = {
-        0x44, 0x53,  // Magic: "SD"
-        0x00, 0x00,  // Length: 0x0000
-        0x11, 0x10, 0x12, 0x00,  // Opcode: 0x00121011
-        0xFF, 0xFF, 0xFF, 0xFF   // Params: 0xFFFFFFFF
-    };
+    // 封包2: 44 53 00 00 11 10 12 00 FF FF FF FF（空 body，params=0xFFFFFFFF）
+    const auto packet2 = PacketBuilder()
+        .SetOpcode(0x00121011)
+        .SetParams(0xFFFFFFFF)
+        .Build();
 
-    BOOL result1 = SendPacket(0, packet1, sizeof(packet1));
+    BOOL result1 = SendPacketBytes(packet1);
 
     // 延迟50ms发送第二个封包
     Sleep(50);
 
-    BOOL result2 = SendPacket(0, packet2, sizeof(packet2));
+    BOOL result2 = SendPacketBytes(packet2);
 
     return result1 && result2;
 }
@@ -250,7 +226,7 @@ DWORD WINAPI DecomposeThreadProc(LPVOID lpParam) {
             .Build();
 
         // 发送分解封包
-        BOOL result = SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+        BOOL result = SendPacketBytes(packet);
         
         // 生成十六进制封包字符串并发送到UI
         std::string hexPacket = HexToString(packet.data(), static_cast<DWORD>(packet.size())) + " ";
@@ -322,7 +298,7 @@ BOOL SendQueryMonsterPacket() {
         .SetOpcode(1187329)
         .SetParams(0)
         .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 BOOL SendReqPackageDataPacket(uint32_t packType) {
@@ -332,7 +308,7 @@ BOOL SendReqPackageDataPacket(uint32_t packType) {
         .SetParams(packType)
         .Build();
     
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 /**
@@ -432,7 +408,7 @@ BOOL SendBuyGoodsPacket(uint32_t itemId, uint32_t count) {
         .WriteUInt32(count)
         .Build();
     
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 /**
@@ -463,7 +439,7 @@ BOOL SendUseItemInBattlePacket(uint32_t itemId, uint32_t position) {
         .WriteUInt32(1)        // sid = 1
         .Build();
     
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 // ============================================================================

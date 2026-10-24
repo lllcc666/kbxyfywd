@@ -19,8 +19,6 @@
 
 extern std::unordered_map<int, int> g_skillPowers;
 
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 // ============================================================================
 // 双台谷刷级功能实现 - 异步状态机模式
 // ============================================================================
@@ -158,8 +156,6 @@ void ShuangTaiAutoBattle::Reset() {
     m_roundActionPending = false;
 }
 
-
-
 bool ShuangTaiAutoBattle::InitializePetData() {
     const MonsterData snapshot = SnapshotMonsterData();
     if (snapshot.monsters.empty()) {
@@ -233,7 +229,7 @@ void ShuangTaiAutoBattle::SendInitPacket() {
         .SetOpcode(ShuangTai::INIT_SEND)
         .SetParams(1)
         .Build();
-    SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    SendPacketBytes(packet);
     
     // 延迟后发送跳层封包
     struct DelayedData { ShuangTaiAutoBattle* self; };
@@ -263,7 +259,7 @@ void ShuangTaiAutoBattle::SendJumpLayerPacket() {
         .SetParams(2)
         .WriteInt32(1)  // 第一层
         .Build();
-    SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    SendPacketBytes(packet);
     
     // 延迟后发送进入战斗封包
     struct DelayedData { ShuangTaiAutoBattle* self; };
@@ -292,7 +288,7 @@ void ShuangTaiAutoBattle::SendEnterBattlePacket() {
         .SetOpcode(ShuangTai::ENTER_BATTLE_SEND)
         .SetParams(0)
         .Build();
-    SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    SendPacketBytes(packet);
     
     // 战斗开始响应由 OnBattleStartResponse 处理
 }
@@ -304,7 +300,7 @@ void ShuangTaiAutoBattle::SendBattleOp1Packet() {
         .SetOpcode(ShuangTai::BATTLE_OP1_SEND)
         .SetParams(0)
         .Build();
-    SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    SendPacketBytes(packet);
 }
 
 void ShuangTaiAutoBattle::SendSwitchPetPacket() {
@@ -321,13 +317,11 @@ void ShuangTaiAutoBattle::SendSwitchPetPacket() {
         .SetParams(1)  // 切换精灵操作
         .WriteInt32(uniqueId)
         .Build();
-    SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    SendPacketBytes(packet);
     m_roundActionPending = true;
 
     // 切换宠物响应由 OnBattleRoundResultResponse 处理
 }
-
-
 
 void ShuangTaiAutoBattle::SendSkillAttackPacket() {
     if (!m_running) return;
@@ -352,13 +346,11 @@ void ShuangTaiAutoBattle::SendSkillAttackPacket() {
         .WriteInt32(targetSid)  // 目标 sid
         .WriteInt32(m_mainPetSkillId)
         .Build();
-    SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    SendPacketBytes(packet);
     m_roundActionPending = true;
 
     // 技能攻击响应由 OnBattleRoundResultResponse 处理
 }
-
-
 
 void ShuangTaiAutoBattle::SendBattleEndPacket() {
     if (!m_running) return;
@@ -409,7 +401,6 @@ void ShuangTaiAutoBattle::OnBattleStartResponse(const GamePacket& packet) {
 
     UpdateState(ShuangTaiState::IN_BATTLE);
     UIBridge::Instance().UpdateHelperText(L"双台谷刷级：战斗开始，等待回合开始...");
-
 
     // m_petIds 包含第2只到最后一只（主宠）
     // 第一只妖怪已自动出战，从 m_petIds[0]（第2只）开始切换
@@ -469,7 +460,6 @@ void ShuangTaiAutoBattle::OnBattleRoundStartResponse() {
     }
 }
 
-
 void ShuangTaiAutoBattle::OnBattleRoundResultResponse(const GamePacket& packet) {
     if (!m_running) return;
 
@@ -483,14 +473,13 @@ void ShuangTaiAutoBattle::OnBattleRoundResultResponse(const GamePacket& packet) 
         .SetOpcode(ShuangTai::BATTLE_OP2_SEND)
         .SetParams(0)
         .Build();
-    SendPacket(0, ackPacket.data(), static_cast<DWORD>(ackPacket.size()));
+    SendPacketBytes(ackPacket);
     m_roundActionPending = false;
 
     if (cmdType == 1 && m_state.load() == ShuangTaiState::SWITCHING_PETS) {
         m_petIndex++;
     }
 }
-
 
 void ShuangTaiAutoBattle::OnBattleEndResponse(const GamePacket& packet) {
     if (!m_running) return;

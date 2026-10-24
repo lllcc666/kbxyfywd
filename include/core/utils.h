@@ -119,14 +119,22 @@ private:
  * 
  * 构造时初始化临界区，析构时删除临界区
  * 配合 CriticalSectionLock 使用
+ *
+ * 全局对象请传 leakOnExit = true：静态析构阶段进程里还可能有工作线程在跑，
+ * 此刻 DeleteCriticalSection 会让它们进入已删除的锁（UB，直接崩在退出路径上）。
+ * 临界区本身只是一小块进程内内存，交给进程退出回收的代价远小于这个风险。
  */
 class CriticalSectionScope {
 public:
-    CriticalSectionScope() {
+    explicit CriticalSectionScope(bool leakOnExit = false)
+        : m_leakOnExit(leakOnExit) {
         InitializeCriticalSection(&m_cs);
     }
 
     ~CriticalSectionScope() {
+        if (m_leakOnExit) {
+            return;  // 故意泄漏，理由见类注释
+        }
         DeleteCriticalSection(&m_cs);
     }
 
@@ -142,4 +150,5 @@ public:
 
 private:
     CRITICAL_SECTION m_cs;  ///< 临界区对象
+    bool m_leakOnExit;      ///< 析构时不 DeleteCriticalSection
 };

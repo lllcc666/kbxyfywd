@@ -32,13 +32,7 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 // ============ 试炼活动功能实现（重构版） ============
-
-// 试炼活动响应 Opcode
-// 封包字节 "41 2E 14 00" -> 0x00142E41 -> 1324097
-#define OPCODE_TRIAL_BACK 1324097
 
 // 试炼活动全局变量
 static int g_trialCheckCode = 0;           // 校验码
@@ -74,7 +68,7 @@ static const TrialConfig TRIAL_CONFIGS[] = {
 DWORD WINAPI TrialThreadProc(LPVOID lpParam);
 
 // 通用试炼封包发送函数
-// Opcode: 1184833 (0x00121441), Params: 142
+// Opcode: 旧活动总线, Params: 142
 // Body格式: [protocolId, ...其他参数]
 static BOOL SendTrialPacket(
     const std::vector<int32_t>& bodyValues,
@@ -83,7 +77,7 @@ static BOOL SendTrialPacket(
     uint32_t expectedParams = 0,
     bool matchExpectedParams = false) {
     auto packet = PacketBuilder()
-        .SetOpcode(1184833)
+        .SetOpcode(Opcode::ACTIVITY_QINGYANG_SEND)
         .SetParams(142)
         .WriteInt32Array(bodyValues)
         .Build();
@@ -150,7 +144,7 @@ struct TrialThreadParam {
 };
 
 // 处理试炼活动响应（在HookedRecv中调用）
-// Opcode: 1324097 (0x00142E41), Params: 142
+// Opcode: TRIAL_BACK (旧活动总线回包), Params: 142
 // Body格式: [protocolId, ...]
 void ProcessTrialResponse(const GamePacket& packet) {
     if (packet.body.size() < 4) return;

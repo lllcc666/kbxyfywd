@@ -26,8 +26,6 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 // 本文件后半段定义的辅助函数：主线战斗收尾与对话推进先用到它们。
 static bool EnsureStoryMagicList(unsigned long long sessionId, DWORD timeoutMs);
 static uint32_t FirstStoryMagicId();
@@ -240,7 +238,7 @@ static bool SendStoryAcceptTaskPacket(uint32_t subtaskId) {
         .SetOpcode(Opcode::ACCEPT_TASK_SEND)
         .SetParams(subtaskId)
         .Build();
-    if (!SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()))) {
+    if (!SendPacketBytes(packet)) {
         return false;
     }
     Sleep(EIGHT_TRIGRAMS_TALK_DELAY_MS);
@@ -305,7 +303,7 @@ static bool SendStoryNpcStatusPacket(uint32_t npcId) {
         .SetOpcode(Opcode::NPC_STATUS_SEND)
         .SetParams(npcId)
         .Build();
-    if (!SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()))) {
+    if (!SendPacketBytes(packet)) {
         return false;
     }
     Sleep(EIGHT_TRIGRAMS_CLICK_DELAY_MS);
@@ -441,7 +439,7 @@ static bool SendStoryActionPacket(uint32_t actionId, uint32_t destX, uint32_t de
         .WriteUInt32(1)  // flag：普通场景动作
         .WriteUInt32(destId)
         .Build();
-    if (!SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()))) {
+    if (!SendPacketBytes(packet)) {
         return false;
     }
     Sleep(EIGHT_TRIGRAMS_CLICK_DELAY_MS);
@@ -693,7 +691,7 @@ static void SendStoryBattleUserOpPacket() {
         .WriteInt32(targetSid)
         .WriteInt32(skillId)
         .Build();
-    SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    SendPacketBytes(packet);
 }
 
 struct StoryBattleFinishData {
@@ -1713,8 +1711,6 @@ std::atomic<DWORD> g_storyBattleActiveTick{0};
 std::atomic<bool> g_storyTaskMapEntered{false};
 // 置位 g_storyTaskMapEntered 时的会话号：进图回包可能迟到，用它挡掉上一会话的残留。
 std::atomic<unsigned long long> g_storyTaskMapEnterSession{0};
-
-
 
 static std::vector<uint32_t> NormalizeStorySelection(const std::vector<uint32_t>& subtaskIds) {
     std::vector<uint32_t> normalized;

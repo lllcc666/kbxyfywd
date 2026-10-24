@@ -33,8 +33,6 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 // 封包文本文件格式：每行一个包，带方向标记。
 //   [SEND] xx xx xx ...   客户端发出的包
 //   [RECV] xx xx xx ...   服务端下发的包
@@ -53,7 +51,6 @@ bool PacketTagEquals(const std::string& tag, const char* expected) {
     }
     return i == tag.size() && expected[i] == '\0';
 }
-
 
 namespace {
 
@@ -123,11 +120,9 @@ bool ReadWholeFile(const std::wstring& filePath, std::string& content) {
 }  // namespace
 
 BOOL SavePacketListToFile(const std::wstring& filePath) {
-    std::vector<PACKET> packetsCopy;
-    {
-        CriticalSectionLock lock(g_packetListCS.Get());
-        packetsCopy = g_PacketList;
-    }
+    // 深拷贝快照：直接拷贝 g_PacketList 只会复制 pData 裸指针，锁一释放
+    // 淘汰逻辑就可能 delete[] 掉它，之后逐行读取即访问已释放内存。
+    const std::vector<PacketSnapshot> packetsCopy = SnapshotPacketList();
 
     std::string content;
     content.reserve(64 * 1024);
@@ -135,11 +130,11 @@ BOOL SavePacketListToFile(const std::wstring& filePath) {
 
     // 保存全部被拦截的封包（发送 + 接收），逐行标记方向，便于对着时间线读收发成对关系。
     for (const auto& packet : packetsCopy) {
-        if (packet.pData == nullptr || packet.dwSize == 0) {
+        if (packet.data.empty()) {
             continue;
         }
         content += packet.bSend ? kPacketSendTag : kPacketRecvTag;
-        content += HexToString(packet.pData, packet.dwSize);
+        content += HexToString(packet.data.data(), static_cast<DWORD>(packet.data.size()));
         content += "\r\n";
     }
 

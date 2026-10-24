@@ -26,8 +26,6 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 // 福瑞宝箱运行状态：hook 核心在 ENTER_SCENE_BACK 里置位 g_heavenFuruiEnteredMap，
 // 因此这组标记放在文件作用域，并在 activity_minigames.h 里声明。
 std::atomic<bool> g_heavenFuruiRunning{false};
@@ -37,62 +35,7 @@ std::atomic<bool> g_heavenFuruiEnteredMap{false};
 std::atomic<int> g_heavenFuruiMaxBoxes{30};  ///< 最大开启宝箱数量
 std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
 
-// 摘取大力果实状态 (Act782)
-
-// 逆流的试炼状态 (Act804)
-
-// 我是神射手状态 (Act811)
-
-// ============ 航海大挑战功能实现 (Act685) ============
-
-// ============ 天之骄子的特训功能实现 (Act666) ============
-
-// ============ 光辉穿梭大考验功能实现 (Act822) ============
-
-// ============ 圣石之战功能实现 (Act826) ============
-
-// ============ 齐心协力大挑战功能实现 (Act827) ============
-
-// ============ 清除煞气功能实现 (Act641) ============
-
-// ============ 疾速特训功能实现 (Act810) ============
-
-// ============ 土幻的曙光功能实现 (Act684) ============
-
-// ============ 驱赶毒蚊功能实现 (Act717) ============
-
-// ============ 守护梦境功能实现 (Act805) ============
-
-// ============ 果宝救援功能实现 (Act757) ============
-
-// ============ 妖力考验功能实现 (Act631) ============
-
-// Act808 剩余次数：活动次数查询模块要读它，因此提到文件作用域。
-
-// ============ 欢乐跷跷板功能实现 (Act808) ============
-
-    static constexpr int ACT808_WAIT_NONE = 0;
-    static constexpr int ACT808_WAIT_OPEN_UI = 1;
-    static constexpr int ACT808_WAIT_START_GAME = 2;
-    static constexpr int ACT808_WAIT_END_GAME = 3;
-    static constexpr int ACT808_WAIT_SWEEP_INFO = 4;
-    static constexpr int ACT808_WAIT_SWEEP = 5;
-
-    // ============ 摘取大力果实功能实现 (Act782) ============
-
-    // ============ 逆流的试炼功能实现 (Act804) ============
-
-    // ============ 我是神射手功能实现 (Act811) ============
-
-    static constexpr std::array<int, 28> kAct811PropPerSection = {
-        0, 5, 8, 10, 5, 8, 10, 5, 8, 10, 5, 8, 10, 5, 8, 10, 5, 8, 10, 5, 8, 10, 5, 8, 10, 5, 8, 10
-    };
-
-    // ============ 驱傩聚福寿功能实现 (Act778) ============
-    
-      // anonymous namespace
-
-    // ============================================================================
+// ============================================================================
     // 福瑞宝箱功能 (HeavenFurui) owner：局部静态状态统一跟随该功能块维护。
     // ============================================================================
     

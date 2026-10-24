@@ -64,14 +64,12 @@ PacketBuilder& PacketBuilder::WriteInt32(int32_t value) {
     return *this;
 }
 
+// 线上字节序列与小端 int32 完全一致，直接复用同一份写入逻辑。
 PacketBuilder& PacketBuilder::WriteUInt32(uint32_t value) {
-    m_body.push_back(static_cast<uint8_t>(value & 0xFF));
-    m_body.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
-    m_body.push_back(static_cast<uint8_t>((value >> 16) & 0xFF));
-    m_body.push_back(static_cast<uint8_t>((value >> 24) & 0xFF));
-    return *this;
+    return WriteInt32(static_cast<int32_t>(value));
 }
 
+// 线上字节序列与小端 int16 完全一致，直接复用同一份写入逻辑。
 PacketBuilder& PacketBuilder::WriteInt16(int16_t value) {
     m_body.push_back(static_cast<uint8_t>(value & 0xFF));
     m_body.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
@@ -79,9 +77,7 @@ PacketBuilder& PacketBuilder::WriteInt16(int16_t value) {
 }
 
 PacketBuilder& PacketBuilder::WriteUInt16(uint16_t value) {
-    m_body.push_back(static_cast<uint8_t>(value & 0xFF));
-    m_body.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
-    return *this;
+    return WriteInt16(static_cast<int16_t>(value));
 }
 
 PacketBuilder& PacketBuilder::WriteByte(uint8_t value) {

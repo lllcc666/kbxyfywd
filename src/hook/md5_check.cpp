@@ -32,8 +32,6 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 struct Md5FaceEntry {
     const char* md5;
     int face;
@@ -239,7 +237,7 @@ BOOL SendMD5CheckReplyPacket(int index) {
         .SetOpcode(1186193)
         .SetParams(static_cast<uint32_t>(index))
         .Build();
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 // 处理MD5验证封包并自动回复
@@ -297,6 +295,4 @@ void ProcessMD5CheckAndReply(const std::vector<BYTE>& body, uint32_t params) {
     // 发送回复
     SendMD5CheckReplyPacket(correctIndex);
 }
-
-
 

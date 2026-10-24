@@ -12,6 +12,7 @@
 #include <thread>
 #include <vector>
 
+#include "hook_shared.h"
 #include "packet_builder.h"
 #include "ui_bridge.h"
 #include "utils.h"
@@ -217,18 +218,6 @@ LatestActState g_state[kActivityNum];
 /// 批量一键执行是否在进行：整批活动串行跑，同一时刻只允许一个 worker。
 std::atomic<bool> g_latestBatchRunning{false};
 
-/// 把单个活动的剩余次数回填到前端（与 wpe_hook 的 ReportActivityCount 等价，
-/// 但本模块不能依赖那边的内部实现，故自带一份）。
-void ReportActivityCountToUi(uint32_t activityId, int remainingCount) {
-    wchar_t jsCode[256];
-    swprintf_s(
-        jsCode,
-        L"if(window.updateActivityCounts) { window.updateActivityCounts({ %u: %d }); }",
-        activityId,
-        remainingCount);
-    UIBridge::Instance().ExecuteJS(jsCode);
-}
-
 LatestActState* StateOf(uint32_t activityId) {
     const LatestActDesc* desc = FindDesc(activityId);
     if (!desc) {
@@ -243,18 +232,10 @@ void Notify(uint32_t activityId, const std::wstring& message) {
     UIBridge::Instance().UpdateHelperText(std::wstring(name) + L"：" + message);
 }
 
-// 读取 body 中的 UTF 字符串（长度 2 字节小端 + 内容）。
+// 读取 body 中的 UTF 字符串（长度 2 字节小端 + 内容）。与 hook_shared 的
+// ReadPacketString 同一份协议，直接复用，避免第三份实现各自漂移。
 bool ReadBodyString(const BYTE* body, size_t bodySize, size_t& offset, std::string& out) {
-    if (offset + 2 > bodySize) {
-        return false;
-    }
-    const uint16_t len = ReadUInt16LE(body, offset);
-    if (offset + len > bodySize) {
-        return false;
-    }
-    out.assign(reinterpret_cast<const char*>(body + offset), len);
-    offset += len;
-    return true;
+    return ReadPacketString(body, bodySize, offset, out);
 }
 
 // ---------------------------------------------------------------------------
@@ -267,25 +248,14 @@ bool ReadBodyString(const BYTE* body, size_t bodySize, size_t& offset, std::stri
 // 本地手里那个就作废了，随后 end_game 的校验位算不对，服务端只扣次数不发奖
 // （873 那次 result=3 就是这个形状）。旧活动模块 activity_bus.cpp 的做法一直是
 // 「发一次 + 自己等标志位」，这里对齐它：发一次，然后由 WaitForResponse 等处理器放行。
+//
+// 过程包（AS3 的 play_game / game_event）同样走这里：它们也是发完即走，
+// 调用方本就不传 expectedOpcode，没有「等 / 不等」两种模式可分。
+// ---------------------------------------------------------------------------
 BOOL SendLatestPacket(uint32_t activityId, const std::string& operation,
                       const std::vector<int32_t>& bodyValues = {}) {
-    std::vector<BYTE> packet = BuildActivityPacket(
-        Opcode::ACTIVITY_QINGYANG_NEW_SEND, activityId, operation, bodyValues);
-    if (packet.empty()) {
-        return FALSE;
-    }
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size())) ? TRUE : FALSE;
-}
-
-// 不等待回包的过程包（AS3 的 play_game / game_event 也是发完即走）。
-BOOL SendLatestPacketNoWait(uint32_t activityId, const std::string& operation,
-                            const std::vector<int32_t>& bodyValues = {}) {
-    std::vector<BYTE> packet = BuildActivityPacket(
-        Opcode::ACTIVITY_QINGYANG_NEW_SEND, activityId, operation, bodyValues);
-    if (packet.empty()) {
-        return FALSE;
-    }
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size())) ? TRUE : FALSE;
+    return SendPacketBytes(BuildActivityPacket(Opcode::ACTIVITY_QINGYANG_NEW_SEND, activityId,
+                                               operation, bodyValues));
 }
 
 // 上报每日任务进度。AS3 各活动在结算后用
@@ -300,7 +270,7 @@ void ReportDailyTask() {
                                    .WriteInt32(0)
                                    .Build();
     if (!packet.empty()) {
-        SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+        SendPacketBytes(packet);
     }
 }
 
@@ -1063,7 +1033,7 @@ BOOL SendHuluEndGame(uint32_t activityId, const std::string& json) {
     if (packet.empty()) {
         return FALSE;
     }
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }
 
 // ---------------------------------------------------------------------------
@@ -1088,7 +1058,7 @@ bool RunPlayProcess(const LatestActDesc& desc, LatestActState& state) {
                 if (i > 0) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(120));
                 }
-                if (!running() || !SendLatestPacketNoWait(desc.id, "play_game", {1})) {
+                if (!running() || !SendLatestPacket(desc.id, "play_game", {1})) {
                     return false;
                 }
             }
@@ -1156,7 +1126,7 @@ bool RunPlayProcess(const LatestActDesc& desc, LatestActState& state) {
                 }
                 if (sec % kFlyStarPeriodSec == 0 && sec < kGameDurationSec) {
                     starCount += kFlyStarBonus;
-                    if (!SendLatestPacketNoWait(desc.id, "game_event",
+                    if (!SendLatestPacket(desc.id, "game_event",
                                                 {starCount + 10000})) {
                         state.playProcessFailValue = starCount;
                         state.playProcessSendError = WSAGetLastError();
@@ -1169,7 +1139,7 @@ bool RunPlayProcess(const LatestActDesc& desc, LatestActState& state) {
                     const int inc = (regularSlot < 40) ? ((regularSlot % 2 == 0) ? 4 : 3) : 4;
                     ++regularSlot;
                     starCount += inc;
-                    if (!SendLatestPacketNoWait(desc.id, "game_event", {starCount})) {
+                    if (!SendLatestPacket(desc.id, "game_event", {starCount})) {
                         state.playProcessFailValue = starCount;
                         state.playProcessSendError = WSAGetLastError();
                         return false;
@@ -1196,7 +1166,7 @@ bool RunPlayProcess(const LatestActDesc& desc, LatestActState& state) {
                 if (!running()) {
                     return false;
                 }
-                if (!SendLatestPacketNoWait(desc.id, "sub_hp")) {
+                if (!SendLatestPacket(desc.id, "sub_hp")) {
                     return false;
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -1453,13 +1423,13 @@ bool RefreshOneActivity(const LatestActDesc& desc, LatestActState& state) {
         }
         // waitingResponse 由响应处理器在解析完成后才清除，这里可直接读取解析结果。
         if (state.playCount.load() >= 0) {
-            ReportActivityCountToUi(desc.id, state.playCount.load());
+            ReportActivityCount(desc.id, state.playCount.load());
             return true;
         }
     }
 
     // 查询彻底失败时上报「未知」(-1)，让前端显示 -- 而不是停留在过期次数上。
-    ReportActivityCountToUi(desc.id, -1);
+    ReportActivityCount(desc.id, -1);
     return false;
 }
 

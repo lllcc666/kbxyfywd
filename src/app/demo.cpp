@@ -160,8 +160,6 @@ ProgramAudioSessionState g_audioSessionState = { 1.0f, false, false };
 
 // WebView2窗口层级维护相关
 HWND g_hwnd_webview = nullptr;
-UINT_PTR g_zorder_timer_id = 0;
-bool g_is_webview_topmost = false;
 
 // 封包窗口状态
 bool g_is_packet_window_visible = false;
@@ -459,9 +457,6 @@ HRESULT WINAPI ExecuteScriptInWebView2(const WCHAR* script) {
 }
 
 // 版本检查相关函数
-// 前向声明
-std::wstring EscapeJsonString(const std::wstring& input);
-
 struct VersionInfo {
     float latestVersion;
     std::wstring announcement;
@@ -571,7 +566,9 @@ VersionInfo ParseVersionInfo(const std::wstring& content) {
 
 // 异步检查版本更新
 void CheckForUpdatesAsync() {
-    std::thread([]() {
+    // 走受管线程：一次性网络请求，退出流程 JoinAll 会等它读完。
+    // 裸 std::thread 在函数结束时析构，joinable 状态下析构直接 terminate。
+    ManagedThread::Start(L"update_check", []() {
         HINTERNET hSession = nullptr;
         HINTERNET hConnect = nullptr;
         HINTERNET hRequest = nullptr;
@@ -673,7 +670,7 @@ void CheckForUpdatesAsync() {
         if (hRequest) WinHttpCloseHandle(hRequest);
         if (hConnect) WinHttpCloseHandle(hConnect);
         if (hSession) WinHttpCloseHandle(hSession);
-    }).detach();
+    });
 }
 
 // 全局或类成员变量，记录渲染窗口句柄
@@ -1014,11 +1011,6 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         break;
     case WM_CLOSE:
         // 清理资源
-        if (g_zorder_timer_id)
-        {
-            KillTimer(hWnd, g_zorder_timer_id);
-            g_zorder_timer_id = 0;
-        }
         DestroyWindow(hWnd);
         break;
     case WM_DESTROY: {
@@ -1077,13 +1069,6 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             
             // WebView2覆盖整个主窗口，确保HTML元素可以显示在WebBrowser上方
             g_controller->put_Bounds(bounds);
-        }
-        break;
-    case WM_TIMER:
-        if (wParam == g_zorder_timer_id)
-        {
-            // 删除所有与WebView2层级设置相关的代码
-            // 确保IE浏览框显示在WebView2上方
         }
         break;
     case AppMessage::kExecuteJs:
@@ -1326,16 +1311,6 @@ public:
                     g_webview->add_NavigationCompleted(new NavigationCompletedHandler(), nullptr);
                 }
 
-                // 如果WebView2没有成功设置为最前，启动计时器定期检查
-                if (!g_is_webview_topmost)
-                {
-                    if (!g_zorder_timer_id)
-                    {
-                        // 设置计时器，每500毫秒检查一次窗口层级
-                        g_zorder_timer_id = SetTimer(g_hWnd, 1, 500, nullptr);
-                    }
-                }
-
                 // 使用嵌入的HTML内容
                 std::wstring html_content = Utf8ToWide(g_html_content);
                 g_webview->NavigateToString(html_content.c_str());
@@ -1358,51 +1333,11 @@ public:
     }
 };
 
-// 主函数
-// 未处理 SEH 异常（访问违例、非法指令等）在 Release 下会让进程直接消失，
-// 用户侧同样表现为「双击没反应」。这里落一份日志到 %TEMP%\kbwebui_crash.log，
-// 有 ExceptionCode 和 ExceptionAddress 就能直接定位到出事的指令。
-static LONG WINAPI CrashLogFilter(EXCEPTION_POINTERS* info)
-{
-    wchar_t tempPath[MAX_PATH] = {};
-    if (GetTempPathW(MAX_PATH, tempPath) != 0 &&
-        wcslen(tempPath) + 20 < MAX_PATH)
-    {
-        wcscat_s(tempPath, L"kbwebui_crash.log");
-
-        HANDLE hFile = CreateFileW(tempPath, FILE_APPEND_DATA, FILE_SHARE_READ,
-                                   nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (hFile != INVALID_HANDLE_VALUE)
-        {
-            SYSTEMTIME st = {};
-            GetLocalTime(&st);
-
-            const unsigned long code = info ? info->ExceptionRecord->ExceptionCode : 0;
-            const void* addr = info ? info->ExceptionRecord->ExceptionAddress : nullptr;
-
-            char line[512] = {};
-            const int len = wsprintfA(line,
-                "[%04d-%02d-%02d %02d:%02d:%02d] ExceptionCode=0x%08lX ExceptionAddress=%p\r\n",
-                st.wYear, st.wMonth, st.wDay,
-                st.wHour, st.wMinute, st.wSecond, code, addr);
-            if (len > 0)
-            {
-                DWORD written = 0;
-                WriteFile(hFile, line, static_cast<DWORD>(len), &written, nullptr);
-            }
-            CloseHandle(hFile);
-        }
-    }
-    return EXCEPTION_EXECUTE_HANDLER;
-}
-
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
     (void)hPrevInstance;
     (void)lpCmdLine;
 
-    // 第一件事就挂上崩溃日志，之后任何 SEH 都能留下证据。
-    SetUnhandledExceptionFilter(CrashLogFilter);
     // 注册窗口类 (使用 Unicode 版本)
     const wchar_t CLASS_NAME[] = L"WebView2DemoWindowClass";
 
@@ -1569,12 +1504,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         // 将WebBrowser控件置于顶层，确保它显示在WebView2上方
         SetWindowPos(g_hwnd_webbrowser, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
     }
-    
 
-    
-    // 删除所有与WebView2层级设置相关的代码
-    // 确保IE浏览框显示在WebView2上方
-    
     // 消息循环
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0))

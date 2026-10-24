@@ -32,8 +32,6 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 // 深度挖宝 owner：会话、剩余次数和自动循环状态统一由该状态对象维护。
 
 DeepDigState g_deepDigState;

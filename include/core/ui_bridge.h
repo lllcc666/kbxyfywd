@@ -83,3 +83,15 @@ private:
 
     HWND m_hwnd = nullptr;  ///< 主窗口句柄
 };
+
+// ================================
+// 脚本下发入口
+// ================================
+
+/**
+ * @brief 向 UI 线程安全地下发一段 JavaScript。
+ *
+ * 内部走 UIBridge 单例；未初始化或脚本为空时返回 false。
+ * 原先有 24 个 cpp 各自手写一遍这个 extern 声明，统一收到这里。
+ */
+bool PostScriptToUI(const std::wstring& jsCode);

@@ -9,55 +9,6 @@
 #include "packet_types.h"
 
 
-BOOL SendAct778Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-
-
-BOOL SendAct685Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-
-
-BOOL SendAct666Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-
-
-BOOL SendAct641Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-
-
-BOOL SendAct684Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-
-
-BOOL SendAct717Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-
-
-BOOL SendAct805Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-
-
-BOOL SendAct757Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-
-
-BOOL SendAct631Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-
-
-BOOL SendAct782Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-
-
-BOOL SendAct804Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-
-
-BOOL SendAct810Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-
-
-BOOL SendAct811Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-
-
-BOOL SendAct822Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-
-
-BOOL SendAct826Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-
-
-BOOL SendAct827Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
-
-
-BOOL SendAct808Packet(const std::string& operation, const std::vector<int32_t>& bodyValues = {});
 // 剩余次数：< 0 表示尚未解析到。
 
 namespace HeavenFurui {

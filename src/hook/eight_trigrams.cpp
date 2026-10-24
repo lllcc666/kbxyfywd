@@ -25,8 +25,6 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 // 八卦灵盘任务区 owner：运行标记、会话号和地图进入状态统一由这里维护。
 std::atomic<bool> g_taskZoneRunning{false};
 std::atomic<unsigned long long> g_taskZoneSession{0};
@@ -171,7 +169,6 @@ static size_t FindEightTrigramsStepIndexByDialogId(uint32_t dialogId) {
     return EIGHT_TRIGRAMS_STEP_COUNT;
 }
 
-
 std::wstring BuildUInt32JsonArray(const std::vector<uint32_t>& values) {
     std::wstring result = L"[";
     for (size_t i = 0; i < values.size(); ++i) {
@@ -205,8 +202,6 @@ static void UpdateEightTrigramsResumeHint(size_t nextIndex) {
     g_eightTrigramsResumeStepIndex.store(static_cast<int>(nextIndex));
 }
 static void UpdateEightTrigramsResumeHintByDialogId(uint32_t dialogId);
-
-
 
 static void ResetTaskZoneUserTaskListCache() {
     std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
@@ -804,7 +799,6 @@ static bool WaitForEightTrigramsWaterSoulReward(
     return false;
 }
 
-
 [[maybe_unused]] static bool WaitForEightTrigramsPostBattleDialog(
     unsigned long long sessionId,
     DWORD timeoutMs) {
@@ -831,8 +825,6 @@ static bool WaitForEightTrigramsWaterSoulReward(
         UpdateEightTrigramsResumeHint(stepIndex + 1);
     }
 }
-
-
 
 // 布防水魂交丹对话采集：点击 61242 之前调用，随后收到的 TASK_TALK_BACK 会写入进度状态。
 static void ArmEightTrigramsWaterSoulDialogCapture() {
@@ -906,9 +898,7 @@ BOOL SendTaskZoneTalkPacket(
             .WriteUInt32(chooseId)
             .Build();
 
-        if (!SendPacket(0,
-                        trainInfoPacket.data(),
-                        static_cast<DWORD>(trainInfoPacket.size()))) {
+        if (!SendPacketBytes(trainInfoPacket)) {
             return FALSE;
         }
         Sleep(EIGHT_TRIGRAMS_TALK_DELAY_MS);
@@ -920,7 +910,7 @@ BOOL SendTaskZoneTalkPacket(
         .WriteUInt32(dialogId)
         .Build();
 
-    if (!SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()))) {
+    if (!SendPacketBytes(packet)) {
         return FALSE;
     }
 
@@ -940,7 +930,7 @@ BOOL SendTaskZoneClickPacket(uint32_t npcId, bool battleMode) {
         .WriteUInt32(counter)
         .Build();
 
-    if (!SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()))) {
+    if (!SendPacketBytes(packet)) {
         return FALSE;
     }
 
@@ -949,7 +939,6 @@ BOOL SendTaskZoneClickPacket(uint32_t npcId, bool battleMode) {
     }
     return TRUE;
 }
-
 
 static constexpr int MAX_CONSECUTIVE_RESTARTS = 3;
 

@@ -15,7 +15,7 @@ extern std::vector<HijackRule> g_HijackRules;
 extern CriticalSectionScope g_hijackRulesCS;
 extern std::atomic<bool> g_bStopAutoSend;
 extern std::atomic<bool> g_blockOpcodeSend;
-extern bool g_bHijackEnabled;
+extern std::atomic<bool> g_bHijackEnabled;
 extern EXECUTE_SCRIPT_FUNC g_ExecuteScriptFunc;
 extern CRITICAL_SECTION g_towerCS;
 extern bool g_towerMapEntered;

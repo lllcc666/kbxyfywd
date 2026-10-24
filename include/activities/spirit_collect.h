@@ -6,11 +6,14 @@
 #include <string>
 #include <vector>
 
+#include "packet_protocol.h"
+
 namespace SpiritCollect {
-    constexpr uint32_t PRESURES_SEND = 1187124;
+    // 这三个在全局协议表里已有定义，此处只是模块内的叫法。
+    constexpr uint32_t PRESURES_SEND = Opcode::SPIRIT_PRESURES_SEND;
     constexpr uint32_t SEND_SPIRIT_SEND = 1187129;
-    constexpr uint32_t PLAYER_INFO_SEND = 1187585;
-    constexpr uint32_t COLLECT_SEND = 1185429;
+    constexpr uint32_t PLAYER_INFO_SEND = Opcode::SPIRIT_PLAYER_INFO_SEND;
+    constexpr uint32_t COLLECT_SEND = Opcode::ACTIVITY_ACTION_SEND;
     constexpr int ACT_ID = 754;
 }
 

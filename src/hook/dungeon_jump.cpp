@@ -13,8 +13,6 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 // ============================================================================
 // 副本跳层功能实现 (DungeonJump)
 // ============================================================================
@@ -71,7 +69,7 @@ BOOL SendPrepareBattlePacket() {
 }
 
 BOOL SendDungeonActivityPacket(int activityId, int opType, int param) {
-    // 构造副本活动操作封包: Opcode=1184833, Params=activityId, Body=[opType, param]
+    // 构造副本活动操作封包: Opcode=旧活动总线, Params=activityId, Body=[opType, param]
     auto packet = PacketBuilder()
         .SetOpcode(DungeonJump::DUNGEON_ACTIVITY_SEND)
         .SetParams(activityId)
@@ -234,21 +232,21 @@ static DWORD WINAPI DungeonJumpThreadProc(LPVOID lpParam) {
     
     if (!g_dungeonJumpState.isRunning) goto CLEANUP;
     
-    // 5. 活动操作900，等待返回 1324097
+    // 5. 活动操作900，等待返回 ACTIVITY_QINGYANG_BACK
     if (!SendDungeonActivityPacket(DungeonJump::ACTIVITY_ID_900, 1, DungeonJump::DUNGEON_MAP_ID)) {
         goto CLEANUP;
     }
     
     if (!g_dungeonJumpState.isRunning) goto CLEANUP;
     
-    // 6. 活动操作902，等待返回 1324097
+    // 6. 活动操作902，等待返回 ACTIVITY_QINGYANG_BACK
     if (!SendDungeonActivityPacket(DungeonJump::ACTIVITY_ID_902, 1, DungeonJump::DUNGEON_MAP_ID)) {
         goto CLEANUP;
     }
     
     if (!g_dungeonJumpState.isRunning) goto CLEANUP;
     
-    // 7. 活动操作325，等待返回 1324097
+    // 7. 活动操作325，等待返回 ACTIVITY_QINGYANG_BACK
     if (!SendDungeonActivityPacket(DungeonJump::ACTIVITY_ID_325, 4, DungeonJump::DUNGEON_MAP_ID)) {
         goto CLEANUP;
     }

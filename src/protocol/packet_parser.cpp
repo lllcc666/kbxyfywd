@@ -1003,7 +1003,7 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
         size_t offset = 0;
         const uint16_t magic = ReadInt16LE(data, offset);
         const uint16_t bodyLength = ReadInt16LE(data, offset);
-        if (magic != MAGIC_NUMBER_D && magic != MAGIC_NUMBER_C) {
+        if (magic != PacketProtocol::MAGIC_NORMAL && magic != PacketProtocol::MAGIC_COMPRESSED) {
             return false;
         }
         if (size < PacketProtocol::HEADER_SIZE + bodyLength) {
@@ -1019,7 +1019,7 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
         packet.body.assign(data + offset, data + offset + bodyLength);
         packet.rawBody = packet.body;
 
-        if (magic == MAGIC_NUMBER_C) {
+        if (magic == PacketProtocol::MAGIC_COMPRESSED) {
             std::vector<uint8_t> decompressed;
             if (UncompressBody(packet.body, decompressed)) {
                 packet.body = std::move(decompressed);
@@ -1055,7 +1055,7 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
     while (readOffset + PacketProtocol::HEADER_SIZE <= dataSize) {
         const uint16_t magic = static_cast<uint16_t>(g_recvBuffer[readOffset]) |
                                (static_cast<uint16_t>(g_recvBuffer[readOffset + 1]) << 8);
-        if (magic != MAGIC_NUMBER_D && magic != MAGIC_NUMBER_C) {
+        if (magic != PacketProtocol::MAGIC_NORMAL && magic != PacketProtocol::MAGIC_COMPRESSED) {
             g_recvBuffer.clear();
             return foundAny;
         }
@@ -1086,7 +1086,7 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
                               g_recvBuffer.begin() + bodyEnd);
         packet.body = packet.rawBody;
 
-        if (magic == MAGIC_NUMBER_C) {
+        if (magic == PacketProtocol::MAGIC_COMPRESSED) {
             std::vector<uint8_t> decompressed;
             if (UncompressBody(packet.body, decompressed)) {
                 packet.body = std::move(decompressed);
@@ -1364,7 +1364,7 @@ void PacketParser::UpdateUIBattleData() {
 }
 
 void PacketParser::ProcessLingyuPacket(const GamePacket& packet) {
-    if (packet.bSend || packet.opcode != OPCODE_LINGYU_LIST) return;
+    if (packet.bSend || packet.opcode != Opcode::LINGYU_LIST) return;
 
     size_t offset = 0;
     const uint8_t* data = packet.body.data();
@@ -1496,7 +1496,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
             pet->hp = hp;
         }
     };
-    if (packet.opcode == OPCODE_BATTLE_START) {
+    if (packet.opcode == Opcode::BATTLE_START) {
         if (params < 0) return;
 
         const int32_t localUserId = static_cast<int32_t>(g_userId.load());
@@ -1623,7 +1623,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         return;
     }
 
-    if (packet.opcode == OPCODE_BATTLE_ROUND_START) {
+    if (packet.opcode == Opcode::BATTLE_ROUND_START) {
         BattleData next = GetCurrentBattleSnapshot();
         if (!next.active) return;
         ++next.round;
@@ -1672,7 +1672,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         return;
     }
 
-    if (packet.opcode == OPCODE_BATTLE_BUF) {
+    if (packet.opcode == Opcode::BATTLE_BUF) {
         BoundedReader reader(data, size);
         BufData buf;
         if (!reader.ReadI32(buf.addOrRemove) || !reader.ReadI32(buf.bufId) ||
@@ -1734,7 +1734,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         return;
     }
 
-    if (packet.opcode == OPCODE_BATTLE_BUF_DIS) {
+    if (packet.opcode == Opcode::BATTLE_BUF_DIS) {
         BoundedReader reader(data, size);
         int32_t bufId = 0;
         int32_t defId = 0;
@@ -1751,7 +1751,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         return;
     }
 
-    if (packet.opcode == OPCODE_BATTLE_BUFS) {
+    if (packet.opcode == Opcode::BATTLE_BUFS) {
         BoundedReader reader(data, size);
         BattleData next = GetCurrentBattleSnapshot();
         int32_t sid = 0;
@@ -1779,7 +1779,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         return;
     }
 
-    if (packet.opcode == OPCODE_BATTLE_ROUND) {
+    if (packet.opcode == Opcode::BATTLE_ROUND) {
         if (params < 0 || params > 5) return;
         BattleData next = GetCurrentBattleSnapshot();
         BattleRoundData round;
@@ -2087,7 +2087,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         return;
     }
 
-    if (packet.opcode == OPCODE_BATTLE_END) {
+    if (packet.opcode == Opcode::BATTLE_END) {
         BoundedReader reader(data, size);
         std::vector<BattleEndResult> results;
         if (params == 1) {
@@ -2348,7 +2348,7 @@ void PacketParser::ProcessBattlePacket(const GamePacket& packet) {
 }
 
 void PacketParser::ProcessMonsterPacket(const GamePacket& packet) {
-    if (packet.bSend || packet.opcode != OPCODE_MONSTER_LIST) return;
+    if (packet.bSend || packet.opcode != Opcode::MONSTER_LIST) return;
 
     size_t offset = 0;
     const uint8_t* data = packet.body.data();
@@ -2667,12 +2667,4 @@ void PacketParser::ProcessMonsterPacket(const GamePacket& packet) {
 
 ZlibUncompressFunc GetZlibUncompress() {
     return &uncompress;
-}
-
-ZlibCompressFunc GetZlibCompress() {
-    return &compress;
-}
-
-ZlibCompress2Func GetZlibCompress2() {
-    return &compress2;
 }

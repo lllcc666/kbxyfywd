@@ -30,8 +30,6 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern bool PostScriptToUI(const std::wstring& jsCode);
-
 BOOL SendBattlePacket(uint32_t spiritId, uint32_t useId, uint8_t extraParam, uint32_t forcedCounter) {
     uint32_t counter = forcedCounter != 0 ? forcedCounter : g_battleCounter.load();
     if (counter == 0) {
@@ -63,5 +61,5 @@ BOOL SendBattlePacket(uint32_t spiritId, uint32_t useId, uint8_t extraParam, uin
     if (packet.empty()) {
         return FALSE;
     }
-    return SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()));
+    return SendPacketBytes(packet);
 }

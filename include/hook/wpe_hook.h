@@ -72,6 +72,18 @@ BOOL SendPacket(
     bool matchExpectedParams = false
 );
 
+/// 把已构造好的封包字节直接发出去（socket 传 0 走 g_LastGameSocket）。
+///
+/// 全项目原先有 52 处逐字相同的
+/// `SendPacket(0, packet.data(), static_cast<DWORD>(packet.size()))`，
+/// 各模块自己抄一遍。统一到这里，空包直接当失败返回。
+BOOL SendPacketBytes(const std::vector<BYTE>& packet);
+
+/// 同上，但等指定 opcode 的回包（超时后 SendPacket 内部会重发）。
+BOOL SendPacketBytes(const std::vector<BYTE>& packet, uint32_t expectedOpcode,
+                     DWORD timeoutMs, uint32_t expectedParams = 0,
+                     bool matchExpectedParams = false);
+
 VOID ClearPacketList();
 
 VOID DeleteSelectedPackets(const std::vector<DWORD>& indices);
@@ -96,7 +108,9 @@ void FormatPacketClock(DWORD tick, wchar_t* out, std::size_t outCount);
 /// 取封包列表的深拷贝快照（内部加锁）。
 std::vector<PacketSnapshot> SnapshotPacketList();
 
-std::string HexToString(const BYTE* pData, DWORD dwSize);
+/// 字节流转十六进制文本。spaced = true 时每字节之间插一个空格（界面展示用），
+/// false 时连成一串（登录 key 等需要拼接的场合用）。
+std::string HexToString(const BYTE* pData, DWORD dwSize, bool spaced = true);
 
 std::vector<BYTE> StringToHex(const std::string& str);
 
@@ -321,7 +335,10 @@ BOOL SendUseItemInBattlePacket(uint32_t itemId, uint32_t position = 0);
 
 std::wstring GetItemName(uint32_t itemId);
 
-extern std::wstring g_loginKey;
+/// 登录 key 的存取：写点在游戏 socket 线程，读点在 UI 线程，
+/// 两边都通过这两个函数进出临界区，不要直接碰内部变量。
+void SetLoginKey(const std::wstring& key);
+std::wstring GetLoginKey();
 
 BOOL ExtractLoginKeyFromPacket(const BYTE* pData, DWORD len);
 
