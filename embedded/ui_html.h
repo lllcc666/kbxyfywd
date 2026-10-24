@@ -4575,6 +4575,22 @@ R"HTML(ostMessage(JSON.stringify({
             }
         };
 
+        // 状态行：#horse-competition-status 此前从来没人写过，永远显示「就绪」，
+        // 用户看不出流程是卡住了还是在跑。C++ 侧 HandleHorseCompetitionProgressCommand
+        // 会把每条进度文案连同 running/idle 标记一起推过来（见 web_message_handler.cpp）。
+        window.updateHorseCompetitionStatus = function(text, phase) {
+            var statusEl = document.getElementById('horse-competition-status');
+            if (statusEl) {
+                statusEl.textContent = text;
+                // 跑动中用主色，报错/收工用次级色，一眼能分开。
+                var active = (phase === 'running');
+                statusEl.style.color = active
+                    ? 'var(--color-text-primary)'
+         )HTML" \
+R"HTML(           : 'var(--color-text-tertiary)';
+            }
+        };
+
         // 跳舞大赛 - 计数器
         window.danceGameData = {
             completedCount: 0,  // 已完成次数
@@ -4594,8 +4610,7 @@ R"HTML(ostMessage(JSON.stringify({
             window.danceGameData.completedCount = 0;
             var el = document.getElementById('dance-count');
             if (el) {
-)HTML" \
-R"HTML(                el.textContent = '0';
+                el.textContent = '0';
             }
             
             window.updateDailyTaskStatus('正在执行跳舞大赛...', true);
@@ -4603,7 +4618,8 @@ R"HTML(                el.textContent = '0';
             
             // 发送到C++端
             if (window.chrome && window.chrome.webview) {
-                window.chrome.webview.postMessage({
+                window.chrome.we)HTML" \
+R"HTML(bview.postMessage({
                     type: 'daily_tasks',
                     flags: 0x100  // 跳舞大赛
                 });
@@ -4625,8 +4641,7 @@ R"HTML(                el.textContent = '0';
                 var checkbox = document.getElementById('collect-' + i);
                 if (checkbox) {
                     checkbox.checked = checked;
-)HTML" \
-R"HTML(                }
+                }
             }
         };
 
@@ -4635,7 +4650,8 @@ R"HTML(                }
             var flags = 0;
             for (var i = 0; i < 16; i++) {
                 var checkbox = document.getElementById('collect-' + i);
-                if (checkbox && checkbox.checked) {
+                if (checkbox && checkbox.check)HTML" \
+R"HTML(ed) {
                     flags |= (1 << i);
                 }
             }
@@ -4659,14 +4675,14 @@ R"HTML(                }
         // 跳舞完成回调 - 计数由服务器响应更新，这里只更新状态提示
         window.onDanceComplete = function() {
             // 计数已由 updateDanceCount 更新（从服务器响应获取）
-         )HTML" \
-R"HTML(   var count = window.danceGameData.completedCount;
+            var count = window.danceGameData.completedCount;
             
             if (count >= window.danceGameData.maxCount) {
                 window.updateDailyTaskStatus('跳舞大赛已完成全部3次', false);
                 window.updateHelperText('跳舞大赛已完成全部3次');
             } else {
-                window.updateDailyTaskStatus('跳舞完成，已完成 ' + count + '/3 次', false);
+                window.updateDailyTask)HTML" \
+R"HTML(Status('跳舞完成，已完成 ' + count + '/3 次', false);
                 window.updateHelperText('跳舞完成，已完成 ' + count + '/3 次');
             }
         };
@@ -4687,15 +4703,15 @@ R"HTML(   var count = window.danceGameData.completedCount;
 
             // 创建时间戳
             var now = new Date();
-            var timeStr = now.getHours().toString().padS)HTML" \
-R"HTML(tart(2, '0') + ':' +
+            var timeStr = now.getHours().toString().padStart(2, '0') + ':' +
                          now.getMinutes().toString().padStart(2, '0') + ':' +
                          now.getSeconds().toString().padStart(2, '0');
 
             // 添加到数据数组
             var logItem = {
                 index: window.helperLogData.length + 1,
-                time: timeStr,
+                time: timeSt)HTML" \
+R"HTML(r,
                 content: text
             };
             window.helperLogData.push(logItem);
@@ -4711,13 +4727,13 @@ R"HTML(tart(2, '0') + ':' +
             logDiv.style.color = 'var(--color-text-primary)';
 
             logDiv.innerHTML = `
-                <div style="text-align: center; color: var(--color-text-secondary); font-weight: 500;">$)HTML" \
-R"HTML({logItem.index}</div>
+                <div style="text-align: center; color: var(--color-text-secondary); font-weight: 500;">${logItem.index}</div>
                 <div style="text-align: center; color: var(--color-text-secondary);">${logItem.time}</div>
                 <div style="text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${logItem.content}</div>
             `;
 
-            logList.appendChild(logDiv);
+            logList.appen)HTML" \
+R"HTML(dChild(logDiv);
             logList.scrollTop = logList.scrollHeight;
 
             // 更新统计信息
@@ -4735,8 +4751,7 @@ R"HTML({logItem.index}</div>
                 logList.innerHTML = '<div style="text-align: center; padding: 30px; color: var(--color-text-tertiary);">暂无日志记录</div>';
             }
             if (logCount) {
-                logC)HTML" \
-R"HTML(ount.textContent = '总记录数: 0';
+                logCount.textContent = '总记录数: 0';
             }
         };
 
@@ -4746,7 +4761,8 @@ R"HTML(ount.textContent = '总记录数: 0';
             if (el) {
                 el.textContent = text;
                 el.classList.remove('slide-in');
-                void el.offsetWidth; // 触发重绘
+        )HTML" \
+R"HTML(        void el.offsetWidth; // 触发重绘
                 el.classList.add('slide-in');
             }
 
@@ -4768,14 +4784,14 @@ R"HTML(ount.textContent = '总记录数: 0';
             // 标题栏拖拽功能
             var titleBar = document.querySelector('.title-bar');
             if (titleBar) {
-          )HTML" \
-R"HTML(      titleBar.addEventListener('mousedown', function(e) {
+                titleBar.addEventListener('mousedown', function(e) {
                     // 检查是否点击在控制按钮上
                     if (e.target.closest('.title-bar-button')) {
                         return; // 不处理控制按钮区域的拖拽
                     }
                     // 发送拖拽消息
-                    window.chrome.webview.postMessage({ type: 'window-drag' });
+                    window.chrome.webview.post)HTML" \
+R"HTML(Message({ type: 'window-drag' });
                 });
             }
             
@@ -4794,14 +4810,14 @@ R"HTML(      titleBar.addEventListener('mousedown', function(e) {
                 });
             }
             
-     )HTML" \
-R"HTML(       // 日常活动按钮
+            // 日常活动按钮
             var completeBtn = document.getElementById('complete-daily-tasks');
             if (completeBtn) {
                 completeBtn.addEventListener('click', window.completeDailyTasks);
             }
             var trialBtn = document.getElementById('complete-trial-tasks');
-            if (trialBtn) {
+       )HTML" \
+R"HTML(     if (trialBtn) {
                 trialBtn.addEventListener('click', window.completeTrialTasks);
             }
             var danceBtn = document.getElementById('complete-dance-tasks');
@@ -4814,14 +4830,14 @@ R"HTML(       // 日常活动按钮
             }
             var startTaskZoneBtn = document.getElementById('start-task-zone');
             if (startTaskZoneBtn) {
-                startTaskZoneBtn.addEventListener('click)HTML" \
-R"HTML(', window.startTaskZone);
+                startTaskZoneBtn.addEventListener('click', window.startTaskZone);
             }
             var stopTaskZoneBtn = document.getElementById('stop-task-zone');
             if (stopTaskZoneBtn) {
                 stopTaskZoneBtn.addEventListener('click', window.stopTaskZone);
             }
-            var huangchengHideCompleted = document.getElementById('huangcheng-hide-completed');
+            var huangchengHideCompleted = document.getElemen)HTML" \
+R"HTML(tById('huangcheng-hide-completed');
             if (huangchengHideCompleted) {
                 huangchengHideCompleted.addEventListener('change', function() {
                     window.toggleHuangchengWeijiHideCompleted(this.checked);
@@ -4833,12 +4849,12 @@ R"HTML(', window.startTaskZone);
             }
             var selectAllHuangchengBtn = document.getElementById('select-all-huangcheng-weiji');
             if (selectAllHuangchengBtn) {
-                selectAllHuangch)HTML" \
-R"HTML(engBtn.addEventListener('click', window.selectAllHuangchengWeiji);
+                selectAllHuangchengBtn.addEventListener('click', window.selectAllHuangchengWeiji);
             }
             var clearHuangchengBtn = document.getElementById('clear-huangcheng-weiji');
             if (clearHuangchengBtn) {
-                clearHuangchengBtn.addEventListener('click', window.clearHuangchengWeijiSelection);
+                clearHuangchengBtn.addEventListener('click', window.clearHuangchengWeijiSelection);)HTML" \
+R"HTML(
             }
             var startHuangchengBtn = document.getElementById('start-huangcheng-weiji');
             if (startHuangchengBtn) {
@@ -4852,14 +4868,14 @@ R"HTML(engBtn.addEventListener('click', window.selectAllHuangchengWeiji);
             if (xuanttaBtn) {
                 xuanttaBtn.addEventListener('click', window.oneKeyXuantta);
             }
-            var buyDi)HTML" \
-R"HTML(ce18Btn = document.getElementById('buy-dice-18');
+            var buyDice18Btn = document.getElementById('buy-dice-18');
             if (buyDice18Btn) {
                 buyDice18Btn.addEventListener('click', window.buyDice18);
             }
             var startShuangTaiBtn = document.getElementById('start-shuangtai');
             if (startShuangTaiBtn) {
-                startShuangTaiBtn.addEventListener('click', window.startShuangTai);
+                sta)HTML" \
+R"HTML(rtShuangTaiBtn.addEventListener('click', window.startShuangTai);
             }
             var queryShuangTaiBtn = document.getElementById('query-shuangtai');
             if (queryShuangTaiBtn) {
@@ -4871,14 +4887,14 @@ R"HTML(ce18Btn = document.getElementById('buy-dice-18');
             }
             var strawberryBtn = document.getElementById('one-key-strawberry');
             if (strawberryBtn) {
-                strawberryBtn.addEventListener('click', window.oneKeyStrawberr)HTML" \
-R"HTML(y);
+                strawberryBtn.addEventListener('click', window.oneKeyStrawberry);
             }
             var startHeavenFuruiBtn = document.getElementById('start-heaven-furui');
             if (startHeavenFuruiBtn) {
                 startHeavenFuruiBtn.addEventListener('click', window.startHeavenFurui);
             }
-            var stopHeavenFuruiBtn = document.getElementById('stop-heaven-furui');
+            var stopHeavenFuruiBtn = document.getElementById(')HTML" \
+R"HTML(stop-heaven-furui');
             if (stopHeavenFuruiBtn) {
                 stopHeavenFuruiBtn.addEventListener('click', window.stopHeavenFurui);
             }
@@ -4890,8 +4906,7 @@ R"HTML(y);
             if (stopHorseCompetitionBtn) {
                 stopHorseCompetitionBtn.addEventListener('click', window.stopHorseCompetition);
             }
-            if (typeof window.renderHuangchengWeij)HTML" \
-R"HTML(iTasks === 'function') {
+            if (typeof window.renderHuangchengWeijiTasks === 'function') {
                 window.renderHuangchengWeijiTasks();
             }
         });
@@ -4900,7 +4915,8 @@ R"HTML(iTasks === 'function') {
         window.applyLingyuSort = function() {
             if (!window.currentLingyuData || !window.currentLingyuData.items) return;
             
-            const attr = document.getElementById('lingyu-sort-attr').value;
+            const attr = document.getElementById('lingy)HTML" \
+R"HTML(u-sort-attr').value;
             // 默认按从高到低排序，如果用户想要更多选项后续可以再加
             const order = 'desc'; 
             
@@ -4917,12 +4933,12 @@ R"HTML(iTasks === 'function') {
             window.renderLingyuList(sortedItems);
         };
 
-        // 封包)HTML" \
-R"HTML(窗口显示/隐藏功能
+        // 封包窗口显示/隐藏功能
         var packetWindow = document.getElementById('packet-window');
         var togglePacketBtn = document.getElementById('toggle-packet-window');
         var closePacketBtn = document.getElementById('close-packet-window');
-        var clearAllBtn = document.getElementById('clear-all-packets');
+        var clearAllBtn = document.getElementById('clear-all-packets');)HTML" \
+R"HTML(
         var deleteSelectedBtn = document.getElementById('delete-selected-packets');
         
         // 显示/隐藏封包窗口
@@ -4936,13 +4952,13 @@ R"HTML(窗口显示/隐藏功能
                         packetWindow.style.opacity = '1';
                         packetWindow.style.transform = 'translateY(0)';
                         // 获取窗口位置和大小
-                        var rect = packetWindow.getBound)HTML" \
-R"HTML(ingClientRect();
+                        var rect = packetWindow.getBoundingClientRect();
                         // 发送postMessage通知C++端弹窗显示
                         if (window.chrome && window.chrome.webview) {
                             window.chrome.webview.postMessage({
                                 type: 'packet_window_visible',
-                                visible: true,
+                                visible: )HTML" \
+R"HTML(true,
                                 left: rect.left,
                                 top: rect.top,
                                 width: rect.width,
@@ -4959,13 +4975,13 @@ R"HTML(ingClientRect();
                     setTimeout(function() {
                         packetWindow.style.display = 'none';
                         // 更改按钮文本
-                        togglePacketBtn.t)HTML" \
-R"HTML(extContent = '显示封包';
+                        togglePacketBtn.textContent = '显示封包';
                         // 发送postMessage通知C++端弹窗隐藏
                         if (window.chrome && window.chrome.webview) {
                             window.chrome.webview.postMessage({
                                 type: 'packet_window_visible',
-                                visible: false
+                                visib)HTML" \
+R"HTML(le: false
                             });
                         }
                     }, 200);
@@ -4984,8 +5000,7 @@ R"HTML(extContent = '显示封包';
                     // 更改按钮文本
                     togglePacketBtn.textContent = '显示封包';
                     // 发送postMessage通知C++端弹窗隐藏
-                    if (window.chrome && window.chrome)HTML" \
-R"HTML(.webview) {
+                    if (window.chrome && window.chrome.webview) {
                         window.chrome.webview.postMessage({
                             type: 'packet_window_visible',
                             visible: false
@@ -4993,7 +5008,8 @@ R"HTML(.webview) {
 }
                 }, 200);
                 packetWindow.style.transform = 'translateY(0)';
-            });
+            })HTML" \
+R"HTML();
         }
         
         // 清空所有封包
@@ -5012,8 +5028,7 @@ R"HTML(.webview) {
                     var selectedItems = pListItems.querySelectorAll('.packet-item[style*="background"]');
                     if (selectedItems.length === 0) {
                         alert('请先选中要删除的封包');
-                      )HTML" \
-R"HTML(  return;
+                        return;
                     }
 
                     // 收集选中的索引
@@ -5021,7 +5036,8 @@ R"HTML(  return;
                     selectedItems.forEach(function(item) {
                         var index = item.getAttribute('data-index');
                         if (index) {
-                            selectedIndices.push(parseInt(index));
+                            sel)HTML" \
+R"HTML(ectedIndices.push(parseInt(index));
                         }
                     });
 
@@ -5039,8 +5055,7 @@ R"HTML(  return;
                     }
 
                     // 更新计数
-                    var countElement = document.getElementById('packet-)HTML" \
-R"HTML(count');
+                    var countElement = document.getElementById('packet-count');
                     if (countElement) {
                         countElement.textContent = pListItems.children.length;
                     }
@@ -5050,7 +5065,8 @@ R"HTML(count');
         
         // 变速功能实现
         var speedSlider = document.getElementById('speed-slider');
-        var speedValue = document.getElementById('speed-value');
+        var speedV)HTML" \
+R"HTML(alue = document.getElementById('speed-value');
         
         if (speedSlider) {
             speedSlider.addEventListener('input', function() {
@@ -5066,8 +5082,7 @@ R"HTML(count');
                 if (window.chrome && window.chrome.webview) {
                     window.chrome.webview.postMessage({
                         type: 'set_speed',
-                       )HTML" \
-R"HTML( speed: parseFloat(val)
+                        speed: parseFloat(val)
                     });
                 }
             });
@@ -5077,7 +5092,8 @@ R"HTML( speed: parseFloat(val)
         window.toggleAutoHeal = function(enabled) {
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage({
-                    type: 'toggle_auto_heal',
+                    typ)HTML" \
+R"HTML(e: 'toggle_auto_heal',
                     enabled: enabled
                 });
             }
@@ -5098,8 +5114,7 @@ R"HTML( speed: parseFloat(val)
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage({
                     type: 'set_block_battle',
-             )HTML" \
-R"HTML(       enabled: enabled
+                    enabled: enabled
                 });
             }
         };
@@ -5109,7 +5124,8 @@ R"HTML(       enabled: enabled
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage({
                     type: 'set_auto_go_home',
-                    enabled: enabled
+      )HTML" \
+R"HTML(              enabled: enabled
                 });
             }
         };
@@ -5123,14 +5139,14 @@ R"HTML(       enabled: enabled
         var interceptSendCb = document.getElementById('intercept-send');
         var interceptReceiveCb = document.getElementById('intercept-receive');
         var clearAllBtn = document.getElementById('clear-all-packets');
-        var )HTML" \
-R"HTML(deleteSelectedBtn = document.getElementById('delete-selected-packets');
+        var deleteSelectedBtn = document.getElementById('delete-selected-packets');
         var packetCountElement = document.getElementById('packet-count');
         
         // 点击列表项时的选中效果和数据填充
         if (packetList) {
             packetList.addEventListener('click', function(e) {
-                var pListItems = document.getElementById('packet-list-items');
+                var pListItems = d)HTML" \
+R"HTML(ocument.getElementById('packet-list-items');
                 if (!pListItems) return;
                 
                 var clickedItem = e.target.closest('.packet-item');
@@ -5145,8 +5161,7 @@ R"HTML(deleteSelectedBtn = document.getElementById('delete-selected-packets');
                     clickedItem.classList.add('selected');
                     
                     // 将16进制字符串显示到编辑框
-                    var hexData = clickedItem.getAttribute('data-)HTML" \
-R"HTML(hex');
+                    var hexData = clickedItem.getAttribute('data-hex');
                     if (packetHexInput) {
                         packetHexInput.value = hexData;
                     }
@@ -5157,7 +5172,8 @@ R"HTML(hex');
         // 发送封包功能
         if (sendPacketBtn) {
             console.log('[Debug] 发送按钮已找到，绑定事件监听器');
-            sendPacketBtn.addEventListener('click', function(e) {
+            sendPacketBtn.a)HTML" \
+R"HTML(ddEventListener('click', function(e) {
                 console.log('[Debug] 发送按钮被点击');
                 e.preventDefault();
                 var hexData = packetHexInput ? packetHexInput.value : '';
@@ -5171,8 +5187,7 @@ R"HTML(hex');
                     console.log('[Debug] 发送postMessage到C++端');
                     window.chrome.webview.postMessage({
                         type: 'send_packet',
-                        he)HTML" \
-R"HTML(x: hexData
+                        hex: hexData
                     });
                     // 显示发送提示（C++端会处理实际发送结果）
                     window.updateHelperText('封包已发送');
@@ -5181,7 +5196,8 @@ R"HTML(x: hexData
                 }
             });
         } else {
-            console.log('[Debug] 发送按钮未找到');
+            console.log('[)HTML" \
+R"HTML(Debug] 发送按钮未找到');
         }
         
         // 删除选中封包功能
@@ -5197,8 +5213,7 @@ R"HTML(x: hexData
                     if (!isNaN(index)) {
                         indices.push(index - 1);
                     }
-                    item.rem)HTML" \
-R"HTML(ove();
+                    item.remove();
                 });
                 // 清空编辑框
                 if (packetHexInput) {
@@ -5209,7 +5224,8 @@ R"HTML(ove();
                 updatePacketCount();
                 
                 // 通知后端删除这些索引
-                if (window.chrome && window.chrome.webview) {
+                if (wind)HTML" \
+R"HTML(ow.chrome && window.chrome.webview) {
                     window.chrome.webview.postMessage({
                         type: 'delete_selected_packets',
                         indices: indices
@@ -5228,13 +5244,13 @@ R"HTML(ove();
 
                 // 更新按钮状态
                 startInterceptBtn.style.background = 'var(--color-background)';
-         )HTML" \
-R"HTML(       startInterceptBtn.style.color = 'var(--color-text-primary)';
+                startInterceptBtn.style.color = 'var(--color-text-primary)';
                 startInterceptBtn.style.borderColor = 'var(--color-border)';
                 startInterceptBtn.disabled = true;
 
                 stopInterceptBtn.style.background = 'var(--color-primary)';
-                stopInterceptBtn.style.color = 'white';
+                stopInterceptBtn.)HTML" \
+R"HTML(style.color = 'white';
                 stopInterceptBtn.style.borderColor = 'var(--color-primary)';
                 stopInterceptBtn.disabled = false;
             });
@@ -5251,13 +5267,13 @@ R"HTML(       startInterceptBtn.style.color = 'var(--color-text-primary)';
                 // 更新按钮状态
                 stopInterceptBtn.style.background = 'var(--color-background)';
                 stopInterceptBtn.style.color = 'var(--color-text-primary)';
-                stop)HTML" \
-R"HTML(InterceptBtn.style.borderColor = 'var(--color-border)';
+                stopInterceptBtn.style.borderColor = 'var(--color-border)';
                 stopInterceptBtn.disabled = true;
 
                 startInterceptBtn.style.background = 'var(--color-primary)';
                 startInterceptBtn.style.color = 'white';
-                startInterceptBtn.style.borderColor = 'var(--color-primary)';
+                startInterceptBtn.style.borderColor = 'var(--colo)HTML" \
+R"HTML(r-primary)';
                 startInterceptBtn.disabled = false;
             });
         }
@@ -5278,8 +5294,7 @@ R"HTML(InterceptBtn.style.borderColor = 'var(--color-border)';
             if (interceptSendCb && interceptReceiveCb) {
                 // 发送postMessage通知C++端更新拦截类型
                 if (window.chrome && window.chrome.webview) {
-                    window.chrome.webview.po)HTML" \
-R"HTML(stMessage({
+                    window.chrome.webview.postMessage({
                         type: 'set_intercept_type',
                         send: interceptSendCb.checked,
                         recv: interceptReceiveCb.checked
@@ -5290,7 +5305,8 @@ R"HTML(stMessage({
 
 // 清空封包列表
         if (clearAllBtn) {
-            clearAllBtn.addEventListener('click', function() {
+            clearAllBtn.ad)HTML" \
+R"HTML(dEventListener('click', function() {
                 var pListItems = document.getElementById('packet-list-items');
                 if (pListItems) {
                     pListItems.innerHTML = '';
@@ -5311,14 +5327,14 @@ R"HTML(stMessage({
             });
         }
 
-        // 更新封包)HTML" \
-R"HTML(计数函数
+        // 更新封包计数函数
         window.updatePacketCount = function(count) {
             var countElement = document.getElementById('packet-count');
             var packetListItems = document.getElementById('packet-list-items');
             if (countElement) {
                 if (count !== undefined) {
-                    countElement.textContent = count;
+                    c)HTML" \
+R"HTML(ountElement.textContent = count;
                 } else {
                     var packetCount = packetListItems ? packetListItems.children.length : 0;
                     countElement.textContent = packetCount;
@@ -5332,14 +5348,14 @@ R"HTML(计数函数
         var hijackRecvCb = document.getElementById('hijack-recv');
         var hijackPatternInput = document.getElementById('hijack-pattern');
         var hijackReplaceInput = document.getElementById('hijack-replace');
-        var hijackTy)HTML" \
-R"HTML(peSelect = document.getElementById('hijack-type');
+        var hijackTypeSelect = document.getElementById('hijack-type');
 
         // 自动劫持功能 - 当复选框状态改变时自动发送劫持设置
         function sendHijackSettings() {
             var pattern = hijackPatternInput ? hijackPatternInput.value.trim() : '';
             var replace = hijackReplaceInput ? hijackReplaceInput.value.trim() : '';
-            var isSend = hijackSendCb ? hijackSendCb.checked : true;
+      )HTML" \
+R"HTML(      var isSend = hijackSendCb ? hijackSendCb.checked : true;
             var isRecv = hijackRecvCb ? hijackRecvCb.checked : true;
             var hijackType = hijackTypeSelect ? hijackTypeSelect.value : 'block';
 
@@ -5358,8 +5374,7 @@ R"HTML(peSelect = document.getElementById('hijack-type');
                 if (window.chrome && window.chrome.webview) {
                     window.chrome.webview.postMessage('clear_hijack_rules');
                 }
-              )HTML" \
-R"HTML(  return;
+                return;
             }
 
             // 发送劫持规则
@@ -5368,7 +5383,8 @@ R"HTML(  return;
                     type: 'add_hijack_rule',
                     rule: {
                         isSend: isSend,
-                        isBlock: (hijackType === 'block'),
+                        isBlock: (hi)HTML" \
+R"HTML(jackType === 'block'),
                         pattern: pattern,
                         replace: replace
                     }
@@ -5391,8 +5407,7 @@ R"HTML(  return;
         }
 
         if (hijackReplaceInput) {
-            hijackReplaceInput.addEventListener('input', sendHijackSet)HTML" \
-R"HTML(tings);
+            hijackReplaceInput.addEventListener('input', sendHijackSettings);
         }
 
         // 为劫持类型选择框添加 change 事件监听器
@@ -5401,7 +5416,8 @@ R"HTML(tings);
         }
 
         // ==================== 保存/载入封包功能实现 ====================
-        var savePacketsBtn = document.getElementById('save-packets');
+        var savePacketsBtn = document.getElementById('save-packets')HTML" \
+R"HTML();
         var loadPacketsBtn = document.getElementById('load-packets');
         var sendAllPacketsBtn = document.getElementById('start-send');
 
@@ -5420,8 +5436,7 @@ R"HTML(tings);
         // 载入封包
         if (loadPacketsBtn) {
             loadPacketsBtn.addEventListener('click', function() {
-                if (window.chrome && window.chrome)HTML" \
-R"HTML(.webview) {
+                if (window.chrome && window.chrome.webview) {
                     // 直接通知C++端打开载入对话框
                     window.chrome.webview.postMessage({
                         type: 'load_packet_list'
@@ -5432,7 +5447,8 @@ R"HTML(.webview) {
 
         // 自动发送所有封包
         if (sendAllPacketsBtn) {
-            sendAllPacketsBtn.addEventListener('click', function() {
+            sendAllPacketsBt)HTML" \
+R"HTML(n.addEventListener('click', function() {
                 // 获取发送设置
                 var sendCountInput = document.getElementById('send-count');
                 var sendDelayInput = document.getElementById('send-delay');
@@ -5445,8 +5461,7 @@ R"HTML(.webview) {
                         type: 'send_all_packets',
                         sendCount: sendCount,
                         sendDelay: sendDelay
-  )HTML" \
-R"HTML(                  });
+                    });
                 }
             });
         }
@@ -5456,7 +5471,8 @@ R"HTML(                  });
         if (stopSendBtn) {
             stopSendBtn.addEventListener('click', function() {
                 // 通知C++端停止发送
-                if (window.chrome && window.chrome.webview) {
+                if (window.chrome && )HTML" \
+R"HTML(window.chrome.webview) {
                     window.chrome.webview.postMessage({
                         type: 'stop_send'
                     });
@@ -5475,12 +5491,12 @@ R"HTML(                  });
 
         // 初始页面加载时，触发第一个标签页的动画
         window.onload = function() {
-        )HTML" \
-R"HTML(    console.log('[UI] Page loaded, checking window functions...');
+            console.log('[UI] Page loaded, checking window functions...');
             console.log('[UI] window.updateBattleUI:', typeof window.updateBattleUI);
             console.log('[UI] window.addBattleData:', typeof window.addBattleData);
             
-            var activeTab = document.querySelector('.tab-content.active');
+            var activeTab = document.querySelector('.tab)HTML" \
+R"HTML(-content.active');
             if (activeTab) {
                 reanimateTabContent(activeTab);
             }
@@ -5503,15 +5519,15 @@ R"HTML(    console.log('[UI] Page loaded, checking window functions...');
                 simplified = upMatch[1] + '+' + upMatch[2];
             }
             
-            // 处理 "攻击降低X级" -> "攻击-X")HTML" \
-R"HTML(
+            // 处理 "攻击降低X级" -> "攻击-X"
             const downMatch = name.match(/(攻击|防御|速度|命中|暴击|法术|抗性|体力)降低(\d+)级?/);
             if (downMatch) {
                 simplified = downMatch[1] + '-' + downMatch[2];
             }
             
             // 处理其他升降格式
-            simplified = simplified.replace('提升', '+').replace('降低', '-').replace('级', '');
+            simplified = simplified.replace('提升', '+').replace('降低', '-').replace)HTML" \
+R"HTML(('级', '');
             
             // 追加回合数（如果有）
             if (round > 0) {
@@ -5537,15 +5553,15 @@ R"HTML(
             
             // 首先处理去重：同类型 Buff 只保留最新的
             bufArr.forEach(buf => {
-)HTML" \
-R"HTML(                // 跳过瞬时/PP 事件 (3, 4, 5, 6)，这些不显示为状态标签
+                // 跳过瞬时/PP 事件 (3, 4, 5, 6)，这些不显示为状态标签
                 if (buf.addOrRemove === 3 || buf.addOrRemove === 4 ||
                     buf.addOrRemove === 5 || buf.addOrRemove === 6) {
                     return;
                 }
 
                 // 移除类型 (0)：从 Map 中删除
-                if (buf.addOrRemove === 0) {
+                if (buf.add)HTML" \
+R"HTML(OrRemove === 0) {
                     if (buf.bufId) {
                         bufMap.delete(buf.bufId);
                     }
@@ -5564,8 +5580,7 @@ R"HTML(                // 跳过瞬时/PP 事件 (3, 4, 5, 6)，这些不显示�
                 // 如果 addOrRemove 未设置或为其他值（回合开始更新的 buf），根据 bufId 处理
                 if (buf.bufId) {
                     // 更新 Map 中已有的 buf
-                    bufMap.set(buf.bu)HTML" \
-R"HTML(fId, buf);
+                    bufMap.set(buf.bufId, buf);
                 }
             });
 
@@ -5575,7 +5590,8 @@ R"HTML(fId, buf);
                 tag.className = 'buf-tag';
                 
                 // 根据 bufId 判断是增益还是减益
-                const buffIds = [2, 9, 17, 24, 29, 33, 34, 59, 95, 36, 37, 46, 45, 62, 9999];
+                const buffIds = [2, 9, )HTML" \
+R"HTML(17, 24, 29, 33, 34, 59, 95, 36, 37, 46, 45, 62, 9999];
                 const isBuff = buffIds.includes(buf.bufId) || 
                                (buf.name && (
                                    buf.name.includes('攻击') && !buf.name.includes('降') && !buf.name.includes('减') ||
@@ -5583,14 +5599,14 @@ R"HTML(fId, buf);
                                    buf.name.includes('速度') && !buf.name.includes('降') && !buf.name.includes('减') ||
                                    buf.name.includes('命中') ||
                                    buf.name.includes('暴击') ||
-                                   buf.name.includes('回血'))HTML" \
-R"HTML( ||
+                                   buf.name.includes('回血') ||
                                    buf.name.includes('护盾') ||
                                    buf.name.includes('提升')
                                ));
                 
                 // 减益关键词
-                const debuffKeywords = ['灼烧', '中毒', '流血', '麻痹', '冰冻', '睡眠', '混乱', '恐惧', '诅咒', '虚弱', '减速', '降低'];
+                const debuffKeywords = ['灼烧', '中毒', '流血', '麻痹', '冰冻', '睡眠', '混乱', '恐惧', '诅咒', '虚弱', '减速')HTML" \
+R"HTML(, '降低'];
                 const isDebuff = debuffKeywords.some(kw => buf.name && buf.name.includes(kw));
 
                 // 设置样式
@@ -5604,15 +5620,15 @@ R"HTML( ||
                     tag.style.border = '1px solid rgba(76, 175, 80, 0.3)';
                 } else {
                     tag.style.background = 'rgba(158, 158, 158, 0.15)';
-           )HTML" \
-R"HTML(         tag.style.color = '#616161';
+                    tag.style.color = '#616161';
                     tag.style.border = '1px solid rgba(158, 158, 158, 0.3)';
                 }
 
                 tag.style.fontSize = '8px';
                 tag.style.padding = '1px 4px';
                 tag.style.borderRadius = '2px';
-                tag.style.cursor = 'pointer';
+                tag.style.cursor )HTML" \
+R"HTML(= 'pointer';
                 tag.style.whiteSpace = 'nowrap';
                 tag.style.flexShrink = '0';  // 防止标签被压缩
 
@@ -5630,14 +5646,14 @@ R"HTML(         tag.style.color = '#616161';
                 }
                 if (buf.tipString) {
                     tooltipContent += '<br>' + buf.tipString;
-      )HTML" \
-R"HTML(          }
+                }
                 if (buf.bufId) {
                     tooltipContent += '<br><span style="color:#888;font-size:8px;">ID: ' + buf.bufId + '</span>';
                 }
 
                 if (tooltipContent) {
-                    tag.title = tooltipContent.replace(/<br>/g, '\n').replace(/<[^>]*>/g, '');
+                    tag.title = tooltipContent.replace(/<br>/g, '\n').replace(/<[^>]*>/g, )HTML" \
+R"HTML('');
                     tag.setAttribute('data-tooltip', tooltipContent);
                     
                     // 添加悬停事件显示详细 tooltip
@@ -5656,8 +5672,7 @@ R"HTML(          }
             setTimeout(() => {
                 // 计算所有标签的总宽度
                 let totalWidth = 0;
-                const tags = container.querySelectorAll('.b)HTML" \
-R"HTML(uf-tag');
+                const tags = container.querySelectorAll('.buf-tag');
                 tags.forEach(tag => {
                     totalWidth += tag.offsetWidth;
                 });
@@ -5665,7 +5680,8 @@ R"HTML(uf-tag');
                 const gapCount = Math.max(0, tags.length - 1);
                 totalWidth += gapCount * gapWidth;
                 
-                const containerWidth = container.clientWidth;
+        )HTML" \
+R"HTML(        const containerWidth = container.clientWidth;
                 console.log('buf宽度计算 - 总宽度:', totalWidth, '容器宽度:', containerWidth, '标签数量:', tags.length);
                 
                 // 只有当总宽度超过容器宽度时才显示滚动条
@@ -5681,8 +5697,7 @@ R"HTML(uf-tag');
             }, 10);  // 延迟10ms确保DOM渲染完成
         }
 
-    )HTML" \
-R"HTML(    /**
+        /**
          * 显示 Buff 详细 Tooltip
          */
         function showBufTooltip(event, element) {
@@ -5691,7 +5706,8 @@ R"HTML(    /**
             const tooltip = document.createElement('div');
             tooltip.id = 'buf-tooltip';
             tooltip.style.cssText = `
-                position: fixed;
+                position: fi)HTML" \
+R"HTML(xed;
                 background: rgba(40, 40, 40, 0.95);
                 color: #fff;
                 padding: 8px 10px;
@@ -5713,8 +5729,7 @@ R"HTML(    /**
 
             // 定位
             const rect = element.getBoundingClientRect();
-            let l)HTML" \
-R"HTML(eft = rect.left;
+            let left = rect.left;
             let top = rect.bottom + 4;
 
             // 防止超出屏幕
@@ -5722,7 +5737,8 @@ R"HTML(eft = rect.left;
                 left = window.innerWidth - tooltip.offsetWidth - 8;
             }
             if (top + tooltip.offsetHeight > window.innerHeight) {
-                top = rect.top - tooltip.offsetHeight - 4;
+            )HTML" \
+R"HTML(    top = rect.top - tooltip.offsetHeight - 4;
             }
 
             tooltip.style.left = left + 'px';
@@ -5748,14 +5764,14 @@ R"HTML(eft = rect.left;
             if (!data) return;
             window._battleData = data;
             
-            // 调试输出：)HTML" \
-R"HTML(确认函数被调用
+            // 调试输出：确认函数被调用
             console.log('[Battle] updateBattleUI called with data:', data);
 
             // 更新我方数据
             if (data.myPets && data.myPets.length > 0) {
                 const myActive = data.myPets[data.myActiveIndex] || data.myPets[0];
-                document.getElementById('my-spirit-id').textContent = myActive.spiritId;
+                document.getElementById('my-spirit-id').te)HTML" \
+R"HTML(xtContent = myActive.spiritId;
                 document.getElementById('my-hp').textContent = myActive.hp + '/' + myActive.maxHp;
                 document.getElementById('my-name').textContent = myActive.name ? myActive.name : ('妖怪' + myActive.spiritId);
 
@@ -5766,11 +5782,11 @@ R"HTML(确认函数被调用
                     const row = document.createElement('div');
                     row.className = 'skill-row';
                     row.innerHTML = `
-                        <div style="font-size: 9p)HTML" \
-R"HTML(x; color: var(--color-text-primary); text-align: center;">${skill.name ? skill.name : ('技能' + skill.id)}</div>
+                        <div style="font-size: 9px; color: var(--color-text-primary); text-align: center;">${skill.name ? skill.name : ('技能' + skill.id)}</div>
                         <div style="font-size: 9px; color: var(--color-text-primary); text-align: center;">${skill.pp}/${skill.maxPp}</div>
                     `;
-                    mySkillList.appendChild(row);
+                    mySkillList.)HTML" \
+R"HTML(appendChild(row);
                 });
 
                 // 更新我方 Buff 标签
@@ -5786,15 +5802,15 @@ R"HTML(x; color: var(--color-text-primary); text-align: center;">${skill.name ? 
                     const option = document.createElement('option');
                     option.value = index;
                     option.textContent = pet.name ? pet.name : ('妖怪' + pet.spiritId);
-                    if (index === data.m)HTML" \
-R"HTML(yActiveIndex) option.selected = true;
+                    if (index === data.myActiveIndex) option.selected = true;
                     mySelect.appendChild(option);
                 });
                 mySelect.value = String(data.myActiveIndex);
             } else {
                 // Clear UI
                 document.getElementById('my-spirit-id').textContent = '0';
-                document.getElementById('my-hp').textContent = '0/0';
+             )HTML" \
+R"HTML(   document.getElementById('my-hp').textContent = '0/0';
                 document.getElementById('my-name').textContent = '未知';
                 document.getElementById('my-skill-list').innerHTML = '';
                 document.getElementById('my-pet-select').innerHTML = '<option value="0">妖怪1</option>';
@@ -5805,13 +5821,13 @@ R"HTML(yActiveIndex) option.selected = true;
             // 更新敌方数据
             if (data.otherPets && data.otherPets.length > 0) {
                 const otherActive = data.otherPets[data.otherActiveIndex] || data.otherPets[0];
-                document.getElementById('other-spirit-id').text)HTML" \
-R"HTML(Content = otherActive.spiritId;
+                document.getElementById('other-spirit-id').textContent = otherActive.spiritId;
                 document.getElementById('other-hp').textContent = otherActive.hp + '/' + otherActive.maxHp;
                 document.getElementById('other-name').textContent = otherActive.name ? otherActive.name : ('妖怪' + otherActive.spiritId);
 
                 // 更新技能列表
-                const otherSkillList = document.getElementById('other-skill-list');
+  )HTML" \
+R"HTML(              const otherSkillList = document.getElementById('other-skill-list');
                 otherSkillList.innerHTML = '';
                 (Array.isArray(otherActive.skills) ? otherActive.skills : []).forEach(skill => {
                     const row = document.createElement('div');
@@ -5819,8 +5835,7 @@ R"HTML(Content = otherActive.spiritId;
                     row.innerHTML = `
                         <div style="font-size: 9px; color: var(--color-text-primary); text-align: center;">${skill.name ? skill.name : ('技能' + skill.id)}</div>
                         <div style="font-size: 9px; color: var(--color-text-primary); text-align: center;">${skill.pp}/${skill.maxPp}</div>
-                  )HTML" \
-R"HTML(  `;
+                    `;
                     otherSkillList.appendChild(row);
                 });
 
@@ -5828,7 +5843,8 @@ R"HTML(  `;
                 const otherBufList = document.getElementById('other-buf-list');
                 if (otherBufList) {
                     renderBufList(otherActive.bufArr, otherBufList);
-                }
+          )HTML" \
+R"HTML(      }
 
                 // 更新敌方组合框
                 const otherSelect = document.getElementById('other-pet-select');
@@ -5843,12 +5859,12 @@ R"HTML(  `;
                 otherSelect.value = String(data.otherActiveIndex);
             } else {
                 // Clear UI
-         )HTML" \
-R"HTML(       document.getElementById('other-spirit-id').textContent = '0';
+                document.getElementById('other-spirit-id').textContent = '0';
                 document.getElementById('other-hp').textContent = '0/0';
                 document.getElementById('other-name').textContent = '未知';
                 document.getElementById('other-skill-list').innerHTML = '';
-                document.getElementById('other-pet-select').innerHTML = '<option value="0">敌方妖怪1</option>';
+              )HTML" \
+R"HTML(  document.getElementById('other-pet-select').innerHTML = '<option value="0">敌方妖怪1</option>';
                 const otherBufList = document.getElementById('other-buf-list');
                 if (otherBufList) otherBufList.innerHTML = '';
             }
@@ -5862,14 +5878,14 @@ R"HTML(       document.getElementById('other-spirit-id').textContent = '0';
                     if (!d || !Array.isArray(d.myPets) || d.myPets.length === 0) return;
                     var idx = parseInt(this.value, 10);
                     if (isNaN(idx)) idx = 0;
-   )HTML" \
-R"HTML(                 if (idx < 0) idx = 0;
+                    if (idx < 0) idx = 0;
                     if (idx >= d.myPets.length) idx = d.myPets.length - 1;
                     d.myActiveIndex = idx;
                     window.updateBattleUI(d);
                 });
             }
-            var otherSelectEl = document.getElementById('other-pet-select');
+            var otherSelectEl = document.getElementById('other-pet-se)HTML" \
+R"HTML(lect');
             if (otherSelectEl) {
                 otherSelectEl.addEventListener('change', function() {
                     var d = window._battleData;
@@ -5886,8 +5902,7 @@ R"HTML(                 if (idx < 0) idx = 0;
 
         /**
          * 添加战斗数据到UI列表
-         * @param {string} type - 消息类型 ()HTML" \
-R"HTML(如: '战斗开始', '回合结算')
+         * @param {string} type - 消息类型 (如: '战斗开始', '回合结算')
          * @param {string} data - 数据内容描述
          */
         window.addBattleData = function(type, data) {
@@ -5895,7 +5910,8 @@ R"HTML(如: '战斗开始', '回合结算')
             // 假设我们将所有解析到的战斗事件添加到一个通用的记录列表，或者更新现有的属性
             
             // 查找战斗数据标签页中的列表容器
-            var battleTab = document.getElementById('battle');
+            var battleTab)HTML" \
+R"HTML( = document.getElementById('battle');
             if (!battleTab) return;
 
             // 示例：更新辅助提示区域
@@ -5914,8 +5930,7 @@ R"HTML(如: '战斗开始', '回合结算')
 
         // 性格名称映射
         const geniusNames = {
-            1: '固执', 2: '保守', 3: '胆小', 4: ')HTML" \
-R"HTML(开朗', 5: '勇敢',
+            1: '固执', 2: '保守', 3: '胆小', 4: '开朗', 5: '勇敢',
             6: '冷静', 7: '慎重', 8: '淘气', 9: '孤僻', 10: '调皮',
             11: '急躁', 12: '天真', 13: '温顺', 14: '慎重', 15: '浮躁',
             16: '认真', 17: '坦率', 18: '实干', 19: '害羞', 20: '保守'
@@ -5923,7 +5938,8 @@ R"HTML(开朗', 5: '勇敢',
 
         // 性格颜色映射（攻击、防御、法术、抗性、体力、速度）
         const geniusColors = {
-            '攻击': '#e74c3c', '防御': '#3498db', '法术': '#9b59b6', 
+            '攻击': '#e74c3c', '防)HTML" \
+R"HTML(御': '#3498db', '法术': '#9b59b6', 
             '抗性': '#1abc9c', '体力': '#e67e22', '速度': '#2ecc71'
         };
 
@@ -5945,15 +5961,15 @@ R"HTML(开朗', 5: '勇敢',
          * 渲染妖怪列表
          */
         window.renderMonsterList = function(monsters) {
-       )HTML" \
-R"HTML(     const listContainer = document.getElementById('monster-list');
+            const listContainer = document.getElementById('monster-list');
             const countElement = document.getElementById('monster-count');
             
             if (!listContainer) return;
             
             listContainer.innerHTML = '';
             if (!monsters || monsters.length === 0) {
-                listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--color-text-tertiary);">暂无妖怪数据，请打开游戏妖怪背包</div>';
+ )HTML" \
+R"HTML(               listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--color-text-tertiary);">暂无妖怪数据，请打开游戏妖怪背包</div>';
                 if (countElement) countElement.textContent = '0';
                 return;
             }
@@ -5965,14 +5981,14 @@ R"HTML(     const listContainer = document.getElementById('monster-list');
                 row.style.display = 'grid';
                 row.style.gridTemplateColumns = '28px 48px 28px 28px 26px 26px 24px 32px 130px 1fr';
                 row.style.padding = '3px 4px';
-                row.style.borderBottom)HTML" \
-R"HTML( = '1px solid var(--color-border)';
+                row.style.borderBottom = '1px solid var(--color-border)';
                 row.style.alignItems = 'center';
                 row.style.minHeight = '24px';
                 row.style.cursor = 'pointer';
                 row.style.transition = 'background-color 0.1s linear';
                 
-                if (window.selectedMonsterIndex === index) {
+                if (window.selectedMonste)HTML" \
+R"HTML(rIndex === index) {
                     row.style.backgroundColor = 'rgba(0, 120, 212, 0.1)';
                 }
                 
@@ -5986,8 +6002,7 @@ R"HTML( = '1px solid var(--color-border)';
                     if (window.selectedMonsterIndex !== index) {
                         row.style.backgroundColor = 'transparent';
                     } else {
-                        row.style.backgroundColor = 'rgba(0, 120,)HTML" \
-R"HTML( 212, 0.1)';
+                        row.style.backgroundColor = 'rgba(0, 120, 212, 0.1)';
                     }
                 };
                 
@@ -5996,7 +6011,8 @@ R"HTML( 212, 0.1)';
                 
                 // 获取资质名称
                 const aptitudeName = monster.aptitudeName || '未知';
-                
+ )HTML" \
+R"HTML(               
                 // 获取性别名称
                 const sexNames = ['未知', '雌', '雄', '无'];
                 const sexName = sexNames[monster.sex] || '未知';
@@ -6011,10 +6027,10 @@ R"HTML( 212, 0.1)';
                 }
                 
                 // 判断是否首发
-                const )HTML" \
-R"HTML(isFirst = monster.isfirst === 1;
+                const isFirst = monster.isfirst === 1;
                 const nameStyle = isFirst ? 'color: var(--color-primary); font-weight: 600;' : 'color: var(--color-text-primary);';
-                const firstBadge = isFirst ? '<span style="background: var(--color-primary); color: white; padding: 0 2px; border-radius: 2px; font-size: 7px; margin-left: 2px;">首</span>' : '';
+                const firstBadge = isFirst ? '<span style="background: var(--color-primary); color: white; padding: 0 2px; border-radius: 2px)HTML" \
+R"HTML(; font-size: 7px; margin-left: 2px;">首</span>' : '';
                 
                 // 系别颜色
                 const elemColor = {
@@ -6025,14 +6041,14 @@ R"HTML(isFirst = monster.isfirst === 1;
                 const typeColor = elemColor[monster.typeName] || 'var(--color-text-primary)';
                 
                 // 简化资质名称显示（取前2字）
-                const shortAptitude = aptitudeName.length > 2 ? aptitudeName.substring(0, 2) : aptitu)HTML" \
-R"HTML(deName;
+                const shortAptitude = aptitudeName.length > 2 ? aptitudeName.substring(0, 2) : aptitudeName;
                 
                 // 构建资质数值显示（顺序：体力/攻击/防御/法术/抗性/速度）
                 // geniusList顺序：攻击[0]/防御[1]/法术[2]/抗性[3]/体力[4]/速度[5]
                 let aptitudeDisplay = shortAptitude;
                 if (monster.geniusList && monster.geniusList.length >= 6) {
-                    const hp = monster.geniusList[4].value;      // 体力
+                    const hp = mon)HTML" \
+R"HTML(ster.geniusList[4].value;      // 体力
                     const atk = monster.geniusList[0].value;     // 攻击
                     const def = monster.geniusList[1].value;     // 防御
                     const mag = monster.geniusList[2].value;     // 法术
@@ -6043,17 +6059,16 @@ R"HTML(deName;
                 
                 row.innerHTML = `
                     <div style="text-align: center; color: var(--color-text-secondary);">${index + 1}</div>
-                    )HTML" \
-R"HTML(<div style="text-align: center; ${nameStyle} white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${monster.name || '未知'}">${monster.name || '未知'}</div>
+                    <div style="text-align: center; ${nameStyle} white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${monster.name || '未知'}">${monster.name || '未知'}</div>
                     <div style="text-align: center; color: var(--color-text-secondary); font-size: 8.5px;">${monster.iid || 0}</div>
-                    <div style="text-align: center; color: ${sexColor};">${sexName}</div>
+ )HTML" \
+R"HTML(                   <div style="text-align: center; color: ${sexColor};">${sexName}</div>
                     <div style="text-align: center; color: var(--color-text-primary);">${monster.level || 1}</div>
                     <div style="text-align: center; color: #e74c3c;">${monster.hp || 0}</div>
                     <div style="text-align: center; color: ${typeColor}; font-weight: 500;">${monster.typeName || '未知'}</div>
                     <div style="text-align: center; color: #9b59b6;">${geniusName}</div>
                     <div style="text-align: center; color: #e67e22; font-size: 8px; white-space: nowrap;" title="${aptitudeName}">${aptitudeDisplay}</div>
-                    <div s)HTML" \
-R"HTML(tyle="color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px;" title="${skillNames}">${skillNames}</div>
+                    <div style="color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px;" title="${skillNames}">${skillNames}</div>
                 `;
                 
                 listContainer.appendChild(row);
@@ -6061,7 +6076,8 @@ R"HTML(tyle="color: var(--color-text-secondary); white-space: nowrap; overflow: 
         };
 
         /**
-         * 选择妖怪并显示详情
+         * 选择妖)HTML" \
+R"HTML(怪并显示详情
          */
         window.selectMonster = function(index) {
             window.selectedMonsterIndex = index;
@@ -6078,8 +6094,7 @@ R"HTML(tyle="color: var(--color-text-secondary); white-space: nowrap; overflow: 
             if (!detailContainer) return;
             
             const geniusName = monster.geniusName || geniusNames[monster.geniusType] || '平衡';
-            const aptitudeName = monster.aptitudeName || '未知';)HTML" \
-R"HTML(
+            const aptitudeName = monster.aptitudeName || '未知';
             const isFirst = monster.isfirst === 1;
             
             // 获取性别
@@ -6088,7 +6103,8 @@ R"HTML(
             
             // 构建技能列表
             let skillsHtml = '';
-            if (monster.skills && monster.skills.length > 0) {
+            if (monster.skills && monster.)HTML" \
+R"HTML(skills.length > 0) {
                 monster.skills.forEach(skill => {
                     skillsHtml += `
                         <div style="display: flex; justify-content: space-between; padding: 2px 4px; background: var(--color-background-hover); border-radius: 2px; margin-bottom: 2px; font-size: 9.5px;">
@@ -6098,15 +6114,15 @@ R"HTML(
                     `;
                 });
             } else {
-                skillsHtml = '<div style="text-align: center)HTML" \
-R"HTML(; color: var(--color-text-tertiary);">无技能数据</div>';
+                skillsHtml = '<div style="text-align: center; color: var(--color-text-tertiary);">无技能数据</div>';
             }
             
             // 构建灵玉列表
             let symmHtml = '';
             if (monster.symmList && monster.symmList.length > 0) {
                 monster.symmList.forEach(symm => {
-                    symmHtml += `<span style="display: inline-block; background: #e8f5e8; color: #2e7d32; padding: 1px 4px; border-radius: 2px; margin: 1px; font-size: 8.5px;">${symm.name || ('灵玉' + symm.id)}</span>`;
+                    symmHtml += `<span style="display: i)HTML" \
+R"HTML(nline-block; background: #e8f5e8; color: #2e7d32; padding: 1px 4px; border-radius: 2px; margin: 1px; font-size: 8.5px;">${symm.name || ('灵玉' + symm.id)}</span>`;
                 });
             } else {
                 symmHtml = '<span style="color: var(--color-text-tertiary);">无</span>';
@@ -6115,21 +6131,21 @@ R"HTML(; color: var(--color-text-tertiary);">无技能数据</div>';
             detailContainer.innerHTML = `
                 <div style="margin-bottom: 6px; padding: 4px; background: var(--color-background-secondary); border-radius: 3px;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 12.5px; font-weight: 600; color: ${isFirst ? 'var(--c)HTML" \
-R"HTML(olor-primary)' : 'var(--color-text-primary)'};">${monster.name || '未知'}</span>
+                        <span style="font-size: 12.5px; font-weight: 600; color: ${isFirst ? 'var(--color-primary)' : 'var(--color-text-primary)'};">${monster.name || '未知'}</span>
                         ${isFirst ? '<span style="background: var(--color-primary); color: white; padding: 1px 4px; border-radius: 2px; font-size: 8.5px;">首发</span>' : ''}
                     </div>
-                    <div style="color: var(--color-text-secondary); font-size: 9.5px;">配置ID: ${monster.iid || 0} | 唯一ID: ${monster.id || 0}</div>
+                    <div sty)HTML" \
+R"HTML(le="color: var(--color-text-secondary); font-size: 9.5px;">配置ID: ${monster.iid || 0} | 唯一ID: ${monster.id || 0}</div>
                     <div style="color: var(--color-text-secondary); font-size: 9.5px;">系别: ${monster.typeName || '未知'} | 性别: ${sexName} | 资质: ${aptitudeName}</div>
                 </div>
                 
                 <div style="margin-bottom: 6px;">
                     <div style="font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">基础属性</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2px; font-size: 9.5px;">
-                        <div>等)HTML" \
-R"HTML(级: <span style="font-weight: 500;">Lv${monster.level || 1}</span></div>
+                        <div>等级: <span style="font-weight: 500;">Lv${monster.level || 1}</span></div>
                         <div>经验: <span style="font-weight: 500;">${monster.exp || 0}/${monster.needExp || 0}</span></div>
-                        <div style="color: #e74c3c;">血量: <span style="font-weight: 500;">${monster.hp || 0}</span></div>
+                        <div style="color: #e74c3c;">血量: <span style="font-weight: 500;">${monster.hp || 0}</spa)HTML" \
+R"HTML(n></div>
                         <div style="color: #e67e22;">攻击: <span style="font-weight: 500;">${monster.attack || 0}</span></div>
                         <div style="color: #3498db;">防御: <span style="font-weight: 500;">${monster.defence || 0}</span></div>
                         <div style="color: #9b59b6;">法术: <span style="font-weight: 500;">${monster.magic || 0}</span></div>
@@ -6137,39 +6153,39 @@ R"HTML(级: <span style="font-weight: 500;">Lv${monster.level || 1}</span></div>
                         <div style="color: #2ecc71;">速度: <span style="font-weight: 500;">${monster.speed || 0}</span></div>
                     </div>
                 </div>
-       )HTML" \
-R"HTML(         
+                
                 <div style="margin-bottom: 6px;">
                     <div style="font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">性格: ${geniusName}</div>
                 </div>
                 
-                <div style="margin-bottom: 6px;">
+          )HTML" \
+R"HTML(      <div style="margin-bottom: 6px;">
                     <div style="font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">资质: ${aptitudeName}</div>
                     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; font-size: 9px;">
                         ${(() => {
                             if (!monster.geniusList || monster.geniusList.length === 0) return '<div style="color: var(--color-text-tertiary);">无资质数据</div>';
                             const starColors = ['', '#9e9e9e', '#4caf50', '#2196f3', '#9c27b0', '#ff9800'];
-                            // geniusList)HTML" \
-R"HTML(顺序：攻击[0]/防御[1]/法术[2]/抗性[3]/体力[4]/速度[5]
+                            // geniusList顺序：攻击[0]/防御[1]/法术[2]/抗性[3]/体力[4]/速度[5]
                             // 显示顺序：体力/攻击/防御/法术/抗性/速度
                             const displayOrder = [4, 0, 1, 2, 3, 5];
                             return displayOrder.map(idx => {
                                 const g = monster.geniusList[idx];
-                                const level = g.level - 1; // 星级1-5（减1）
+                )HTML" \
+R"HTML(                const level = g.level - 1; // 星级1-5（减1）
                                 const stars = '★'.repeat(level) + '☆'.repeat(5 - level);
                                 return `<div style="padding: 1px 2px; background: var(--color-background-hover); border-radius: 2px;">
                                     <span style="color: var(--color-text-secondary);">${g.name}:</span>
                                     <span style="font-weight: 500; color: ${starColors[level] || 'var(--color-text-primary)'};">${g.value}</span>
                                     <span style="color: ${starColors[level] || 'var(--color-text-tertiary)'}; font-size: 7px;">${stars}</span>
-                     )HTML" \
-R"HTML(           </div>`;
+                                </div>`;
                             }).join('');
                         })()}
                     </div>
                 </div>
                 
                 <div style="margin-bottom: 6px;">
-                    <div style="font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">技能 (${monster.skills ? monster.skills.length : 0}个)</div>
+                    <div style="font-weight: 600; color: var(--color-text-primary); margin-bottom:)HTML" \
+R"HTML( 2px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">技能 (${monster.skills ? monster.skills.length : 0}个)</div>
                     ${skillsHtml}
                 </div>
                 
@@ -6184,8 +6200,7 @@ R"HTML(           </div>`;
          * 刷新妖怪列表（发送封包请求）
          */
         window.queryMonsters = function() {
-     )HTML" \
-R"HTML(       if (window.chrome && window.chrome.webview) {
+            if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage({
                     type: 'query_monsters'
                 });
@@ -6194,7 +6209,8 @@ R"HTML(       if (window.chrome && window.chrome.webview) {
         
         // ============== 道具功能 ==============
         window.selectedItemId = 0;      // 当前选中的道具ID
-        window.selectedItemName = '';   // 当前选中的道具名称
+     )HTML" \
+R"HTML(   window.selectedItemName = '';   // 当前选中的道具名称
         window.selectedItemValue = 0;   // 当前选中的道具效果值
         window.itemCountMap = {};       // 道具数量映射表
 
@@ -6215,14 +6231,14 @@ R"HTML(       if (window.chrome && window.chrome.webview) {
          * @param {Object} items - 道具数量对象 {itemId: count, ...}
          */
         window.updateItemCounts = function(items) {
-            window.itemCountMap = i)HTML" \
-R"HTML(tems || {};
+            window.itemCountMap = items || {};
             // 更新每个按钮上的数量显示
             document.querySelectorAll('.item-count').forEach(el => {
                 var itemId = el.getAttribute('data-id');
                 var count = window.itemCountMap[itemId] || 0;
                 el.textContent = '(' + count + ')';
-                // 数量为0时变红提醒
+                // 数量为0时变红)HTML" \
+R"HTML(提醒
                 if (count === 0) {
                     el.style.color = '#e53935';
                 } else {
@@ -6244,15 +6260,15 @@ R"HTML(tems || {};
             window.selectedItemValue = value;
             window.selectedItemType = type || 'hp';
             
-     )HTML" \
-R"HTML(       // 更新按钮选中状态
+            // 更新按钮选中状态
             document.querySelectorAll('.item-btn').forEach(btn => {
                 btn.style.background = '#fafafa';
                 btn.style.color = '#333';
                 btn.style.borderColor = '#e0e0e0';
                 btn.style.fontWeight = 'normal';
             });
-            
+           )HTML" \
+R"HTML( 
             // 高亮当前选中的按钮
             const currentBtn = document.querySelector('.item-btn[data-id="' + itemId + '"]');
             if (currentBtn) {
@@ -6266,8 +6282,7 @@ R"HTML(       // 更新按钮选中状态
             const hintEl = document.getElementById('selected-item-hint');
             if (hintEl) {
                 var typeText = type === 'mp' ? 'PP' : 'HP';
-                hintEl.innerHTML = '<span style="color: var(--color-primary);">✓</span> ' + itemName + ' <span sty)HTML" \
-R"HTML(le="color: ' + (type === 'mp' ? '#1976d2' : '#e53935') + ';">+' + value + typeText + '</span>';
+                hintEl.innerHTML = '<span style="color: var(--color-primary);">✓</span> ' + itemName + ' <span style="color: ' + (type === 'mp' ? '#1976d2' : '#e53935') + ';">+' + value + typeText + '</span>';
             }
             
             var typeText = type === 'mp' ? 'PP' : 'HP';
@@ -6275,7 +6290,8 @@ R"HTML(le="color: ' + (type === 'mp' ? '#1976d2' : '#e53935') + ';">+' + value +
         };
 
         /**
-         * 购买选中的道具
+         )HTML" \
+R"HTML(* 购买选中的道具
          */
         window.buySelectedItem = function() {
             if (!window.selectedItemId) {
@@ -6292,8 +6308,7 @@ R"HTML(le="color: ' + (type === 'mp' ? '#1976d2' : '#e53935') + ';">+' + value +
                     itemId: window.selectedItemId,
                     count: count
                 });
-                window.updateHelperText('正在购买: ' + window.sel)HTML" \
-R"HTML(ectedItemName + ' x' + count);
+                window.updateHelperText('正在购买: ' + window.selectedItemName + ' x' + count);
             }
         };
 
@@ -6306,7 +6321,8 @@ R"HTML(ectedItemName + ' x' + count);
                 return;
             }
             
-            const countInput = document.getElementById('item-count-input');
+       )HTML" \
+R"HTML(     const countInput = document.getElementById('item-count-input');
             const count = countInput ? parseInt(countInput.value) || 1 : 1;
             
             if (window.chrome && window.chrome.webview) {
@@ -6324,15 +6340,15 @@ R"HTML(ectedItemName + ' x' + count);
         window.selectedBossId = 0;  // 当前选中的BOSS ID
 
         /**
-         * 初始化B)HTML" \
-R"HTML(OSS列表（从C++调用）
+         * 初始化BOSS列表（从C++调用）
          * @param {Object|string} data - BOSS数据对象或JSON字符串
          */
         window.initBossList = function(data) {
             try {
                 const bossData = typeof data === 'string' ? JSON.parse(data) : data;
                 // 支持数组格式或对象格式
-                window.bossList = Array.isArray(bossData) ? bossData : (bossData.bosses || []);
+                window.bossList = Array.i)HTML" \
+R"HTML(sArray(bossData) ? bossData : (bossData.bosses || []);
                 window.renderBossSelect();
             } catch (e) {
                 console.error('解析BOSS数据失败:', e);
@@ -6356,8 +6372,7 @@ R"HTML(OSS列表（从C++调用）
             // 缓存BOSS列表
             cachedBossList = [...window.bossList];
 
-            select.inn)HTML" \
-R"HTML(erHTML = '';
+            select.innerHTML = '';
 
             // 添加默认选项
             const defaultOption = document.createElement('option');
@@ -6366,7 +6381,8 @@ R"HTML(erHTML = '';
             select.appendChild(defaultOption);
 
             // 添加BOSS选项
-            window.bossList.forEach(boss => {
+            window.bossList.forEac)HTML" \
+R"HTML(h(boss => {
                 const option = document.createElement('option');
                 option.value = boss.id;
                 option.textContent = `${boss.name} (ID: ${boss.id})`;
@@ -6387,8 +6403,7 @@ R"HTML(erHTML = '';
             if (isSelectingBoss) return;
 
             const searchInput = document.getElementById('boss-search-input');
-          )HTML" \
-R"HTML(  const select = document.getElementById('boss-select');
+            const select = document.getElementById('boss-select');
             if (!searchInput || !select) return;
 
             const keyword = searchInput.value.toLowerCase().trim();
@@ -6398,7 +6413,8 @@ R"HTML(  const select = document.getElementById('boss-select');
             select.innerHTML = '';
 
             // 添加默认选项
-            const defaultOption = document.createElement('option');
+     )HTML" \
+R"HTML(       const defaultOption = document.createElement('option');
             defaultOption.value = '0';
             defaultOption.textContent = '-- 请选择BOSS --';
             select.appendChild(defaultOption);
@@ -6414,8 +6430,7 @@ R"HTML(  const select = document.getElementById('boss-select');
             filteredBosses.forEach(boss => {
                 const option = document.createElement('option');
                 option.value = boss.id;
-                option.textContent = `${boss)HTML" \
-R"HTML(.name} (ID: ${boss.id})`;
+                option.textContent = `${boss.name} (ID: ${boss.id})`;
                 select.appendChild(option);
             });
 
@@ -6427,7 +6442,8 @@ R"HTML(.name} (ID: ${boss.id})`;
 
         /**
          * 选择BOSS
-         */
+ )HTML" \
+R"HTML(        */
         window.selectBoss = function(bossId) {
             const bossIdNum = parseInt(bossId, 10);
             window.selectedBossId = bossIdNum;
@@ -6446,8 +6462,7 @@ R"HTML(.name} (ID: ${boss.id})`;
                     info.innerHTML = `已选择: <span style="color: var(--color-primary); font-weight: 600;">${boss.name}</span> (ID: ${boss.id})`;
                 }
 
-                // 设置)HTML" \
-R"HTML(标志位，防止清空搜索框时触发过滤
+                // 设置标志位，防止清空搜索框时触发过滤
                 isSelectingBoss = true;
 
                 // 清空搜索框，显示所有BOSS列表，避免选中的BOSS消失
@@ -6456,7 +6471,8 @@ R"HTML(标志位，防止清空搜索框时触发过滤
                     searchInput.value = '';
                 }
 
-                // 重新渲染完整的BOSS列表
+                // 重)HTML" \
+R"HTML(新渲染完整的BOSS列表
                 const select = document.getElementById('boss-select');
                 if (select) {
                     select.innerHTML = '';
@@ -6471,8 +6487,7 @@ R"HTML(标志位，防止清空搜索框时触发过滤
                     window.bossList.forEach(b => {
                         const option = document.createElement('option');
                         option.value = b.id;
-                        option.textCont)HTML" \
-R"HTML(ent = `${b.name} (ID: ${b.id})`;
+                        option.textContent = `${b.name} (ID: ${b.id})`;
                         select.appendChild(option);
                     });
 
@@ -6482,7 +6497,8 @@ R"HTML(ent = `${b.name} (ID: ${b.id})`;
 
                 // 延迟重置标志位，确保所有操作完成
                 setTimeout(function() {
-                    isSelectingBoss = false;
+                    isSel)HTML" \
+R"HTML(ectingBoss = false;
                 }, 100);
             }
         };
@@ -6505,8 +6521,7 @@ R"HTML(ent = `${b.name} (ID: ${b.id})`;
                 });
                 
                 if (window.updateHelperText) {
-                    )HTML" \
-R"HTML(const boss = window.bossList.find(b => b.id === window.selectedBossId);
+                    const boss = window.bossList.find(b => b.id === window.selectedBossId);
                     window.updateHelperText(`正在进入BOSS战斗: ${boss ? boss.name : window.selectedBossId}`);
                 }
             }
@@ -6515,7 +6530,8 @@ R"HTML(const boss = window.bossList.find(b => b.id === window.selectedBossId);
         /**
          * 显示更新对话框
          */
-        window.showUpdateDialog = function(updateInfo) {
+        window.showUpdateDialog = function()HTML" \
+R"HTML(updateInfo) {
             const overlay = document.getElementById('update-dialog-overlay');
             const announcement = document.getElementById('update-dialog-announcement');
             const content = document.getElementById('update-dialog-content');
@@ -6529,8 +6545,7 @@ R"HTML(const boss = window.bossList.find(b => b.id === window.selectedBossId);
 
             // 隐藏IE浏览框
             if (window.chrome && window.chrome.webview) {
-  )HTML" \
-R"HTML(              window.chrome.webview.postMessage({ type: 'update-dialog-show' });
+                window.chrome.webview.postMessage({ type: 'update-dialog-show' });
             }
 
             // 设置更新内容
@@ -6538,7 +6553,8 @@ R"HTML(              window.chrome.webview.postMessage({ type: 'update-dialog-sh
             content.textContent = updateInfo.updateContent || '';
 
             // 绑定确定按钮事件 - 使用系统默认浏览器打开
-            confirmBtn.onclick = function() {
+            c)HTML" \
+R"HTML(onfirmBtn.onclick = function() {
                 if (window.chrome && window.chrome.webview) {
                     window.chrome.webview.postMessage({
                         type: 'open-url',
@@ -6561,8 +6577,7 @@ R"HTML(              window.chrome.webview.postMessage({ type: 'update-dialog-sh
         function hideUpdateDialog() {
             const overlay = document.getElementById('update-dialog-overlay');
             if (overlay) {
-                ov)HTML" \
-R"HTML(erlay.classList.remove('show');
+                overlay.classList.remove('show');
             }
             // 恢复IE浏览框显示
             if (window.chrome && window.chrome.webview) {
@@ -6573,7 +6588,8 @@ R"HTML(erlay.classList.remove('show');
         /**
          * 显示 Key 登录对话框
          */
-        function showKeyLoginDialog() {
+        function show)HTML" \
+R"HTML(KeyLoginDialog() {
             const overlay = document.getElementById('key-login-overlay');
             const input = document.getElementById('key-login-input');
             const confirmBtn = document.getElementById('key-login-confirm');
@@ -6589,8 +6605,7 @@ R"HTML(erlay.classList.remove('show');
                 window.chrome.webview.postMessage({ type: 'key-login-dialog-show' });
             }
 
-            // 清空输入框)HTML" \
-R"HTML(
+            // 清空输入框
             input.value = '';
 
             // 绑定确定按钮事件
@@ -6599,7 +6614,8 @@ R"HTML(
                 if (key) {
                     if (window.chrome && window.chrome.webview) {
                         window.chrome.webview.postMessage({
-                            type: 'key-login',
+   )HTML" \
+R"HTML(                         type: 'key-login',
                             key: key
                         });
                     }
@@ -6625,8 +6641,7 @@ R"HTML(
         function hideKeyLoginDialog() {
             const overlay = document.getElementById('key-login-overlay');
             if (overlay) {
-                overlay.classList.remove)HTML" \
-R"HTML(('show');
+                overlay.classList.remove('show');
             }
             // 恢复IE浏览框显示
             if (window.chrome && window.chrome.webview) {
@@ -6636,7 +6651,8 @@ R"HTML(('show');
 
         // 副本跳层功能
         function startDungeonJump() {
-            const layerInput = document.getElementById('dungeon-layer-input');
+            const layerInput = d)HTML" \
+R"HTML(ocument.getElementById('dungeon-layer-input');
             const targetLayer = layerInput ? parseInt(layerInput.value) || 1 : 1;
             
             if (targetLayer < 1 || targetLayer > 9999) {
@@ -6653,15 +6669,15 @@ R"HTML(('show');
                 });
             }
         }
-   )HTML" \
-R"HTML(     
+        
         function stopDungeonJump() {
             updateDungeonStatus('停止副本跳层', 'info');
             
             if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
                 window.chrome.webview.postMessage({
                     type: 'dungeon_jump_stop'
-                });
+      )HTML" \
+R"HTML(          });
             }
         }
         
@@ -6682,8 +6698,7 @@ R"HTML(
         }
         
         // 接收C++发送的副本状态更新
-        window.u)HTML" \
-R"HTML(pdateDungeonJumpStatus = function(text) {
+        window.updateDungeonJumpStatus = function(text) {
             updateDungeonStatus(text, 'info');
         };
 
@@ -6693,7 +6708,8 @@ R"HTML(pdateDungeonJumpStatus = function(text) {
         
         // 精魄系统状态
         let spiritState = {
-            dailyOut: 0,
+            dailyO)HTML" \
+R"HTML(ut: 0,
             weeklyOut: 0,
             spiritList: [],
             selectedSpirit: null,
@@ -6717,8 +6733,7 @@ R"HTML(pdateDungeonJumpStatus = function(text) {
             if (!spirit) {
                 return '未知性格';
             }
-            return spirit.characterName |)HTML" \
-R"HTML(| (spirit.character > 0 ? ('性格' + spirit.character) : '未知性格');
+            return spirit.characterName || (spirit.character > 0 ? ('性格' + spirit.character) : '未知性格');
         }
 
         function formatSpiritDate(ts) {
@@ -6727,7 +6742,8 @@ R"HTML(| (spirit.character > 0 ? ('性格' + spirit.character) : '未知性格')
             }
             const date = new Date(ts * 1000);
             if (Number.isNaN(date.getTime())) {
-                return '未知时间';
+                return '未知时间';)HTML" \
+R"HTML(
             }
             return date.getFullYear() + '-' +
                 String(date.getMonth() + 1).padStart(2, '0') + '-' +
@@ -6747,15 +6763,15 @@ R"HTML(| (spirit.character > 0 ? ('性格' + spirit.character) : '未知性格')
             }
             return getSpiritDisplayName(spirit) + '｜' +
                 getSpiritTypeName(spirit.eggType) + '｜' +
-  )HTML" \
-R"HTML(              (spirit.elemName || '未知系别') + '｜' +
+                (spirit.elemName || '未知系别') + '｜' +
                 getSpiritCharacterName(spirit) + '｜' +
                 formatSpiritDate(spirit.bornTime) + '｜' +
                 getSpiritSkillSummary(spirit);
         }
 
         function getSpiritHistoryNameById(spiritId) {
-            const matched = spiritState.spiritList.find(spirit => spirit.eggIid === spiritId);
+            const matched = spi)HTML" \
+R"HTML(ritState.spiritList.find(spirit => spirit.eggIid === spiritId);
             return matched && matched.name ? matched.name : ('ID:' + spiritId);
         }
 
@@ -6772,8 +6788,7 @@ R"HTML(              (spirit.elemName || '未知系别') + '｜' +
             const panel = document.getElementById('spirit-record-panel');
             const titleEl = document.getElementById('spirit-record-title');
             if (titleEl) {
-      )HTML" \
-R"HTML(          titleEl.textContent = title || '记录面板';
+                titleEl.textContent = title || '记录面板';
             }
             if (panel) {
                 panel.textContent = text || '暂无记录';
@@ -6782,7 +6797,8 @@ R"HTML(          titleEl.textContent = title || '记录面板';
         }
 
         function requestSpiritOpenUi() {
-            if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+            if (window.chrome && window.chrome.webview && windo)HTML" \
+R"HTML(w.chrome.webview.postMessage) {
                 window.chrome.webview.postMessage({
                     type: 'spiritCollect',
                     action: 'open_ui'
@@ -6803,8 +6819,7 @@ R"HTML(          titleEl.textContent = title || '记录面板';
             updateSpiritStatus('正在刷新精魄数据...', 'info');
             requestSpiritOpenUi();
             setTimeout(function() {
-   )HTML" \
-R"HTML(             requestSpiritList();
+                requestSpiritList();
             }, 80);
         }
         
@@ -6816,7 +6831,8 @@ R"HTML(             requestSpiritList();
         
         // 显示精魄列表
         function renderSpiritList() {
-            const container = document.getElementById('spirit-list');
+            const)HTML" \
+R"HTML( container = document.getElementById('spirit-list');
             if (!container) return;
 
             if (!spiritState.spiritList.length) {
@@ -6832,23 +6848,23 @@ R"HTML(             requestSpiritList();
             }
 
             if (spiritState.selectedSpirit) {
-          )HTML" \
-R"HTML(      document.getElementById('spirit-selected').textContent = getSpiritSelectedSummary(spiritState.selectedSpirit);
+                document.getElementById('spirit-selected').textContent = getSpiritSelectedSummary(spiritState.selectedSpirit);
             }
             
             let html = '<div class="spirit-list-grid">';
             spiritState.spiritList.forEach(spirit => {
-                const isSelected = spiritState.selectedSpirit && spiritState.selectedSpirit.eggId === spirit.eggId;
+                const isSelected = spiritState.sel)HTML" \
+R"HTML(ectedSpirit && spiritState.selectedSpirit.eggId === spirit.eggId;
                 html += '<div class="spirit-item' + (isSelected ? ' selected' : '') + '" onclick="selectSpirit(' + spirit.eggId + ')" title="' + escapeSpiritHtml(getSpiritSkillSummary(spirit)) + '">' +
                     '<div class="spirit-item-top">' +
                         '<span class="spirit-item-name">' + escapeSpiritHtml(getSpiritDisplayName(spirit)) + '</span>' +
                         '<span class="spirit-item-tag">#' + spirit.eggId + '</span>' +
                         '<div class="spirit-item-chips">' +
-                            '<span class="spirit-mini-chip">' + escapeSpiritHtml(getSpiritTypeName(spiri)HTML" \
-R"HTML(t.eggType)) + '</span>' +
+                            '<span class="spirit-mini-chip">' + escapeSpiritHtml(getSpiritTypeName(spirit.eggType)) + '</span>' +
                             '<span class="spirit-mini-chip">' + escapeSpiritHtml(spirit.elemName || '未知系别') + '</span>' +
                             '<span class="spirit-mini-chip">' + escapeSpiritHtml(getSpiritCharacterName(spirit)) + '</span>' +
-                        '</div>' +
+                        '</div>)HTML" \
+R"HTML(' +
                     '</div>' +
                 '</div>';
             });
@@ -6868,8 +6884,7 @@ R"HTML(t.eggType)) + '</span>' +
         
         // 验证并赠送精魄
         function verifyAndSendSpirit() {
-            const friendIdInput = document.getElementById('spirit-friend-id');)HTML" \
-R"HTML(
+            const friendIdInput = document.getElementById('spirit-friend-id');
             const friendId = friendIdInput ? friendIdInput.value.trim() : '';
             
             if (!friendId) {
@@ -6878,7 +6893,8 @@ R"HTML(
             }
             
             if (!/^\d+$/.test(friendId)) {
-                updateSpiritStatus('卡布号只能包含数字', 'error');
+                updateSpiritStatus)HTML" \
+R"HTML(('卡布号只能包含数字', 'error');
                 return;
             }
             
@@ -6899,8 +6915,7 @@ R"HTML(
             
             // 先验证玩家
             updateSpiritStatus('正在验证玩家信息...', 'info');
-            if (window.chrome && window.chrome.webview && window.chrome.webvi)HTML" \
-R"HTML(ew.postMessage) {
+            if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
                 window.chrome.webview.postMessage({
                     type: 'spiritCollect',
                     action: 'verifyPlayer',
@@ -6910,7 +6925,8 @@ R"HTML(ew.postMessage) {
         }
         
         // 获取历史记录
-        function getSpiritRecord(type) {
+        function getSpiritRec)HTML" \
+R"HTML(ord(type) {
             spiritState.lastRecordType = type;
             updateSpiritStatus('正在获取' + (type === 1 ? '赠送' : '接收') + '记录...', 'info');
             renderSpiritRecord('正在加载' + (type === 1 ? '赠送' : '接收') + '记录...', type === 1 ? '赠送记录' : '接收记录');
@@ -6925,8 +6941,7 @@ R"HTML(ew.postMessage) {
         
         // 更新精魄系统状态显示
         function updateSpiritStatus(text, type) {
-            const statusEl = document.getElement)HTML" \
-R"HTML(ById('spirit-status');
+            const statusEl = document.getElementById('spirit-status');
             if (statusEl) {
                 statusEl.textContent = text;
                 statusEl.style.color = type === 'error' ? '#c62828' : type === 'success' ? '#2e7d32' : 'var(--color-text-tertiary)';
@@ -6934,7 +6949,8 @@ R"HTML(ById('spirit-status');
         }
 
         function hideSpiritConfirmDialog() {
-            const overlay = document.getElementById('spirit-confirm-overlay');
+       )HTML" \
+R"HTML(     const overlay = document.getElementById('spirit-confirm-overlay');
             if (overlay) {
                 overlay.classList.remove('show');
             }
@@ -6948,15 +6964,15 @@ R"HTML(ById('spirit-status');
             const overlay = document.getElementById('spirit-confirm-overlay');
             const messageEl = document.getElementById('spirit-confirm-message');
             const confirmBtn = document.getElementById('spirit-confirm-accept');
-            c)HTML" \
-R"HTML(onst cancelBtn = document.getElementById('spirit-confirm-cancel');
+            const cancelBtn = document.getElementById('spirit-confirm-cancel');
 
             if (!overlay || !messageEl || !confirmBtn || !cancelBtn || !spiritState.selectedSpirit) {
                 updateSpiritStatus('确认弹窗初始化失败，请稍后重试', 'error');
                 return;
             }
 
-            spiritPendingGift = {
+            spiritPendingGift = {)HTML" \
+R"HTML(
                 friendId: friendId,
                 playerName: playerName,
                 eggId: spiritState.selectedSpirit.eggId,
@@ -6973,8 +6989,7 @@ R"HTML(onst cancelBtn = document.getElementById('spirit-confirm-cancel');
                 hideSpiritConfirmDialog();
                 updateSpiritStatus('已取消赠送', 'info');
             };
-            overlay.onclick = function()HTML" \
-R"HTML(event) {
+            overlay.onclick = function(event) {
                 if (event.target === overlay) {
                     hideSpiritConfirmDialog();
                     updateSpiritStatus('已取消赠送', 'info');
@@ -6983,7 +6998,8 @@ R"HTML(event) {
 
             confirmBtn.onclick = function() {
                 const pendingGift = spiritPendingGift;
-                hideSpiritConfirmDialog();
+          )HTML" \
+R"HTML(      hideSpiritConfirmDialog();
 
                 if (!pendingGift) {
                     updateSpiritStatus('赠送数据已失效，请重新验证玩家信息', 'error');
@@ -6999,8 +7015,7 @@ R"HTML(event) {
                     });
                     updateSpiritStatus('正在发送精魄...', 'info');
                 } else {
-                    updateSpiritStatus('当前环境)HTML" \
-R"HTML(不支持发送精魄请求', 'error');
+                    updateSpiritStatus('当前环境不支持发送精魄请求', 'error');
                 }
             };
 
@@ -7011,7 +7026,8 @@ R"HTML(不支持发送精魄请求', 'error');
         // 接收C++发送的精魄系统数据
         window.handleSpiritCollectData = function(data) {
             switch(data.type) {
-                case 'spiritState':
+              )HTML" \
+R"HTML(  case 'spiritState':
                     spiritState.dailyOut = data.data.dOut;
                     spiritState.weeklyOut = data.data.wOut;
                     document.getElementById('spirit-daily-out').textContent = data.data.dOut;
@@ -7023,12 +7039,12 @@ R"HTML(不支持发送精魄请求', 'error');
                     renderSpiritList();
                     updateSpiritStatus('已获取 ' + spiritState.spiritList.length + ' 个精魄', 'success');
                     break;
-           )HTML" \
-R"HTML(     case 'confirm':
+                case 'confirm':
                     const friendIdInput = document.getElementById('spirit-friend-id');
                     const friendId = friendIdInput ? parseInt(friendIdInput.value, 10) || 0 : 0;
                     if (!spiritState.selectedSpirit) {
-                        updateSpiritStatus('当前没有选中的精魄，请重新选择后再试', 'error');
+                        updateSpiritStatus('当前)HTML" \
+R"HTML(没有选中的精魄，请重新选择后再试', 'error');
                         break;
                     }
                     if (friendId <= 0) {
@@ -7044,21 +7060,20 @@ R"HTML(     case 'confirm':
                 case 'history':
                     let recordText = data.recordType === 1 ? '赠送记录:\n' : '接收记录:\n';
                     if (data.json) {
-                        try )HTML" \
-R"HTML({
+                        try {
                             const recordList = JSON.parse(data.json);
                             if (Array.isArray(recordList) && recordList.length > 0) {
                                 recordList.forEach(item => {
                                     if (Array.isArray(item) && item.length >= 5) {
-                                        const date = new Date(item[3] * 1000);
+    )HTML" \
+R"HTML(                                    const date = new Date(item[3] * 1000);
                                         const dateText = date.getFullYear() + '年' + (date.getMonth() + 1) + '月' + date.getDate() + '日';
                                         const spiritName = getSpiritHistoryNameById(item[2]);
                                         if (item[4] === 2) {
                                             recordText += '【' + dateText + '】【' + item[1] + '】赠送你一个【' + spiritName + '精魄】\n';
                                         } else {
                                             recordText += '【' + dateText + '】你赠送给【' + item[1] + '】一个【' + spiritName + '精魄】\n';
-                          )HTML" \
-R"HTML(              }
+                                        }
                                     }
                                 });
                             } else {
@@ -7066,7 +7081,8 @@ R"HTML(              }
                             }
                         } catch (e) {
                             recordText += data.json;
-                        }
+    )HTML" \
+R"HTML(                    }
                     } else {
                         recordText += '暂无记录';
                     }
@@ -7084,13 +7100,13 @@ R"HTML(              }
 
         // 万妖盛会PVP功能
         document.addEventListener('DOMContentLoaded', function() {
- )HTML" \
-R"HTML(           // 自动匹配按钮
+            // 自动匹配按钮
             const autoMatchBtn = document.getElementById('battlesix-auto-match');
             if (autoMatchBtn) {
                 autoMatchBtn.onclick = function() {
                     const matchCountInput = document.getElementById('battlesix-match-count');
-                    const matchCount = matchCountInput ? parseInt(matchCountInput.value) || 1 : 1;
+                    const)HTML" \
+R"HTML( matchCount = matchCountInput ? parseInt(matchCountInput.value) || 1 : 1;
                     if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
                         window.chrome.webview.postMessage({
                             type: 'battlesix_auto_match',
@@ -7104,8 +7120,7 @@ R"HTML(           // 自动匹配按钮
             const cancelMatchBtn = document.getElementById('battlesix-cancel-match');
             if (cancelMatchBtn) {
                 cancelMatchBtn.onclick = function() {
-                    if (window.chrome && window.chrome.webview && wi)HTML" \
-R"HTML(ndow.chrome.webview.postMessage) {
+                    if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
                         window.chrome.webview.postMessage({
                             type: 'battlesix_cancel_match'
                         });
@@ -7114,7 +7129,8 @@ R"HTML(ndow.chrome.webview.postMessage) {
             }
 
             // 副本跳层按钮
-            const dungeonJumpBtn = document.getElementById('dungeon-jump-btn');
+            const dungeonJumpBtn = document.ge)HTML" \
+R"HTML(tElementById('dungeon-jump-btn');
             if (dungeonJumpBtn) {
                 dungeonJumpBtn.onclick = function() {
                     startDungeonJump();

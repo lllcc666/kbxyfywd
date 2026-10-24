@@ -627,6 +627,28 @@ void HandleStopDungeonJumpCommand() {
 
 void HandleHorseCompetitionProgressCommand(const std::wstring& progress) {
     SetHelperText(std::wstring(L"坐骑大赛：") + progress);
+
+    // 面板上的「状态: 就绪」此前是死的：C++ 只往左下角 helper 写文字，
+    // #horse-competition-status 从来没人更新。把同一句进度也推到面板上，
+    // 顺手标记 running/waiting 用于配色（见 ui.html 的 updateHorseCompetitionStatus）。
+    std::wstring escaped;
+    escaped.reserve(progress.size() + 8);
+    for (const wchar_t ch : progress) {
+        if (ch == L'\'' || ch == L'\\') {
+            escaped.push_back(L'\\');
+        }
+        if (ch == L'\n' || ch == L'\r') {
+            escaped.push_back(L' ');
+            continue;
+        }
+        escaped.push_back(ch);
+    }
+    const bool running = progress.find(L"失败") == std::wstring::npos &&
+                         progress.find(L"未") == std::wstring::npos &&
+                         progress.find(L"停止") == std::wstring::npos &&
+                         progress.find(L"完成") == std::wstring::npos;
+    PostScriptToUI(L"if(window.updateHorseCompetitionStatus) { window.updateHorseCompetitionStatus('" +
+                   escaped + L"', '" + (running ? L"running" : L"idle") + L"'); }");
 }
 
 void HandleOneKeyHorseCompetitionWorker() {

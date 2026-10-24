@@ -4369,6 +4369,21 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             }
         };
 
+        // 状态行：#horse-competition-status 此前从来没人写过，永远显示「就绪」，
+        // 用户看不出流程是卡住了还是在跑。C++ 侧 HandleHorseCompetitionProgressCommand
+        // 会把每条进度文案连同 running/idle 标记一起推过来（见 web_message_handler.cpp）。
+        window.updateHorseCompetitionStatus = function(text, phase) {
+            var statusEl = document.getElementById('horse-competition-status');
+            if (statusEl) {
+                statusEl.textContent = text;
+                // 跑动中用主色，报错/收工用次级色，一眼能分开。
+                var active = (phase === 'running');
+                statusEl.style.color = active
+                    ? 'var(--color-text-primary)'
+                    : 'var(--color-text-tertiary)';
+            }
+        };
+
         // 跳舞大赛 - 计数器
         window.danceGameData = {
             completedCount: 0,  // 已完成次数

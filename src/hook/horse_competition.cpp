@@ -27,7 +27,10 @@ std::thread g_horseGameThread;
 // 两者生命周期不同：流程可能在入房阶段就放弃（比赛线程根本没起），
 // 也可能一局结束线程已退出但流程还要接着跑下一局。别合并。
 std::atomic<bool> g_horseRaceThreadRunning{false};
-HorseProgressCallback g_horseProgressCallback = nullptr;
+// UI 线程在启动时写、一键线程与比赛线程随时读，裸函数指针的并发读写是 UB
+// （编译器完全可以把读缓存进寄存器，回调从此再也不更新）。函数指针是标量，
+// atomic 化没有实际开销。
+std::atomic<HorseProgressCallback> g_horseProgressCallback{nullptr};
 
 // 游戏线程的启动/停止来自不同线程：StartHorseCompetitionGame 由收包分发线程触发
 // （START_GAME 响应），StopHorseCompetitionGame 由一键工作线程触发（退出/超时）。
@@ -83,8 +86,11 @@ constexpr double kHorseWatchdogFactor = 1.8;      // 理论时长 × 1.8 还没�
 constexpr double kHorseWatchdogFloorSeconds = 60.0;  // 再快的坐骑也至少给 60 秒
 
 void NotifyHorseProgress(const std::wstring& msg) {
-    if (g_horseProgressCallback) {
-        g_horseProgressCallback(msg);
+    // 取一次快照再调用：回调可能在两次读之间被 UI 线程换掉，
+    // 直接 `if (g_horseProgressCallback) g_horseProgressCallback(msg)` 是两次独立读。
+    const HorseProgressCallback callback = g_horseProgressCallback.load();
+    if (callback) {
+        callback(msg);
     }
 }
 
@@ -222,6 +228,12 @@ void ResetHorseRoundState(HorseCompetitionState& state) {
     // 很可能就是这一局的房号，拿它当判据会把新房间的回包全部误杀。
     // 「上一局的迟到包」改由 START_GAME 的 members 自检挡（HorseStartGameHasSelf）。
     state.roomId = 0;
+    // 服务器时间戳同理：留着上一局的 update_time 会让结算预算按上一局的总长去算。
+    // 只有在包里确实带这两个字段时才会被重写（见 ApplyHorseRoomStateFromJson），
+    // 若服务器某轮不带，就退回 140 秒兜底，而不是拿旧值算出一个错预算。
+    state.roomStartTime = 0;
+    state.roomUpdateTime = 0;
+    state.raceStartSteadyMs = 0;
     {
         // myInfo 里有 std::wstring、itemDistances 是 vector：清空它们的同时收包线程
         // 可能在写同一个字段，那是 UB（可能堆损坏），必须与解析侧共用一把锁。
@@ -275,8 +287,14 @@ void HorseGameMainLoop() {
 
     constexpr int kJumpFrames = 18;
     constexpr int kJumpCooldownFrames = 150;
+    // 连续这么多次 PLAY_GAME 发不出去就判定连接已断、中止本局。
+    // 同步包 1 秒一次，5 次约等于连续 5 秒上报失败，正常抖动不会连续这么久。
+    constexpr int kMaxPlayGameFailStreak = 5;
     // 单次循环最多补的模拟帧数：进程卡顿时不无限追帧，防止瞬间冲过终点。
-    constexpr int kMaxStepsPerTick = 6;
+    // 30 帧 = 0.5 秒容忍度。原先 6 帧（100ms）太窄：多开或 CPU 满载时线程被连续
+    // 抢占 100ms 是常态，而下面的累加器截断会把整段超额时间丢掉——等于白跑。
+    // 0.5 秒的补帧量还远没到「瞬移」的量级，但能覆盖绝大多数调度抖动。
+    constexpr int kMaxStepsPerTick = 30;
 
     // 提高系统定时器精度到 1ms。默认 15.6ms 粒度下 sleep_until(16.67ms) 会被
     // 上取整到 2 个刻度（约 31ms），60Hz 模拟实际只能跑到约 32Hz；配合下面的
@@ -298,8 +316,8 @@ void HorseGameMainLoop() {
     int jumpCooldownFrames = kJumpCooldownFrames;
     size_t nextItemIndex = 0;
     double nextSyncSeconds = 1.0;
-    int stumbleFrames = 0;
     bool firstSprintDone = false;
+    int playGameFailStreak = 0;
     // 本局距离只在本线程累加，再把结果 store 进 state.distance（atomic）供外层读：
     // 直接对 state.distance 做 += 是「读-改-写」，与一键线程的读并发会丢更新，
     // 而且裸 double 读写本身是数据竞争。
@@ -314,9 +332,11 @@ void HorseGameMainLoop() {
         accumulator += std::chrono::duration<double, std::milli>(now - lastTick);
         lastTick = now;
 
-        // 长时间卡顿后直接对齐到最新时间，避免补帧堆积造成"瞬移"。
+        // 长时间卡顿后把累加器截到上限，而不是截成 1 帧：截成 1 帧等于把这期间
+        // 真实流逝的时间整块丢掉，白跑。上面 kMaxStepsPerTick 已经限定了单次
+        // 最多补多少，这里只需保证不超过该额度。
         if (accumulator > frameDuration * kMaxStepsPerTick) {
-            accumulator = frameDuration;
+            accumulator = frameDuration * kMaxStepsPerTick;
         }
 
         // 只有墙钟计时（发同步包、看门狗用），不再有任何「配速线」：
@@ -350,7 +370,6 @@ void HorseGameMainLoop() {
                     }
                 } else {
                     bool shouldJumpForItem = false;
-                    bool suppressAccForItem = false;
                     if (nextItemIndex < itemDistances.size()) {
                         const int nextItemDistance = itemDistances[nextItemIndex];
                         const double distanceToItem = static_cast<double>(nextItemDistance) - raceDistance;
@@ -358,20 +377,22 @@ void HorseGameMainLoop() {
                             ++nextItemIndex;
                         } else {
                             shouldJumpForItem = distanceToItem >= 18.0 && distanceToItem <= 42.0;
-                            suppressAccForItem = distanceToItem >= -10.0 && distanceToItem <= 72.0;
                         }
                     }
 
                     // 冲刺时机只看自己的血条——这是把这只坐骑发挥到极限的唯一杠杆：
                     // 血够就冲（亲密 > 0 时冲刺永远正收益），一直按到血见底才收油
-                    // （AS3 里 hp 归零只是收油、不是死亡），回上去再冲。撞道具会
-                    // 掉血/减速，所以道具窗口内提前收油。按压时长与收油后的反应
-                    // 间隔都带随机，血条锯齿不像节拍器。
+                    // （AS3 里 hp 归零只是收油、不是死亡），回上去再冲。
+                    //
+                    // 原先这里还有一个「道具窗口 −10~72 米内抑制冲刺」的分支，已删除：
+                    // 道具链（USE_ITEM / use_item 回包）本工具压根没实现，itemDistances
+                    // 只有距离没有 idx，所以那段时间既不会拾取道具、也不会被道具伤害，
+                    // 抑制冲刺是纯丢速度、零收益。
                     const bool sprintUseful = state.accSpeed > state.speed + 1e-6;
                     if (state.state == "ACCRUN") {
                         --accHoldFrames;
                         if (accHoldFrames <= 0 || state.hp <= state.maxHp * 0.10
-                            || suppressAccForItem || !sprintUseful) {
+                            || !sprintUseful) {
                             state.state = "RUN";
                             // 人肉反应：血见底到松手，0.15~0.45 秒。
                             accCooldownFrames = 9 + static_cast<int>(HorseRand(0.0, 18.0));
@@ -381,17 +402,31 @@ void HorseGameMainLoop() {
                         const bool canAccNow = accCooldownFrames <= 0
                                                && state.hp >= state.maxHp * 0.85
                                                && sprintUseful;
-                        if (canAccNow && !suppressAccForItem) {
+                        if (canAccNow) {
                             state.lastState = "RUN";
                             state.state = "ACCRUN";
+                            // 按压时长按「这一口气能把多少血烧掉」算，不再写死魔数：
+                            // ACCRUN 每帧固定扣 mhp，从当前血扣到收油线（10%·maxHp）
+                            // 需要的帧数就是这次该按多久。硬编码 600 帧在 base_power
+                            // 很大时会先到期：血还剩 33% 就被迫收油，回满 85% 要白等
+                            // 二十多秒巡航，占空比从 20% 掉到个位数。
+                            const double usableHp =
+                                (std::max)(0.0, state.hp - state.maxHp * 0.10);
+                            const int fullBurnFrames =
+                                static_cast<int>(usableHp / mhp);
                             if (!firstSprintDone) {
                                 // 开局满血：一口气按到血见底。同样的血早冲早到，
                                 // 这一波用不用得满直接决定这只坐骑的最快成绩。
-                                accHoldFrames = 600;
+                                // 多留 2 帧，靠 hp<=10% 那条收油而不是靠计数到期。
+                                accHoldFrames = (std::max)(2, fullBurnFrames + 2);
                                 firstSprintDone = true;
                             } else {
                                 // 之后每次按 0.5~1.5 秒：按够时长或血低了都会松手。
-                                accHoldFrames = 30 + static_cast<int>(HorseRand(0.0, 60.0));
+                                // 也不许超过「这口气能烧完的血」对应的帧数。
+                                const int randomHold =
+                                    30 + static_cast<int>(HorseRand(0.0, 60.0));
+                                accHoldFrames = (std::max)(
+                                    2, (std::min)(randomHold, fullBurnFrames + 2));
                             }
                         }
                     }
@@ -426,16 +461,14 @@ void HorseGameMainLoop() {
                     }
                 }
 
-                // 人味：逐帧 ±1.5% 抖动 + 偶发掉速（真人手滑/走神，约每秒 7% 概率掉
-                // 0.4~0.8 秒）。只抖位移，不动 hp 与状态机，血量锯齿仍然自洽。
-                if (stumbleFrames == 0 && HorseRand(0.0, 1.0) < 0.0012) {
-                    stumbleFrames = 24 + static_cast<int>(HorseRand(0.0, 24.0));
-                }
-                double humanFactor = HorseRand(0.985, 1.015);
-                if (stumbleFrames > 0) {
-                    --stumbleFrames;
-                    humanFactor *= 0.88;
-                }
+                // 人味：逐帧 ±2% 抖动。零均值，不影响期望速度，只让每秒上报的
+                // distance 增量看起来不是恒定值。
+                //
+                // 原先还有一段「每秒约 7% 概率、持续 24~48 帧、速度 ×0.88」的掉速
+                // 模拟，已删除：它是纯负收益（期望损失 = 0.0012/帧 × 36 帧 × 12%
+                // ≈ 0.52%），一局 30 秒要白丢 0.15 秒。抖动幅度从 ±1.5% 提到 ±2%
+                // 作为补偿，伪装度不降反升，而期望速度回到理论值。
+                const double humanFactor = HorseRand(0.98, 1.02);
                 raceDistance += distanceDelta * humanFactor;
 
                 if (state.hp > state.maxHp) {
@@ -477,7 +510,10 @@ void HorseGameMainLoop() {
             raceDistance = static_cast<double>(HorseCompetitionState::ROUTE_DISTANCE);
             state.distance.store(raceDistance);
             state.localFinished = true;
-            SendHorsePlayGamePacket(static_cast<int>(raceDistance));
+            if (!SendHorsePlayGamePacket(static_cast<int>(raceDistance))) {
+                // 冲线包丢了只是让服务器晚一秒知道，按下面的连续失败计数处理。
+                ++playGameFailStreak;
+            }
         }
 
         // 同步包按墙钟 1 秒一次（AS3 是 distance setter 每 60 次调用发一次，
@@ -485,7 +521,21 @@ void HorseGameMainLoop() {
         // 避免掉帧时服务器长时间收不到进度。
         if (!state.localFinished && elapsedSeconds >= nextSyncSeconds) {
             nextSyncSeconds += 1.0;
-            SendHorsePlayGamePacket(static_cast<int>(raceDistance));
+            if (SendHorsePlayGamePacket(static_cast<int>(raceDistance))) {
+                playGameFailStreak = 0;
+            } else {
+                ++playGameFailStreak;
+            }
+        }
+
+        // 连续发不出去说明连接已经断了（SendPacket 返回 FALSE，队列满/未连接）。
+        // 本地还在跑但服务器收不到任何进度，最后只会按「distance 不足」判异常，
+        // 甚至把这一局的奖励吞掉。与其空跑到看门狗，不如立刻中止交给外层重试：
+        // 外层会退房、重新匹配，一轮的成本远低于白跑一整局。
+        if (playGameFailStreak >= kMaxPlayGameFailStreak) {
+            NotifyHorseProgress(L"连续多次无法上报比赛进度（连接可能已断开），中止本局");
+            state.raceAborted = true;
+            break;
         }
 
         if (state.localFinished && state.receivedEndGame) {
@@ -715,7 +765,17 @@ void ApplyHorseRoomStateFromJson(HorseCompetitionState& state, const std::string
     if (TryExtractJsonInt(json, "status", newStatus)) {
         state.roomStatus = newStatus;
     }
-    state.startTime = static_cast<double>(ExtractJsonInt(json, "start_time"));
+    // 结算倒计时用的两个服务器时间戳（AS3 RoomInfoData._start_time / _update_time）。
+    // 只在包里确实带了才采纳：缺字段时保留上一次的已知值，让下面的剩余时间估算
+    // 继续可用；真拿不到时 GetHorseSettleBudgetSeconds 会退回固定上限。
+    int newStartTime = 0;
+    if (TryExtractJsonInt(json, "start_time", newStartTime) && newStartTime > 0) {
+        state.roomStartTime = newStartTime;
+    }
+    int newUpdateTime = 0;
+    if (TryExtractJsonInt(json, "update_time", newUpdateTime) && newUpdateTime > 0) {
+        state.roomUpdateTime = newUpdateTime;
+    }
 }
 
 // ---- 坐骑属性的唯一来源：服务器下发的「成员对象」----
@@ -1241,7 +1301,7 @@ void HandleHorseSyncMemberResponse(HorseCompetitionState& state, const std::stri
 }  // namespace
 
 void SetHorseProgressCallback(HorseProgressCallback callback) {
-    g_horseProgressCallback = callback;
+    g_horseProgressCallback.store(callback);
 }
 
 void RequestStopHorseCompetition() {
@@ -1318,6 +1378,45 @@ static DWORD HorseRetryBackoffMs(int failures) {
     }
     const int shift = (std::min)(failures - 1, 4);
     return static_cast<DWORD>((std::min)(3000, 200 << shift));
+}
+
+// 本局「还要等多久结算」的预算（秒），用来替代原来写死的 140 秒。
+//
+// AS3 的算法是 update_time - systemTimes（HorseGameView.as:479），两个都是服务器
+// 时间戳，直接相减就是剩余秒数。C++ 没有服务器的 systemTimes（AS3 那个值来自
+// PLAYER_STATUS 包，本模块并不解析），所以换个等价算法：
+//
+//   服务器侧本局总长 = update_time - start_time
+//   本地已跑时长     = steady_clock::now() - raceStartSteadyMs
+//   剩余             = 总长 - 已跑
+//
+// 两个时间戳同源（都是服务器写入 room_status 的），差值不受时钟偏移影响；
+// 本地已跑时长用 steady_clock，不受系统时间被改的影响。剩下唯一的误差是
+// 「本地起跑到服务器 start_time 之间那点偏差」，量级在几百毫秒。
+//
+// 拿不到任一字段时返回 0，调用方自己决定兜底多久。
+static int GetHorseSettleBudgetSeconds(const HorseCompetitionState& state) {
+    const int startTime = state.roomStartTime.load();
+    const int updateTime = state.roomUpdateTime.load();
+    const int64_t raceStartMs = state.raceStartSteadyMs.load();
+    if (startTime <= 0 || updateTime <= 0 || raceStartMs <= 0 || updateTime <= startTime) {
+        return 0;
+    }
+
+    using namespace std::chrono;
+    const int64_t nowMs =
+        duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+    const double elapsedSeconds = static_cast<double>(nowMs - raceStartMs) / 1000.0;
+    const double totalSeconds = static_cast<double>(updateTime - startTime);
+    const double remaining = totalSeconds - elapsedSeconds;
+    if (remaining <= 0.0) {
+        // 按服务器时间戳算已经到点了，但我们还没收到结算包。给 15 秒宽限：
+        // 不能给 1 秒（结算包慢一拍就把整局奖励丢了），也不该退回 140 秒
+        // （那样「时间戳已过期」这条路径等于没优化）。
+        return 15;
+    }
+    // 上限 300 秒只是防服务器给一个离谱的 update_time（比如跨天）把流程卡住。
+    return static_cast<int>((std::min)(300.0, remaining));
 }
 
 BOOL SendHorseUIInfoPacket() {
@@ -1402,6 +1501,12 @@ BOOL StartHorseCompetitionGame() {
     state.abnormalRoundEnd = false;
     state.awaitingStart = false;
     state.raceAborted = false;
+    // 记下本局在本地时钟上的起点：结算剩余时间要靠
+    // 「(update_time - start_time) - 已跑秒数」来算（见 GetHorseSettleBudgetSeconds）。
+    using namespace std::chrono;
+    state.raceStartSteadyMs = duration_cast<milliseconds>(
+                                  steady_clock::now().time_since_epoch())
+                                  .count();
 
     // 先回收上一局的线程，再置运行标志——顺序反过来会挂死：
     // 旧线程的循环条件是 g_horseRaceThreadRunning && state.isGaming，
@@ -1534,6 +1639,21 @@ BOOL StartOneKeyHorseCompetitionPacket() {
     // 「一直匹配，直到分数刷满或手动停止」。服务器拒绝、活动没开、房间凑不齐
     // 都是可重试的常态，停掉整个流程反而要人工再点一次启动。
     int consecutiveFailures = 0;
+    // 「等满 10 分钟也没开局」的连续次数，以及「除等开局外的其它失败」连续次数。
+    //
+    // 这两个计数存在的理由：consecutiveFailures 只用来做退避，从不终止流程，
+    // 于是一旦活动没开 / 服务器维护 / 房间彻底卡死，ui_info 会永远超时、
+    // 10 分钟上限会一轮一轮空转，用户在界面上看到的是「一直在重试」但永远没结果，
+    // 只能手动点停止。给一个明确的上限，到点就直接收工并说清楚原因，
+    // 比无限空转好排查。
+    //
+    // 阈值取保守值：等开局 3 次（最坏 30 分钟）说明服务器那边确实没人跟我们在同一
+    // 个房间，再等下去也不会自己好；其它失败 30 次（退避到 3 秒时约两三分钟）
+    // 说明连包都发不出去或活动压根没开。两者都会在提示里写明原因。
+    int startGiveUpStreak = 0;
+    int hardFailureStreak = 0;
+    constexpr int kMaxStartGiveUpStreak = 3;
+    constexpr int kMaxHardFailureStreak = 30;
     // 是否需要在下一轮开头重新拉 UI_INFO。只有「首轮」和「上一局正常结算后」
     // 才需要——中途入房失败重试时数据还是新鲜的，重拉只会白等 3 秒。
     bool needUiInfo = true;
@@ -1574,8 +1694,22 @@ BOOL StartOneKeyHorseCompetitionPacket() {
     // 统一重试出口：失败计数 + 提示 + 停线程 + 退房 + 退避。调用方负责 continue。
     // 停线程必须在退房之前：START_GAME 可能先于回包到达，线程已经起来的话会在
     // 退房窗口里继续往死房间发 PLAY_GAME。
-    auto retryAndContinue = [&](const std::wstring& message) {
+    //
+    // startGiveUp 标记「这次失败的原因是等满 10 分钟没开局」，用来区分两种失败形态：
+    // 凑不到人（可能换一班人就好了，给 3 次机会）和包都发不出去（活动没开，给 30 次）。
+    // 到阈值时只记一个 reason，真正停机放在循环开头——这样不必让每个调用点都去
+    // 检查返回值（有十几个 `retryAndContinue(...); continue;`，逐个改成 if 反而更容易漏）。
+    auto retryAndContinue = [&](const std::wstring& message, bool startGiveUp = false) {
         ++consecutiveFailures;
+        if (startGiveUp) {
+            ++startGiveUpStreak;
+            hardFailureStreak = 0;
+        } else {
+            ++hardFailureStreak;
+            // 反方向也要清：中间夹一次「等满 10 分钟没开局」然后又恢复成普通失败，
+            // 说明房间其实是能进的，之前那几次等不到开局不该继续累计到三次上限。
+            startGiveUpStreak = 0;
+        }
         NotifyHorseProgress(message + L"（第 " + std::to_wstring(consecutiveFailures) + L" 次）");
         StopHorseCompetitionGame();
         lastExitConfirmed = LeaveHorseRoomAndConfirm(400);
@@ -1588,7 +1722,26 @@ BOOL StartOneKeyHorseCompetitionPacket() {
             std::chrono::milliseconds(HorseRetryBackoffMs(consecutiveFailures)));
     };
 
-    while (true) {
+    // 放弃条件命中后由循环开头统一收尾，避免在 lambda 里直接 return。
+
+    while (true) {        // 放弃条件检查放在循环开头：所有重试路径都是 `retryAndContinue(...); continue;`，
+        // 统一在这里判断，比在每个调用点插 if 可靠。
+        if (startGiveUpStreak >= kMaxStartGiveUpStreak) {
+            NotifyHorseProgress(
+                L"连续 " + std::to_wstring(startGiveUpStreak) +
+                L" 次等满 10 分钟仍未开局，房间一直凑不齐人，已停止。"
+                L"（该时段可能没有其他玩家参赛，稍后重新启动即可）");
+            state.isRunning = false;
+            return TRUE;
+        }
+        if (hardFailureStreak >= kMaxHardFailureStreak) {
+            NotifyHorseProgress(
+                L"连续 " + std::to_wstring(hardFailureStreak) +
+                L" 次操作失败，活动可能未开启或服务器维护中，已停止。");
+            state.isRunning = false;
+            return TRUE;
+        }
+
         ResetHorseRoundState(state);
 
         // 本轮的剩余点数是否有新鲜数据。ResetHorseRoundState 会把 resDayPoint
@@ -1783,8 +1936,12 @@ BOOL StartOneKeyHorseCompetitionPacket() {
                 retryAndContinue(L"开局包缺少坐骑属性，退房后重新匹配");
                 continue;
             }
+            // 走到这里且已经等满 10 分钟，就是「房间凑不齐人」这一类失败：
+            // 单独计数，连续三次就不再无限空转（见 kMaxStartGiveUpStreak）。
+            const bool waitedFullTimeout = (waitedMs >= kStartGiveUpMs);
             retryAndContinue(state.roomGone ? L"房间已关闭，重新匹配"
-                                            : L"长时间未开局，退房后重新匹配");
+                                            : L"长时间未开局，退房后重新匹配",
+                             waitedFullTimeout);
             continue;
         }
 
@@ -1800,11 +1957,23 @@ BOOL StartOneKeyHorseCompetitionPacket() {
         //   弹结算界面），而服务器还要等其他玩家跑完（真人 33~60 秒）。
         //   若沿用同一个上限，「我跑完了、服务器还没结算」就会被判超时退房，
         //   本局奖励直接丢掉。
-        constexpr int kSettleWaitTicks = 1400;  // 结算段 140 秒
+        //
+        // 结算预算优先用服务器下发的 update_time 换算（见 GetHorseSettleBudgetSeconds），
+        // 拿不到才用兜底值：写死 140 秒在慢结算时会让本局奖励白丢
+        // （服务器 160 秒才结算，我们 140 秒就走了），在快结算时又要白等一百多秒。
+        //
+        // 注意不能在比赛开始前算一次就定死：update_time 是服务器在 ROOM_STATUS 里推的，
+        // AS3 也只在收到那个包时才写（HorseModel.as:184-187），往往是我们冲线之后
+        // 才到。所以预算在下面循环里跟着 update_time 刷新，见 waitLimit 的抬高逻辑。
+        constexpr int kSettleFallbackTicks = 600;  // 拿不到时间戳时冲线后再等 60 秒
         const int raceWaitTicks =
             static_cast<int>((state.raceTargetSeconds + 30.0) * 10.0);
         int waitCount = 0;
         int waitLimit = raceWaitTicks;
+        // 结算截止点（waitCount 刻度），-1 表示「还没能算出来」。
+        // 只算一次就锁死：一旦时间戳到齐就把绝对截止点固定下来，避免
+        // 每 tick 重算导致截止点跟着时间一起长出去（那就是永不超时）。
+        int settleDeadlineTick = -1;
         bool settlingNotified = false;
         bool localFinishNotified = false;
         bool endGameNotified = false;
@@ -1829,10 +1998,34 @@ BOOL StartOneKeyHorseCompetitionPacket() {
                 break;
             }
 
-            // 跑到终点后切换到「等结算」预算，并重新计时。
-            if (state.localFinished && waitLimit < kSettleWaitTicks) {
-                waitLimit = kSettleWaitTicks;
-                waitCount = 0;
+            // 跑到终点后切换到「等结算」预算。
+            //
+            // update_time 往往就是我们冲线那一刻（或之后）才由 ROOM_STATUS 推下来的
+            // （AS3 同样只在收到那个包时才写，HorseModel.as:184-187），所以这段时间的
+            // 预算不能进循环前算一次就定死，得等时间戳到齐。
+            //
+            // 但「每次都重算」会踩一个坑：budgetSeconds 是「还剩多少秒」，会随时间递减，
+            // 若每 tick 都算 waitCount + budget*10，遇到 GetHorseSettleBudgetSeconds
+            // 返回固定值的情况（时间戳已过期时它返回 15），截止点就会跟着 waitCount
+            // 一起长，等于永不超时。所以这里只采信「第一份到齐的时间戳」，算出一个
+            // 绝对截止点之后就锁死，后面再来的 update_time 一律不采用。
+            if (state.localFinished && settleDeadlineTick < 0) {
+                const int budgetSeconds = GetHorseSettleBudgetSeconds(state);
+                if (budgetSeconds > 0) {
+                    settleDeadlineTick = waitCount + budgetSeconds * 10;
+                    NotifyHorseProgress(L"按服务器下发的结算时间等待，预计 " +
+                                        std::to_wstring(budgetSeconds) + L" 秒");
+                } else if (!state.isSettling && !state.receivedEndGame) {
+                    // 时间戳没到齐，且服务器还没表示进入结算：下一 tick 再等，
+                    // 给 ROOM_STATUS 一点时间。真的一直不来就靠比赛段预算收尾。
+                } else {
+                    // 已经进入结算段却仍没有时间戳：60 秒兜底，只生效一次。
+                    settleDeadlineTick = waitCount + kSettleFallbackTicks;
+                    NotifyHorseProgress(L"未拿到服务器结算时间，按 60 秒兜底等待");
+                }
+                if (settleDeadlineTick > waitLimit) {
+                    waitLimit = settleDeadlineTick;
+                }
             }
 
             // 房间被解散 / 被踢：结算包不会再来了，继续等只是白等 120 秒。
@@ -1934,11 +2127,19 @@ BOOL StartOneKeyHorseCompetitionPacket() {
         NotifyHorseProgress(L"比赛完成！正在退出...");
         // 一局正常走完就清零失败计数：只有「连续」失败才累积。
         consecutiveFailures = 0;
-        // 退房之前就把下一轮要用的 UI_INFO 发出去：退房确认 + 局间间隔本来就要
-        // 等 550ms 以上，够它回包了。这样下一轮开头不用再单独等一次 3 秒往返。
+        // 放弃计数同理：这一局完整跑完了，说明活动开着、房间能凑人、包也发得出去，
+        // 之前累积的「等不到开局 / 连不上」全都作废，从下一次失败重新数起。
+        startGiveUpStreak = 0;
+        hardFailureStreak = 0;
+        // 退房之前就把下一轮要用的 UI_INFO 发出去：退房确认本身就要等一轮往返，
+        // 够它回包了。这样下一轮开头不用再单独等一次 3 秒往返。
+        //
+        // 这里只留 50ms：UI_INFO 的往返通常 30~80ms，之后的 LeaveHorseRoomAndConfirm
+        // 还要再等最多 400ms，两者相加足够。原先写死 150ms 是纯等待，收不到回包也
+        // 只是退回「下一轮开头重新拉」的老路径，功能不受影响。
         SendHorseUIInfoPacket();
         const int uiInfoPrefetchSeq = state.uiInfoSeq.load();
-        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
         lastExitConfirmed = LeaveHorseRoomAndConfirm(400);
         // 只采信「应答了本次预取」的那份回包：要的是新鲜点数，不是赛前的旧值。
         if (state.uiInfoReceived && state.uiInfoAckSeq.load() == uiInfoPrefetchSeq) {
@@ -1952,6 +2153,8 @@ BOOL StartOneKeyHorseCompetitionPacket() {
         // 没提前取到就退回「下一轮开头重新拉」的老路径，功能不受影响。
         needUiInfo = (pendingDayPoint < 0);
         NotifyHorseProgress(L"本局完成，准备继续刷取剩余骑乘点...");
-        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        // 原先这里还有一次 150ms 的「局间间隔」sleep，已删除：上面的
+        // LeaveHorseRoomAndConfirm 无论成败都已经等了一轮往返（最长 400ms），
+        // 再补一次固定等待没有意义。
     }
 }

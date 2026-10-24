@@ -2,6 +2,7 @@
 
 #include "wpe_hook.h"
 
+#include <cstdint>
 #include <utility>
 
 struct ActivityState {
@@ -147,7 +148,17 @@ struct HorseCompetitionState : ActivityState {
     // （ResetHorseRoundState）同时读写，必须是 atomic，否则是数据竞争（UB）。
     std::atomic<int> roomId{0};
     std::atomic<int> roomStatus{HORSE_ROOM_FREE};
-    double startTime = 0.0;
+    // 服务器下发的 room_status 时间戳（秒），只出现在 ROOM_STATUS 包里：
+    //   start_time  —— AS3 RoomInfoData._start_time，本局在服务器侧的起点
+    //   update_time —— AS3 RoomInfoData._update_time，本局在服务器侧的终点
+    // HorseGameView.as:479 的结算倒计时就是 update_time - systemTimes。C++ 侧没有
+    // 服务器时钟（AS3 的 systemTimes 来自 PLAYER_STATUS 包），所以用
+    // 「update_time - start_time = 服务器侧本局总时长」减去本地已跑时长来估剩余，
+    // 详见 GetHorseSettleBudgetSeconds。两者都是 atomic：由收包线程写、一键线程读。
+    std::atomic<int> roomStartTime{0};
+    std::atomic<int> roomUpdateTime{0};
+    // 本局起跑时的 steady_clock 毫秒时间戳，用于估算结算剩余时间（同上）。
+    std::atomic<int64_t> raceStartSteadyMs{0};
 
     HorseMemberInfo myInfo;
     std::vector<std::pair<int, int>> exchangeLimits;
@@ -198,7 +209,9 @@ struct HorseCompetitionState : ActivityState {
         roomId = 0;
         stopRequested = false;
         roomStatus = HORSE_ROOM_FREE;
-        startTime = 0.0;
+        roomStartTime = 0;
+        roomUpdateTime = 0;
+        raceStartSteadyMs = 0;
         myInfo.Reset();
         exchangeLimits.clear();
         itemDistances.clear();
