@@ -292,11 +292,32 @@ void HandleActionCommand(ActionFunc action) {
     action();
 }
 
+// 道具操作（购买/使用）后刷新背包与界面数量。
+// 顺序必须与 AS3 一致：先发操作包，成功后再查背包。
+// 反了就会把操作前的旧数量写回界面（历史上就是这么错的：早期实现先查包再 Sleep(200) 发操作包，
+// 服务端返回的是操作前的数量，界面被旧值覆盖）。
+//
+// 这里用的是「发完操作包立刻查」的简化做法，可靠程度取决于服务端何时扣减：
+//   购买 —— 可靠。服务端先在 onBuyGoodsBack 里落账（MainModel.as:1115），
+//            TCP 同连接按序处理，查包必然排在落账之后。
+//   使用 —— 有前提。真客户端等用品结果包回来才补发查包（PackControl.as:442-445），
+//            因为 OP_CLIENT_USER_OP 的 back 为 0（MsgDoc.as:279-282）无法直接等；
+//            本实现在操作包之后立即查，若服务端把扣减推迟到回合结算，
+//            这里就可能仍拿到扣减前的数量。届时需改为挂到回合包之后再查，
+//            或补一次延迟重查（同一份全量快照，后到的会覆盖先到的）。
+// AS3 依据：
+//   购买 FlashControl.as:163 发 OP_CLIENT_BUY_GOODS → MainModel.onBuyGoodsBack(MainModel.as:1115)
+//        → mParams==-1 分支刷包(MainModel.as:1042-1056)
+//   使用 BattleControl.as:396 发 USER_OP(param=2) → onUsePropsBack(MainModel.as:565-633)
+//        → USEPROPSBACK_PACK 事件 → PackControl.as:442-445 补发 REQ_PACKAGE_DATA
 template <typename ActionFunc>
-bool RefreshPackageDataAndRun(ActionFunc action) {
+bool RunThenRefreshPackageData(ActionFunc action) {
+    const bool sent = action();
+    if (!sent) {
+        return false;
+    }
     SendReqPackageDataPacket(0xFFFFFFFF);
-    Sleep(200);
-    return action();
+    return true;
 }
 
 void HandleSetAutoHealEnabledCommand(const std::wstring& msg) {
@@ -628,7 +649,7 @@ void HandleBuyItemCommand(const std::wstring& msg) {
     if (itemId > 0) {
         HandleBoolResultCommand(
             [itemId, count]() {
-                return RefreshPackageDataAndRun([itemId, count]() {
+                return RunThenRefreshPackageData([itemId, count]() {
                     return SendBuyGoodsPacket(itemId, count);
                 });
             },
@@ -649,7 +670,7 @@ void HandleUseItemCommand(const std::wstring& msg) {
         } else {
             HandleBoolResultCommand(
                 [itemId]() {
-                    return RefreshPackageDataAndRun([itemId]() {
+                    return RunThenRefreshPackageData([itemId]() {
                         return SendUseItemInBattlePacket(itemId);
                     });
                 },
