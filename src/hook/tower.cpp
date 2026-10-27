@@ -64,6 +64,12 @@ static int g_towerNowPos = 0;                      // 当前所在格（0..89）
 static uint32_t g_towerBonesGen = 0;               // 权威数量版本号
 static uint32_t g_towerThrowGenAtSend = 0;         // 本次投掷发包时的版本号
 
+// 投掷窗口：op2/op3 只在"已发包、还没收到 op2"这段时间里才认。
+// 不设窗口的话，上一投迟到的回包会被记到这一投头上，step/result 全错位。
+static bool g_towerThrowInFlight = false;
+// 本次投掷期间是否已收到 op3（跳层通知，绝对定位）：收到后 op2 的 step 就不能再累加
+static bool g_towerJumpSeenForThrow = false;
+
 // 查询玄塔信息
 // Opcode: 旧活动总线, Params: 341, Body: [1] (CHECK_INFO)
 // 带真正的回包等待：回包 opcode 与 params 都能对上（与 trial.cpp:109 同款），
@@ -126,8 +132,9 @@ BOOL SendTowerResultPacket() {
     return SendPacketBytes(packet);
 }
 
-// 重新进入玄塔地图（回家第二步）
+// 回到个人空间（回家第二步）
 // Opcode: 进场景, Params: 1002
+// 注意 1002 是个人空间，不是玄塔地图：AS3 MapControl:1232/1236 回城送的就是 1002。
 BOOL SendReenterTowerMapPacket() {
     auto packet = PacketBuilder()
         .SetOpcode(Opcode::ENTER_SCENE_SEND)
@@ -144,6 +151,15 @@ DWORD WINAPI TowerAutoThreadProc(LPVOID lpParam) {
     bool success = true;
     int successCount = 0;
 
+    // 运行标志的兜底：异常被别的层 catch(...) 吞掉时也要把 g_towerAutoMode 放下，
+    // 否则一键玄塔会永远停在"已在运行中，请勿重复点击"。
+    struct AutoModeGuard {
+        ~AutoModeGuard() {
+            CriticalSectionLock lock(g_towerCS);
+            g_towerAutoMode = false;
+        }
+    } autoModeGuard;
+
     // 辅助函数：更新状态到UI
     auto updateStatus = [&](const std::wstring& status) {
         if (!pStatus) {
@@ -154,36 +170,49 @@ DWORD WINAPI TowerAutoThreadProc(LPVOID lpParam) {
         UIBridge::Instance().UpdateHelperText(status);
     };
 
+    // 投掷结果：只有服务器明确回了 op2 才算"成功/被拒"；
+    // 3 秒没回包是"结果未知"——这时服务器多半已经扣骰并推进了位置，
+    // 当失败重投等于白扣一个骰子，必须先校准再继续。
+    enum class ThrowOutcome { kSuccess, kRejected, kUnknown };
+
     // 辅助函数：投掷单次普通骰子并等待响应
-    // SendThrowBonesPacket 内部已带回包等待，这里只需要把 operation==2 的解析结果读回来。
-    // 返回值：true=成功, false=失败
-    auto throwOnceAndWait = [&]() -> bool {
+    auto throwOnceAndWait = [&]() -> ThrowOutcome {
         {
             CriticalSectionLock lock(g_towerCS);
             g_towerThrowResponseReceived = false;
             g_towerLastThrowSuccess = false;
             g_towerThrowGenAtSend = g_towerBonesGen;  // 记住发包时的权威版本号
+            g_towerJumpSeenForThrow = false;
+            g_towerThrowInFlight = true;              // 打开投掷窗口，只认这段时间里的 op2/op3
         }
 
-        if (!SendThrowBonesPacket()) {
-            return false;
-        }
+        SendThrowBonesPacket();  // 发没发出去都从这里开始等，回包超时按"未知"处理
 
         // 回包已到（或已超时），业务解析在分发线程上，补一段自旋等 operation==2 落值。
         // 最多等 2 秒：正常情况下 throw 回包紧跟 UPDATE_BONES_NUM 到达，先后不定。
         for (int i = 0; i < 100; ++i) {
+            bool received = false;
+            bool lastSuccess = false;
             {
                 CriticalSectionLock lock(g_towerCS);
-                if (g_towerThrowResponseReceived) {
-                    return g_towerLastThrowSuccess;
-                }
+                received = g_towerThrowResponseReceived;
+                lastSuccess = g_towerLastThrowSuccess;
+            }
+            if (received) {
+                return lastSuccess ? ThrowOutcome::kSuccess : ThrowOutcome::kRejected;
             }
             if (ManagedThread::StopRequested()) {
-                return false;
+                break;
             }
             ManagedThread::SleepCancellable(20);
         }
-        return false;
+
+        // 放弃这次等待：关掉窗口，别让迟到的 op2 记到下一投头上
+        {
+            CriticalSectionLock lock(g_towerCS);
+            g_towerThrowInFlight = false;
+        }
+        return ThrowOutcome::kUnknown;
     };
 
     // 初始化状态
@@ -269,8 +298,12 @@ DWORD WINAPI TowerAutoThreadProc(LPVOID lpParam) {
         const int maxTotalAttempts = 40;
         // 连续失败熔断：服务器持续回 result==-1（骰子已扣光、活动结算中）时不要空转
         const int kMaxConsecutiveFailures = 5;
+        // 回包丢失熔断：连续丢了这么多投就认网络不行，别再瞎投
+        const int kMaxUnknownResponses = 2;
         int totalAttempts = 0;
         int consecutiveFailures = 0;
+        int unknownResponses = 0;
+        bool hitAttemptLimit = false;
 
         while (totalAttempts < maxTotalAttempts) {
             // 退出流程走 RequestStopAll + JoinAll：这里必须能被打断。
@@ -292,7 +325,23 @@ DWORD WINAPI TowerAutoThreadProc(LPVOID lpParam) {
             totalAttempts++;
             updateStatus(L"投掷骰子（剩余 " + std::to_wstring(currentDice) + L" 个）...");
 
-            if (!throwOnceAndWait()) {
+            const ThrowOutcome outcome = throwOnceAndWait();
+
+            if (outcome == ThrowOutcome::kUnknown) {
+                // 不知道服务器扣没扣骰、走了几步：先重新查一次状态校准，再决定要不要继续。
+                if (++unknownResponses >= kMaxUnknownResponses) {
+                    updateStatus(L"错误：连续多次投掷无回包，已停止（网络不稳定）");
+                    success = false;
+                    break;
+                }
+                updateStatus(L"投掷回包丢失，重新校准状态...");
+                if (SendTowerCheckInfoPacket()) {
+                    ManagedThread::SleepCancellable(200);  // 等 op1 的业务解析落值
+                }
+                continue;
+            }
+
+            if (outcome == ThrowOutcome::kRejected) {
                 ++consecutiveFailures;
                 if (consecutiveFailures >= kMaxConsecutiveFailures) {
                     updateStatus(L"错误：连续 " + std::to_wstring(consecutiveFailures) +
@@ -305,8 +354,9 @@ DWORD WINAPI TowerAutoThreadProc(LPVOID lpParam) {
 
             successCount++;
             consecutiveFailures = 0;
+            unknownResponses = 0;
 
-            // 到顶判定：位置由 operation==2 的 step 本地累加、封顶 89。
+            // 到顶判定：位置由 op2 的 step 累加、op3 的绝对定位覆盖，统一封顶 89。
             // nodetype==8 只是"本次投掷触发了终点特效"，不等于真站在 89 格，不能拿它判通关。
             bool reachedTop = false;
             {
@@ -324,6 +374,7 @@ DWORD WINAPI TowerAutoThreadProc(LPVOID lpParam) {
         }
 
         if (totalAttempts >= maxTotalAttempts) {
+            hitAttemptLimit = true;
             updateStatus(L"警告：达到最大投掷次数限制，已停止");
         }
 
@@ -332,7 +383,7 @@ DWORD WINAPI TowerAutoThreadProc(LPVOID lpParam) {
             CriticalSectionLock lock(g_towerCS);
             reachedTop = (g_towerNowPos >= kTowerTopNodeIndex);
         }
-        if (!reachedTop) {
+        if (!reachedTop && !hitAttemptLimit) {
             updateStatus(L"投掷完成，成功 " + std::to_wstring(successCount) + L" 次");
         }
     }
@@ -348,7 +399,7 @@ DWORD WINAPI TowerAutoThreadProc(LPVOID lpParam) {
             success = false;
             goto cleanup;
         }
-        // 等到真的收到进场景回包再进下一步，弱网下固定 800ms 不够
+        // 等到真的收到 EXIT_WORLD_BACK 再进下一步，弱网下固定等一段时间不够
         {
             bool left = false;
             for (int i = 0; i < 50; ++i) {
@@ -366,13 +417,13 @@ DWORD WINAPI TowerAutoThreadProc(LPVOID lpParam) {
             }
         }
 
-        // 步骤3: 重新进入玄塔地图（刷新活动状态）
+        // 步骤3: 回到个人空间（1002=个人空间，AS3 MapControl:1232 送的就是它）
         if (ManagedThread::StopRequested()) {
             goto cleanup;
         }
-        updateStatus(L"步骤3: 重新进入玄塔地图...");
+        updateStatus(L"步骤3: 回到个人空间...");
         if (!SendReenterTowerMapPacket()) {
-            updateStatus(L"错误：重新进入地图失败！");
+            updateStatus(L"错误：回到个人空间失败！");
             success = false;
             goto cleanup;
         }
@@ -384,6 +435,8 @@ cleanup:
     {
         CriticalSectionLock lock(g_towerCS);
         g_towerThrowResponseReceived = false;
+        g_towerThrowInFlight = false;
+        g_towerJumpSeenForThrow = false;
         g_towerCheckInfoReceived = false;
         g_towerAutoMode = false;
         g_towerPassFlag = 0;           // 重置通关标志
@@ -449,7 +502,7 @@ BOOL StartOneKeyTowerPacket() {
     }
 
     // 启动玄塔线程
-    // 走受管线程：退出时能收住，CleanupTowerState 才敢删 g_towerCS。
+    // 走受管线程：退出时 RequestStopAll/JoinAll 能收住它，不会留下 detach 线程继续发包。
     if (StartManagedThreadOnce(L"tower_auto", TowerAutoThreadProc, pStatus)) {
         return TRUE;
     }
@@ -469,8 +522,8 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
         g_towerMapLeft.store(true);
     }
 
-    // 处理玄塔活动响应（支持两个 Opcode：1185569 和 1324097 (TRIAL_BACK), Params = 341）
-    if ((packet.opcode == 1185569 || packet.opcode == Opcode::TRIAL_BACK) && packet.params == 341) {
+    // 玄塔走旧活动总线：Opcode = ACTIVITY_QINGYANG_BACK(1324097, 别名 TRIAL_BACK)，Params = 341
+    if (packet.opcode == Opcode::TRIAL_BACK && packet.params == 341) {
         if (packet.body.size() >= 4) {
             size_t offset = 0;
             int32_t operation = ReadInt32LE(packet.body.data(), offset);
@@ -566,6 +619,12 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
                 (void)ReadInt32LE(packet.body.data(), offset);               // param3
 
                 CriticalSectionLock lock(g_towerCS);
+                // 不在投掷窗口里 = 上一投迟到的回包，认了会把 step/result 错记到这一投上
+                if (!g_towerThrowInFlight) {
+                    return;
+                }
+                g_towerThrowInFlight = false;
+
                 // 记录投掷结果
                 g_towerLastThrowSuccess = (result == 0);
                 g_towerThrowResponseReceived = true;
@@ -573,7 +632,9 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
                 // 投掷成功：本地同步推进位置与剩余骰子。
                 // 与 AS3 FindTowerCache.as:134 addPos 一致，位置封顶在 89。
                 if (result == 0) {
-                    if (step > 0) {
+                    // 跳层时服务器紧接着发 op3（绝对定位）；op3 先到就不要再累加，
+                    // 否则 30/60 这种层起点会被再加一次步数，位置越跑越偏。
+                    if (!g_towerJumpSeenForThrow && step > 0) {
                         g_towerNowPos += step;
                     }
                     if (g_towerNowPos >= kTowerTopNodeIndex) {
@@ -586,21 +647,36 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
                     }
                 }
             }
+            // SRV_NOTIFY_JUMP_BACK (operation = 3)：跳层通知，step 是"跳到的格号"，不是步数。
+            // AS3 FindTowerModel.as:71 case3 → FindTowerControl:190 playerJumpStep(step)
+            //  → TowerTreasureView:211 dataCache.setNewpos(step)（绝对定位）。
+            // 漏掉这条，跳层后本地位置会比真实位置小一截，到不了 89，剩下的骰子全白投。
+            else if (operation == 3 && packet.body.size() >= 8) {
+                int32_t newPos = ReadInt32LE(packet.body.data(), offset);
+
+                CriticalSectionLock lock(g_towerCS);
+                if (newPos < 0) {
+                    newPos = 0;
+                }
+                if (newPos > kTowerTopNodeIndex) {
+                    newPos = kTowerTopNodeIndex;
+                }
+                g_towerNowPos = newPos;
+                g_towerJumpSeenForThrow = true;  // 本投的 op2 到货时不要再累加步数
+            }
         }
     }
 }
 
-// 玄塔临界区：hook 初始化/清理时建立与销毁。
+// 玄塔临界区：hook 初始化时建立；销毁见 CleanupTowerState（故意不删）。
 void InitializeTowerState() {
     InitializeCriticalSection(&g_towerCS);
 }
 
 void CleanupTowerState() {
-    if (ManagedThread::ActiveCount() > 0) {
-        // 还有受管线程没退（玄塔线程持有 g_towerCS）：删掉临界区会让它进已删除的锁。
-        // 进程马上就要退出，留着不删没有代价。
-        OutputDebugStringW(L"CleanupTowerState: 仍有活动线程，跳过删除 g_towerCS\n");
-        return;
-    }
-    DeleteCriticalSection(&g_towerCS);
+    // 临界区一律不删，理由同 response_waiter：ManagedThread::Start 是先建线程、
+    // 后登记进注册表，ActiveCount() 兜不住那个窗口——窗口里退出就会把 g_towerCS
+    // 删掉，而刚起来的跑塔线程正拿它当锁。进程马上就退出，泄漏一个 CRITICAL_SECTION
+    // 没有任何代价，换的是不会踩到已删除的锁。
+    OutputDebugStringW(L"CleanupTowerState: 保留 g_towerCS（进程退出即回收）\n");
 }
