@@ -6064,8 +6064,12 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 if (buf.round > 0) {
                     tooltipContent += '<br>剩余: ' + buf.round + ' 回合';
                 }
-                if (buf.tipString) {
-                    tooltipContent += '<br>' + buf.tipString;
+                // tipString 与名称常常是同一句话（属性增减状态尤其如此），
+                // 只有内容不同才追加，避免悬停提示出现两行重复文字。
+                const tipText = buf.tipString ? String(buf.tipString).trim() : '';
+                const nameText = buf.name ? String(buf.name).trim() : '';
+                if (tipText && tipText !== nameText) {
+                    tooltipContent += '<br>' + tipText;
                 }
                 // 原始数值（如 10000006）是内部定点编码，给用户看只会像乱码，这里不再展示。
                 if (buf.bufId) {
