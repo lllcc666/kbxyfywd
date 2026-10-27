@@ -1146,12 +1146,6 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
         }
     }
 
-    // 注意：接收方向没有劫持钩子。ProcessHijack 在这里算出的
-    // modifiedSize / modifiedData 没有任何消费方，每个包都要白跑一次
-    // BuildReceivedPacketBytes（堆分配 + 头拼接），故此路径已移除。
-    // 真正生效的屏蔽走上面的 IsDefaultBlockedPacket + g_blockBattle，
-    // 劫持替换只在发送方向（HookedSend）实现。
-
     // ========================================================================
     // 第三步：重构封包缓冲区（过滤掉需要屏蔽的封包）
     // ========================================================================
@@ -1235,6 +1229,22 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
             packet.dwTime = GetTickCount();
 
             AppendPacketAndShow(packet);
+        }
+    }
+
+    // ========================================================================
+    // 第六步：劫持（接收方向）
+    // ========================================================================
+    // 老代码这里只有一句"接收方向没有劫持钩子"的注释，勾了"劫持接收"实际什么都
+    // 不会发生。现在按封包粒度套用规则：拦截 = 中和 opcode，替换 = 改写命中片段
+    // 并重算长度；必须放在最后，前面几步用的还是原始字节。
+    if (g_bHijackEnabled && result > 0) {
+        DWORD hijackSize = static_cast<DWORD>(result);
+        std::vector<BYTE> hijacked;
+        if (ProcessHijack(false, pData, &hijackSize, &hijacked) && hijackSize > 0 &&
+            hijackSize <= static_cast<DWORD>(len)) {
+            memcpy(buf, hijacked.data(), hijackSize);
+            result = static_cast<int>(hijackSize);
         }
     }
 

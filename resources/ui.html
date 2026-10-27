@@ -5421,13 +5421,20 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             var isRecv = hijackRecvCb ? hijackRecvCb.checked : true;
             var hijackType = hijackTypeSelect ? hijackTypeSelect.value : 'block';
 
-            // 如果没有检测文本，则不发送劫持规则
+            // 如果没有检测文本，则清空劫持规则（以前是直接 return，
+            // 规则会一直留在后台，删掉内容等于没删）
             if (!pattern) {
+                if (window.chrome && window.chrome.webview) {
+                    window.chrome.webview.postMessage('clear_hijack_rules');
+                }
                 return;
             }
 
-            // 如果是替换模式但没有替换文本，则不发送劫持规则
+            // 如果是替换模式但没有替换文本，同样清空规则（留着旧规则会误伤）
             if (hijackType === 'replace' && !replace) {
+                if (window.chrome && window.chrome.webview) {
+                    window.chrome.webview.postMessage('clear_hijack_rules');
+                }
                 return;
             }
 
@@ -5445,6 +5452,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                     type: 'add_hijack_rule',
                     rule: {
                         isSend: isSend,
+                        isRecv: isRecv,
                         isBlock: (hijackType === 'block'),
                         pattern: pattern,
                         replace: replace

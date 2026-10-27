@@ -955,9 +955,13 @@ void HandleKeyLoginCommand(const std::wstring& msg) {
 void HandleAddHijackRuleCommand(const std::wstring& msg) {
     const bool isSend = GetJsonBoolValue(msg, L"isSend");
     const bool isBlock = GetJsonBoolValue(msg, L"isBlock");
+    // 以前这里写的是 forRecv = !isSend：两个勾都勾上时 isSend 为真，
+    // 接收方向直接被判死，"劫持接收"永远建不出规则。现在按界面真实状态来。
+    const bool hasRecvKey = msg.find(L"isRecv") != std::wstring::npos;
+    const bool isRecv = hasRecvKey ? GetJsonBoolValue(msg, L"isRecv") : !isSend;
     AddHijackRule(isBlock ? HIJACK_BLOCK : HIJACK_REPLACE,
                   isSend,
-                  !isSend,
+                  isRecv,
                   WideToUtf8(GetJsonValue(msg, L"pattern")),
                   WideToUtf8(GetJsonValue(msg, L"replace")));
 }
