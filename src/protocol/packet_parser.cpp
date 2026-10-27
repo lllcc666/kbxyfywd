@@ -511,9 +511,34 @@ static void ApplyBattleSkillPpDelta(BattleData& battle, int32_t sid, int32_t ski
         }
     }
 }
-static void DecreaseBattleSkillPp(BattleData& battle, int32_t sid, int32_t skillId) {
-    BattleEntity* pet = FindBattleEntityBySid(battle, sid);
-    if (!pet || !pet->mySpirit) return;
+/**
+ * @brief 扣除出手方所用技能的 PP
+ * @details AS3 在 BattleView 里对出手方（我方或敌方）都会 time--，
+ *          带 76 号状态（PP 消耗翻倍）时再额外 -1。
+ *          旧实现有两个问题：
+ *          1) `if (!pet || !pet->mySpirit) return;` —— 敌方 PP 永远不扣；
+ *          2) 用 sid 在双方队伍里查实体，敌我 sid 相同（都是 1~6）时会扣错人，
+ *             表现就是"打了半天 PP 一点没变"。
+ *          现在按"该 sid 在哪一方 + 当前出战方"判定归属，双方都扣。
+ */
+static bool DecreaseBattleSkillPp(BattleData& battle, int32_t sid, int32_t skillId, bool mySideHint) {
+    if (skillId <= 0) return false;
+    auto findInTeam = [sid](std::vector<BattleEntity>& team) -> BattleEntity* {
+        for (auto& pet : team) {
+            if (pet.sid == sid) return &pet;
+        }
+        return nullptr;
+    };
+    BattleEntity* myPet = findInTeam(battle.myPets);
+    BattleEntity* otherPet = findInTeam(battle.otherPets);
+    BattleEntity* pet = nullptr;
+    if (myPet != nullptr && otherPet != nullptr) {
+        pet = mySideHint ? myPet : otherPet;
+    } else {
+        pet = myPet != nullptr ? myPet : otherPet;
+    }
+    if (pet == nullptr) return false;
+
     int delta = -1;
     for (const auto& buf : pet->bufArr) {
         if (buf.bufId == 76) { delta = -2; break; }
@@ -522,9 +547,10 @@ static void DecreaseBattleSkillPp(BattleData& battle, int32_t sid, int32_t skill
         if (static_cast<int32_t>(skill.id) == skillId) {
             skill.pp = skill.pp + delta < 0 ? 0 : skill.pp + delta;
             skill.time = skill.pp;
-            break;
+            return true;
         }
     }
+    return false;
 }
 static void CopyBattleSixSpirit(const BattleEntity& source, BattleSixSpiritInfo& target) {
     target.sid = source.sid;
@@ -1848,6 +1874,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         round.cmdType = params;
         BoundedReader reader(data, size);
 
+        bool ppApplied = false;
         if (params == 0) {
             if (!reader.ReadI32(round.haveBattle)) return;
             if (round.haveBattle == 1) {
@@ -1859,7 +1886,11 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
                     setHpBySid(next, round.atkId, round.atkHp);
                     setHpBySid(next, round.defId, round.defHp);
                 }
-                DecreaseBattleSkillPp(next, round.atkId, round.skillId);
+                const bool atkIsMySide =
+                    next.myActiveIndex >= 0 &&
+                    next.myActiveIndex < static_cast<int32_t>(next.myPets.size()) &&
+                    next.myPets[static_cast<size_t>(next.myActiveIndex)].sid == round.atkId;
+                ppApplied = DecreaseBattleSkillPp(next, round.atkId, round.skillId, atkIsMySide);
             }
 
             int32_t haveBuf = 0;
@@ -1949,6 +1980,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
 
                 std::vector<BattleEntity>& team = round.switchEntity.mySpirit ? next.myPets : next.otherPets;
                 int32_t& activeIndex = round.switchEntity.mySpirit ? next.myActiveIndex : next.otherActiveIndex;
+                const int32_t previousActive = activeIndex;
                 int found = -1;
                 for (size_t i = 0; i < team.size(); ++i) {
                     if (round.switchEntity.uniqueId != 0 && team[i].uniqueId == round.switchEntity.uniqueId) {
@@ -1964,22 +1996,49 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
                         }
                     }
                 }
+                // 换下与上场都要清空状态：AS3 在角色进场时调 BaseInfoPanel.delAllBuf(sid)，
+                // 也就是"离场再上场不会带着任何增益/减益回来"。
+                // 旧实现直接覆盖实体，离场那只的 bufArr 原封不动留在队伍里，
+                // 于是切回来时旧状态又冒出来。
+                round.switchEntity.bufArr.clear();
+                if (previousActive >= 0 && previousActive < static_cast<int32_t>(team.size()) &&
+                    previousActive != found) {
+                    team[static_cast<size_t>(previousActive)].bufArr.clear();
+                    team[static_cast<size_t>(previousActive)].state = 0;
+                }
                 if (found < 0) {
                     team.push_back(round.switchEntity);
                     found = static_cast<int>(team.size() - 1);
                 } else {
                     team[found] = round.switchEntity;
                 }
+                team[static_cast<size_t>(found)].bufArr.clear();
+                team[static_cast<size_t>(found)].state = 1;
                 activeIndex = found;
             } else {
                 // sta != 1：封包只带了 sid/uniqueId，没有完整实体（常见于"宠物已上场"的同步包）。
                 // 原代码这里写成 `else if (round.sta == 1)`，与上面的 if 同条件，永远进不来，
                 // 于是换宠后出战序号一直是旧值，UI 也就不会跟着切。
-                for (size_t i = 0; i < next.myPets.size(); ++i) {
-                    if (round.uniqueId != 0 && next.myPets[i].uniqueId == round.uniqueId) next.myActiveIndex = static_cast<int32_t>(i);
-                }
-                for (size_t i = 0; i < next.otherPets.size(); ++i) {
-                    if (round.uniqueId != 0 && next.otherPets[i].uniqueId == round.uniqueId) next.otherActiveIndex = static_cast<int32_t>(i);
+                auto applySwitchIndex = [&](std::vector<BattleEntity>& team, int32_t& index) -> bool {
+                    if (round.uniqueId == 0) return false;
+                    int found = -1;
+                    for (size_t i = 0; i < team.size(); ++i) {
+                        if (team[i].uniqueId == round.uniqueId) { found = static_cast<int>(i); break; }
+                    }
+                    if (found < 0) return false;
+                    if (found != index) {
+                        if (index >= 0 && index < static_cast<int32_t>(team.size())) {
+                            team[static_cast<size_t>(index)].bufArr.clear();
+                            team[static_cast<size_t>(index)].state = 0;
+                        }
+                        team[static_cast<size_t>(found)].bufArr.clear();
+                        team[static_cast<size_t>(found)].state = 1;
+                        index = found;
+                    }
+                    return true;
+                };
+                if (!applySwitchIndex(next.myPets, next.myActiveIndex)) {
+                    applySwitchIndex(next.otherPets, next.otherActiveIndex);
                 }
             }
         } else if (params == 2) {
@@ -2118,6 +2177,12 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
                      L",\"avail\":" + std::to_wstring(round.avail);
         } else if (params == 5) {
             event += L",\"status\":" + std::to_wstring(round.status);
+        }
+        if (params == 0 && round.haveBattle == 1) {
+            // 便于排查"PP 没扣"：把本次扣 PP 的目标与结果一起带进日志
+            event += L",\"ppSid\":" + std::to_wstring(round.atkId) +
+                     L",\"ppSkill\":" + std::to_wstring(round.skillId) +
+                     L",\"ppApplied\":" + std::wstring(ppApplied ? L"true" : L"false");
         }
         if (!round.bufs.empty()) {
             event += L",\"bufs\":[";
