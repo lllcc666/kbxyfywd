@@ -1996,11 +1996,12 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
                         }
                     }
                 }
-                // 换下与上场都要清空状态：AS3 在角色进场时调 BaseInfoPanel.delAllBuf(sid)，
-                // 也就是"离场再上场不会带着任何增益/减益回来"。
-                // 旧实现直接覆盖实体，离场那只的 bufArr 原封不动留在队伍里，
-                // 于是切回来时旧状态又冒出来。
-                round.switchEntity.bufArr.clear();
+                // 只清"离场"那只的状态：离场再上场不该带着旧的增益/减益回来。
+                // 进场实体本身不能清——这个封包里并没有 haveBuf 列表
+                // （ReadBattleEntityAfterState 读不到状态栏），直接覆盖 + clear 会把
+                // 身上已经生效的特殊状态（例如武甲这类技能状态）一起抹掉，
+                // 表现就是"技能丢出去了，战斗面板的状态栏却什么都不显示"。
+                // 同一只宠的状态刷新包（found == previousActive）更不能清。
                 if (previousActive >= 0 && previousActive < static_cast<int32_t>(team.size()) &&
                     previousActive != found) {
                     team[static_cast<size_t>(previousActive)].bufArr.clear();
@@ -2010,9 +2011,9 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
                     team.push_back(round.switchEntity);
                     found = static_cast<int>(team.size() - 1);
                 } else {
+                    round.switchEntity.bufArr = team[static_cast<size_t>(found)].bufArr;
                     team[found] = round.switchEntity;
                 }
-                team[static_cast<size_t>(found)].bufArr.clear();
                 team[static_cast<size_t>(found)].state = 1;
                 activeIndex = found;
             } else {
@@ -2027,11 +2028,12 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
                     }
                     if (found < 0) return false;
                     if (found != index) {
+                        // 同上：只清离场那只，进场这只的状态由 BATTLE_BUF / haveBuf 维护，
+                        // 在这里清会把"刚打上的状态"直接抹掉。
                         if (index >= 0 && index < static_cast<int32_t>(team.size())) {
                             team[static_cast<size_t>(index)].bufArr.clear();
                             team[static_cast<size_t>(index)].state = 0;
                         }
-                        team[static_cast<size_t>(found)].bufArr.clear();
                         team[static_cast<size_t>(found)].state = 1;
                         index = found;
                     }
