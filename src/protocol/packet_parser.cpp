@@ -1867,7 +1867,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         buf.tipString = GetBufTipString(buf.bufId, buf.param1, buf.param2);
 
         BattleData next = GetCurrentBattleSnapshot();
-        const std::wstring targetName = entityLabelBySid(next, buf.defId);
+        const std::wstring targetName = entityLabelBySid(next, buf.defId != 0 ? buf.defId : buf.atkId);
         if (buf.addOrRemove == BufDataType::BUF_TYPE_0) {
             RemoveBattleBufFromBattle(next, buf.defId, buf.bufId);
         } else if (buf.addOrRemove == BufDataType::BUF_TYPE_1 ||
@@ -2182,7 +2182,8 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
             }
             for (const auto& buf : round.bufs) {
                 if (!roundPrompt.empty()) roundPrompt += L"；";
-                const std::wstring targetName = entityLabelBySid(next, buf.defId);
+                // defId 为 0 表示"施法者自己"（武甲这类自加状态），提示里别写成"未知妖怪"
+                const std::wstring targetName = entityLabelBySid(next, buf.defId != 0 ? buf.defId : buf.atkId);
                 if (buf.addOrRemove == BufDataType::BUF_TYPE_0) {
                     roundPrompt += targetName + L"移除状态：" + buf.name;
                 } else {
@@ -2413,7 +2414,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         buf.name = GetBufName(buf.bufId, buf.param1, buf.param2);
         buf.tipString = GetBufTipString(buf.bufId, buf.param1, buf.param2);
         BattleData next = GetCurrentBattleSnapshot();
-        const std::wstring targetName = entityLabelBySid(next, buf.defId);
+        const std::wstring targetName = entityLabelBySid(next, buf.defId != 0 ? buf.defId : buf.atkId);
         ApplyBattleBuffBloodEffect(next, buf);
         SyncBattleSixAutoBattleState(next, false);
         // Site effects are transient BATTLE_BUF events in AS3; do not persist
