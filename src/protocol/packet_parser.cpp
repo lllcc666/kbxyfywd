@@ -55,6 +55,8 @@ struct BossInfo {
     std::wstring name;
     int elem;
 };
+// g_bossList 由 g_dataMapsMutex 保护：写入在 ParseBossXml（分发/数据加载线程），
+// 读取在 SendBossListToUI（WebView2 加载完成回调所在线程），两边线程不同。
 static std::vector<BossInfo> g_bossList;
 
 // ============================================================================
@@ -1129,7 +1131,15 @@ void PacketParser::SendToUI(const std::wstring& type, const std::wstring& data) 
 }
 
 void PacketParser::SendBossListToUI() {
-    if (g_bossList.empty()) return;
+    // 快照：g_bossList 由数据加载线程重建，这里在 WebView2 回调线程上读，
+    // 无锁直接迭代与重分配并发就是读已释放的堆块。
+    std::vector<BossInfo> bossSnapshot;
+    {
+        std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+        bossSnapshot = g_bossList;
+    }
+
+    if (bossSnapshot.empty()) return;
     
     // 如果 g_hWnd 为空，尝试查找窗口
     if (!g_hWnd) {
@@ -1142,10 +1152,10 @@ void PacketParser::SendBossListToUI() {
     if (!g_hWnd) return;
     
     std::wstring json = L"[";
-    for (size_t i = 0; i < g_bossList.size(); i++) {
+    for (size_t i = 0; i < bossSnapshot.size(); i++) {
         if (i > 0) json += L",";
-        json += L"{\"id\":" + std::to_wstring(g_bossList[i].id) + 
-                L",\"name\":\"" + g_bossList[i].name + L"\"}";
+        json += L"{\"id\":" + std::to_wstring(bossSnapshot[i].id) +
+                L",\"name\":\"" + bossSnapshot[i].name + L"\"}";
     }
     json += L"]";
     

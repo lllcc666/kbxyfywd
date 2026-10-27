@@ -40,8 +40,37 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
     // ============================================================================
     
     // 福瑞宝箱局部静态变量
+    //
+    // g_heavenFuruiBoxIds 由两条线程同时访问：收包分发线程（ReceiveDispatchWorkerProc）
+    // 在 ProcessHeavenFuruiResponse 里 clear/push_back 重建，一键工作线程在
+    // HeavenFuruiThreadProc 里 clear 与迭代拾取。vector 重分配会释放旧缓冲，
+    // 无锁迭代就是在读已释放的堆块 —— 直接访问违例闪退。
+    //
+    // 收包 thread 会先 NotifyResponse 唤醒一键线程，再把自己排进分发队列；
+    // 两者之间没有任何内存序同步，所以这个并发窗口几乎每轮都会命中。
+    // 规则：任何读都不许在锁外持有引用，一律先拷贝成快照再迭代。
+    static std::mutex g_heavenFuruiStateMutex;
     static std::vector<int> g_heavenFuruiBoxIds;
     static int g_heavenFuruiCurrentMapId = 0;
+
+    // 读取当前地图ID：MapId 由分发线程写，一键线程读。
+    static int GetHeavenFuruiCurrentMapId() {
+        std::lock_guard<std::mutex> lock(g_heavenFuruiStateMutex);
+        return g_heavenFuruiCurrentMapId;
+    }
+
+    // 清空宝箱列表与计数（分发线程与一键线程都会调用）。
+    static void ClearHeavenFuruiBoxes() {
+        std::lock_guard<std::mutex> lock(g_heavenFuruiStateMutex);
+        g_heavenFuruiBoxIds.clear();
+        g_heavenFuruiBoxCount = 0;
+    }
+
+    // 取一份宝箱ID快照，供一键线程迭代。
+    static std::vector<int> SnapshotHeavenFuruiBoxIds() {
+        std::lock_guard<std::mutex> lock(g_heavenFuruiStateMutex);
+        return g_heavenFuruiBoxIds;
+    }
     
     // 福瑞宝箱地图列表（用户指定的地图ID及名称）
     static constexpr int HEAVEN_FURUI_MAPS[] = {
@@ -167,9 +196,12 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
      */
     BOOL SendHeavenFuruiQueryPacket(int mapId) {
         g_heavenFuruiQuerySuccess = false;
-        g_heavenFuruiBoxCount = 0;
-        g_heavenFuruiBoxIds.clear();
-        g_heavenFuruiCurrentMapId = mapId;
+        {
+            std::lock_guard<std::mutex> lock(g_heavenFuruiStateMutex);
+            g_heavenFuruiBoxCount = 0;
+            g_heavenFuruiBoxIds.clear();
+            g_heavenFuruiCurrentMapId = mapId;
+        }
         return SendHeavenFuruiPacket(HeavenFurui::OP_QUERY, {mapId});
     }
     
@@ -272,7 +304,10 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
                 Sleep(500);  // 等待地图加载
                 
                 // 拾取宝箱（不超过目标数量）
-                for (int boxId : g_heavenFuruiBoxIds) {
+                // 必须用快照：分发线程会在这段时间里 clear/push_back 重建列表，
+                // 直接在锁外迭代原 vector 等于读已释放的堆块。
+                const std::vector<int> boxSnapshot = SnapshotHeavenFuruiBoxIds();
+                for (int boxId : boxSnapshot) {
                     // 检查是否已达到目标或被停止
                     if (!g_heavenFuruiRunning || totalBoxesPicked >= maxBoxes) {
                         break;
@@ -308,8 +343,7 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
             }
             
             // 清空当前地图的宝箱列表
-            g_heavenFuruiBoxIds.clear();
-            g_heavenFuruiBoxCount = 0;
+            ClearHeavenFuruiBoxes();
         }
         
         // 完成
@@ -385,21 +419,26 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
                 
                 // 如果已有宝箱数据且新响应 boxNum=0，则忽略
                 // 这可能是进入地图后服务器的状态推送，不应覆盖查询结果
-                if (boxNum == 0 && g_heavenFuruiBoxCount > 0 && !g_heavenFuruiBoxIds.empty()) {
-                    // 保持现有数据不变，仅标记查询成功
-                    return;
+                int savedBoxCount = 0;
+                {
+                    std::lock_guard<std::mutex> lock(g_heavenFuruiStateMutex);
+                    if (boxNum == 0 && g_heavenFuruiBoxCount > 0 && !g_heavenFuruiBoxIds.empty()) {
+                        // 保持现有数据不变，仅标记查询成功
+                        return;
+                    }
+
+                    g_heavenFuruiBoxIds.clear();
+
+                    // 读取宝箱ID列表
+                    for (int i = 0; i < boxNum && offset + 4 <= packet.body.size(); i++) {
+                        int boxId = ReadInt32LE(body, offset);
+                        g_heavenFuruiBoxIds.push_back(boxId);
+                    }
+
+                    // 实际保存的宝箱数量（以实际读取的ID数量为准）
+                    g_heavenFuruiBoxCount = static_cast<int>(g_heavenFuruiBoxIds.size());
+                    savedBoxCount = g_heavenFuruiBoxCount.load();
                 }
-                
-                g_heavenFuruiBoxIds.clear();
-                
-                // 读取宝箱ID列表
-                for (int i = 0; i < boxNum && offset + 4 <= packet.body.size(); i++) {
-                    int boxId = ReadInt32LE(body, offset);
-                    g_heavenFuruiBoxIds.push_back(boxId);
-                }
-                
-                // 实际保存的宝箱数量（以实际读取的ID数量为准）
-                g_heavenFuruiBoxCount = static_cast<int>(g_heavenFuruiBoxIds.size());
                 
                 // 读取已开宝箱数量
                 if (offset + 4 <= packet.body.size()) {
@@ -407,12 +446,13 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
                 }
                 
                 // 通知UI - 显示实际保存的宝箱数量
-                std::wstring mapName = GetMapName(g_heavenFuruiCurrentMapId);
-                if (mapName.empty()) mapName = std::to_wstring(g_heavenFuruiCurrentMapId);
+                const int currentMapId = GetHeavenFuruiCurrentMapId();
+                std::wstring mapName = GetMapName(currentMapId);
+                if (mapName.empty()) mapName = std::to_wstring(currentMapId);
                 
                 wchar_t msg[256];
                 swprintf_s(msg, L"福瑞宝箱：地图 [%s] 发现 %d 个宝箱（响应boxNum=%d, bodySize=%zu）", 
-                          mapName.c_str(), g_heavenFuruiBoxCount.load(), boxNum, packet.body.size());
+                          mapName.c_str(), savedBoxCount, boxNum, packet.body.size());
                 UIBridge::Instance().UpdateHelperText(msg);
             }
         }
@@ -425,6 +465,7 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
                 int boxNum = ReadInt32LE(body, offset);
                 // 如果当前没有保存的宝箱ID，才用这个值更新数量
                 // 否则保持查询得到的宝箱信息不变
+                std::lock_guard<std::mutex> lock(g_heavenFuruiStateMutex);
                 if (g_heavenFuruiBoxIds.empty()) {
                     g_heavenFuruiBoxCount = boxNum;
                 }
