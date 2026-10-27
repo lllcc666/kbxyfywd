@@ -689,18 +689,373 @@
             background: #555;
         }
         
+        /* ===== 扁平布局：战斗数据 / 妖怪背包（不使用面板容器） ===== */
+        .flat-pane {
+            display: flex;
+            align-items: stretch;
+            height: 100%;
+            min-height: 0;
+        }
+
+        .flat-sep {
+            flex: none;
+            width: 1px;
+            margin: 1px 12px;
+            background: linear-gradient(180deg, transparent, var(--color-border) 12%, var(--color-border) 88%, transparent);
+        }
+
+        .flat-head {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            min-height: 18px;
+            margin-bottom: 5px;
+        }
+
+        .flat-dot {
+            flex: none;
+            width: 5px;
+            height: 5px;
+            border-radius: var(--radius-full);
+            background: var(--color-primary);
+        }
+
+        .flat-dot.ally { background: #2e7d32; }
+        .flat-dot.enemy { background: #d13438; }
+        .flat-dot.goods { background: #f57c00; }
+        .flat-dot.bag { background: var(--color-primary); }
+
+        .flat-title {
+            font-size: 10.5px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            color: var(--color-text-primary);
+            white-space: nowrap;
+        }
+
+        .flat-tools {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-left: auto;
+        }
+
+        .flat-link {
+            padding: 1px 3px;
+            font-size: 9px;
+            color: var(--color-text-tertiary);
+            background: transparent;
+            border: none;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: color var(--duration-fast) var(--easing-standard), background var(--duration-fast) var(--easing-standard);
+        }
+
+        .flat-link:hover {
+            color: var(--color-primary);
+            background: var(--color-background-hover);
+        }
+
+        .flat-empty {
+            padding: 14px 0;
+            font-size: 9px;
+            color: var(--color-text-tertiary);
+            text-align: center;
+        }
+
+        /* 战斗数据：我方 / 敌方 */
+        .bp-side {
+            flex: 1 1 292px;
+            display: flex;
+            flex-direction: column;
+            min-width: 210px;
+        }
+
+        .bp-select {
+            flex: 0 1 158px;
+            min-width: 86px;
+            margin-left: auto;
+            height: 20px;
+            padding: 0 3px;
+            font-size: 9.5px;
+            color: var(--color-text-primary);
+            background: var(--color-background);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-sm);
+            outline: none;
+        }
+
+        .bp-select:hover { border-color: var(--color-border-hover); }
+        .bp-select:focus { border-color: var(--color-primary); }
+
+        .bp-meta {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 3px 8px;
+            margin-bottom: 6px;
+        }
+
+        .bp-meta > div { min-width: 0; }
+
+        .bp-k {
+            display: block;
+            font-size: 7.5px;
+            line-height: 10px;
+            letter-spacing: 0.03em;
+            color: var(--color-text-tertiary);
+        }
+
+        .bp-v {
+            display: block;
+            font-size: 9.5px;
+            line-height: 13px;
+            font-weight: 600;
+            color: var(--color-text-primary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .bp-v.hp { color: #d13438; }
+
+        .bp-skills {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .bp-skill-head {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            padding: 0 4px 2px;
+            font-size: 8px;
+            line-height: 11px;
+            color: var(--color-text-tertiary);
+            border-bottom: 1px solid var(--color-border);
+        }
+
+        .bp-skill-body {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
         .skill-row {
             display: grid;
-            grid-template-columns: 105px 75px;
-            padding: 3px 5px;
-            border-bottom: 1px solid var(--color-border);
-            height: 20px;
-            line-height: 14px;
+            grid-template-columns: 1fr auto;
+            align-items: center;
+            gap: 8px;
+            min-height: 17px;
+            padding: 2px 4px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.04);
             overflow: hidden;
         }
-        
+
+        .skill-row:last-child { border-bottom: none; }
+
+        .skill-row:hover { background: var(--color-background-hover); }
+
         .skill-row > div {
+            overflow: hidden;
             font-size: 9.5px;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
+        .skill-row > div:last-child {
+            color: var(--color-text-secondary);
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* 战斗数据：道具 */
+        .bp-items {
+            flex: 1 2 260px;
+            display: flex;
+            flex-direction: column;
+            min-width: 210px;
+            min-height: 0;
+        }
+
+        .bp-items-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 2px;
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        .bp-hint {
+            margin-top: 4px;
+            font-size: 8.5px;
+            color: var(--color-text-tertiary);
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
+        .bp-actions {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-top: 5px;
+        }
+
+        .bp-num {
+            flex: none;
+            width: 34px;
+            height: 20px;
+            padding: 0 3px;
+            font-size: 9.5px;
+            color: var(--color-text-primary);
+            text-align: center;
+            background: var(--color-background);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-sm);
+            outline: none;
+        }
+
+        .bp-num:focus { border-color: var(--color-primary); }
+
+        .bp-btn {
+            flex: 1;
+            height: 20px;
+            padding: 0 6px;
+            font-size: 9.5px;
+            color: #ffffff;
+            background: var(--color-primary);
+            border: none;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: background var(--duration-fast) var(--easing-standard);
+        }
+
+        .bp-btn:hover { background: var(--color-primary-hover); }
+
+        .bp-btn.ghost {
+            color: var(--color-text-primary);
+            background: var(--color-background-secondary);
+        }
+
+        .bp-btn.ghost:hover { background: var(--color-background-hover); }
+
+        /* 妖怪背包 */
+        .mb-list {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 0;
+            min-height: 0;
+        }
+
+        .mb-table {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .mb-thead {
+            display: grid;
+            grid-template-columns: 24px 48px 26px 24px 24px 26px 22px 26px 150px 1fr;
+            padding: 0 4px 2px;
+            font-size: 8.5px;
+            color: var(--color-text-tertiary);
+            border-bottom: 1px solid var(--color-border);
+        }
+
+        .mb-row {
+            display: grid;
+            grid-template-columns: 24px 48px 26px 24px 24px 26px 22px 26px 150px 1fr;
+            align-items: center;
+            min-height: 22px;
+            padding: 0 4px;
+            font-size: 9px;
+            color: var(--color-text-primary);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+            cursor: pointer;
+        }
+
+        .mb-row:hover { background: var(--color-background-hover); }
+
+        .mb-row.is-selected {
+            background: rgba(0, 120, 212, 0.08);
+            box-shadow: inset 2px 0 0 var(--color-primary);
+        }
+
+        .mb-row > span {
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
+        .mb-detail {
+            display: flex;
+            flex-direction: column;
+            flex: none;
+            width: 268px;
+            min-height: 0;
+        }
+
+        .mb-detail-body {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            font-size: 9px;
+        }
+
+        .mb-sec {
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+            margin: 5px 0 2px;
+            padding-bottom: 1px;
+            font-size: 8px;
+            letter-spacing: 0.03em;
+            color: var(--color-text-tertiary);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .mb-sec:first-child { margin-top: 0; }
+
+        .mb-kv {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1px 10px;
+        }
+
+        .mb-kv.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+        .mb-kv > div {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 3px;
+            min-width: 0;
+            line-height: 13px;
+        }
+
+        .mb-kv .bp-k {
+            display: inline;
+            line-height: 13px;
+            white-space: nowrap;
+        }
+
+        .mb-kv .bp-v {
+            display: inline;
+            line-height: 13px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .mb-chip {
+            display: inline-block;
+            padding: 1px 5px;
+            margin: 0 3px 3px 0;
+            font-size: 8.5px;
+            color: #2e7d32;
+            background: #e8f5e8;
+            border-radius: var(--radius-full);
         }
 
         /* 子选择夹样式 */
@@ -1394,27 +1749,29 @@
 
         /* 道具选择按钮样式 */
         .item-btn {
-            padding: 2px 5px;
-            font-size: 8px;
-            background: #fafafa;
-            color: #333;
-            border: 1px solid #e0e0e0;
-            border-radius: 3px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2px 2px 3px;
+            font-size: 9px;
+            color: var(--color-text-primary);
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: var(--radius-sm);
             cursor: pointer;
-            transition: all 0.15s ease;
             white-space: nowrap;
+            transition: background var(--duration-fast) var(--easing-standard), border-color var(--duration-fast) var(--easing-standard);
         }
-        
+
         .item-btn:hover {
-            background: #f0f0f0;
-            border-color: #bdbdbd;
+            background: var(--color-background-hover);
         }
-        
+
         .item-btn.selected {
-            background: #e3f2fd;
-            color: #1976d2;
-            border-color: #1976d2;
+            color: var(--color-primary);
             font-weight: 600;
+            background: rgba(0, 120, 212, 0.08);
+            border-color: rgba(0, 120, 212, 0.35);
         }
 
         /* 封包列表样式 */
@@ -2123,219 +2480,150 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
         <div class="content">
             <!-- 战斗数据标签页 -->
             <div id="battle" class="tab-content active">
-                <!-- 战斗数据容器 - 我方数据和敌方数据并列 -->
-                <div style="display: flex; gap: 12px; margin-bottom: 12px; justify-content: flex-start; align-items: stretch;">
+                <div class="flat-pane">
                     <!-- 我方数据 -->
-                    <div style="width: 320px; height: 150px; opacity: 0; transform: translateY(4px); animation: fadeInUp var(--duration-slow) var(--easing-enter) forwards; animation-delay: 0.1s; flex: none;">
-                        <div style="background: var(--color-background); border: 1px solid var(--color-border); border-radius: 4px; padding: 8px; box-shadow: var(--shadow-sm); height: 100%; display: flex; flex-direction: column;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; min-height: 18px;">
-                                <h3 style="font-size: 11.5px; font-weight: 600; color: var(--color-text-primary); margin: 0;">我方数据</h3>
-                                <!-- 增益减益效果标签区域 - 支持横向滚动 -->
-                                <div id="my-buf-list" style="display: flex; flex-wrap: nowrap; gap: 2px; max-width: 200px; min-width: 0; overflow-x: hidden; overflow-y: hidden; padding-bottom: 4px;">
-                                    <!-- Buff 标签由 JS 动态填充 -->
-                                </div>
-                            </div>
-                            
-                            <!-- 主布局：组合框+标签 | 超级列表框 -->
-                            <div style="display: flex; gap: 8px; flex: 1;">
-                                <!-- 左侧：组合框 + 标签 -->
-                                <div style="flex: 0 0 85px;">
-                                    <!-- 组合框 -->
-                                    <div style="margin-bottom: 5px;">
-                                        <select id="my-pet-select" class="input" style="width: 85px; font-size: 9.5px; padding: 4px 6px;">
-                                            <option value="0">妖怪1</option>
-                                        </select>
-                                    </div>
-                                    
-                                    <!-- 标签 -->
-                                    <div style="display: flex; flex-direction: column; gap: 3px;">
-                                        <div style="display: flex; align-items: center; padding: 3px 5px; background: var(--color-background-hover); border-radius: 2px; transition: all var(--duration-fast) var(--easing-standard);">
-                                            <span style="font-size: 9px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0;">妖怪ID:</span>
-                                            <span id="my-spirit-id" style="font-size: 9.5px; font-weight: 400; color: var(--color-text-primary); white-space: normal; word-wrap: break-word; word-break: break-all; flex-shrink: 0; width: 40px; text-align: center;">0</span>
-                                        </div>
-                                        <div style="display: flex; align-items: center; padding: 3px 5px; background: var(--color-background-hover); border-radius: 2px; transition: all var(--duration-fast) var(--easing-standard);">
-                                            <span style="font-size: 9px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0;">血量:</span>
-                                            <span id="my-hp" style="font-size: 9.5px; font-weight: 400; color: var(--color-text-primary); white-space: normal; word-wrap: break-word; word-break: break-all; flex-shrink: 0; width: 40px; text-align: center;">0/0</span>
-                                        </div>
-                                        <div style="display: flex; align-items: center; padding: 3px 5px; background: var(--color-background-hover); border-radius: 2px; transition: all var(--duration-fast) var(--easing-standard);">
-                                            <span style="font-size: 9px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0;">妖怪名称:</span>
-                                            <span id="my-name" style="font-size: 9.5px; font-weight: 400; color: var(--color-text-primary); white-space: normal; word-wrap: break-word; word-break: break-all; flex-shrink: 0; width: 40px; text-align: center;">未知</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <!-- 右侧：超级列表框 -->
-                                <div style="width: 190px; height: 110px; flex: none; border: 1px solid var(--color-border); border-radius: 3px; overflow: hidden; background: var(--color-background); display: flex; flex-direction: column;">
-                                    <!-- 列表表头 -->
-                                    <div style="display: grid; grid-template-columns: 105px 75px; background: var(--color-background-hover); padding: 3px 5px; border-bottom: 1px solid var(--color-border);">
-                                        <div style="font-size: 9.5px; font-weight: 600; color: var(--color-text-primary); text-align: center;">技能名称</div>
-                                        <div style="font-size: 9.5px; font-weight: 600; color: var(--color-text-primary); text-align: center;">PP值</div>
-                                    </div>
-                                    
-                                    <!-- 列表内容 -->
-                                    <div id="my-skill-list" style="overflow-y: auto; flex: 1; min-height: 0;">
-                                        <!-- 技能项由 JS 动态填充 -->
-                                    </div>
-                                </div>
+                    <section class="bp-side">
+                        <div class="flat-head">
+                            <span class="flat-dot ally"></span>
+                            <span class="flat-title">我方</span>
+                            <select id="my-pet-select" class="bp-select">
+                                <option value="0">妖怪1</option>
+                            </select>
+                        </div>
+                        <div id="my-buf-list" style="display: flex; flex-wrap: nowrap; gap: 2px; min-width: 0; margin-bottom: 4px; overflow: hidden;"></div>
+                        <div class="bp-meta">
+                            <div><span class="bp-k">妖怪 ID</span><span id="my-spirit-id" class="bp-v">0</span></div>
+                            <div><span class="bp-k">血量</span><span id="my-hp" class="bp-v hp">0/0</span></div>
+                            <div><span class="bp-k">名称</span><span id="my-name" class="bp-v">未知</span></div>
+                        </div>
+                        <div class="bp-skills">
+                            <div class="bp-skill-head"><span>技能</span><span>PP</span></div>
+                            <div id="my-skill-list" class="bp-skill-body">
+                                <div class="flat-empty">暂无技能数据</div>
                             </div>
                         </div>
-                    </div>
-                    
+                    </section>
+
+                    <div class="flat-sep"></div>
+
                     <!-- 敌方数据 -->
-                    <div style="width: 320px; height: 150px; opacity: 0; transform: translateY(4px); animation: fadeInUp var(--duration-slow) var(--easing-enter) forwards; animation-delay: 0.2s; flex: none;">
-                        <div style="background: var(--color-background); border: 1px solid var(--color-border); border-radius: 4px; padding: 8px; box-shadow: var(--shadow-sm); height: 100%; display: flex; flex-direction: column;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; min-height: 18px;">
-                                <h3 style="font-size: 11.5px; font-weight: 600; color: var(--color-text-primary); margin: 0;">敌方数据</h3>
-                                <!-- 增益减益效果标签区域 - 支持横向滚动 -->
-                                <div id="other-buf-list" style="display: flex; flex-wrap: nowrap; gap: 2px; max-width: 200px; min-width: 0; overflow-x: hidden; overflow-y: hidden; padding-bottom: 4px;">
-                                    <!-- Buff 标签由 JS 动态填充 -->
-                                </div>
-                            </div>
-                            
-                            <!-- 主布局：组合框+标签 | 超级列表框 -->
-                            <div style="display: flex; gap: 8px; flex: 1;">
-                                <!-- 左侧：组合框 + 标签 -->
-                                <div style="flex: 0 0 85px;">
-                                    <!-- 组合框 -->
-                                    <div style="margin-bottom: 5px;">
-                                        <select id="other-pet-select" class="input" style="width: 85px; font-size: 9.5px; padding: 4px 6px;">
-                                            <option value="0">敌方妖怪1</option>
-                                        </select>
-                                    </div>
-                                    
-                                    <!-- 标签 -->
-                                    <div style="display: flex; flex-direction: column; gap: 3px;">
-                                        <div style="display: flex; align-items: center; padding: 3px 5px; background: var(--color-background-hover); border-radius: 2px; transition: all var(--duration-fast) var(--easing-standard);">
-                                            <span style="font-size: 9px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0;">妖怪ID:</span>
-                                            <span id="other-spirit-id" style="font-size: 9.5px; font-weight: 400; color: var(--color-text-primary); white-space: normal; word-wrap: break-word; word-break: break-all; flex-shrink: 0; width: 40px; text-align: center;">0</span>
-                                        </div>
-                                        <div style="display: flex; align-items: center; padding: 3px 5px; background: var(--color-background-hover); border-radius: 2px; transition: all var(--duration-fast) var(--easing-standard);">
-                                            <span style="font-size: 9px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0;">血量:</span>
-                                            <span id="other-hp" style="font-size: 9.5px; font-weight: 400; color: var(--color-text-primary); white-space: normal; word-wrap: break-word; word-break: break-all; flex-shrink: 0; width: 40px; text-align: center;">0/0</span>
-                                        </div>
-                                        <div style="display: flex; align-items: center; padding: 3px 5px; background: var(--color-background-hover); border-radius: 2px; transition: all var(--duration-fast) var(--easing-standard);">
-                                            <span style="font-size: 9px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0;">妖怪名称:</span>
-                                            <span id="other-name" style="font-size: 9.5px; font-weight: 400; color: var(--color-text-primary); white-space: normal; word-wrap: break-word; word-break: break-all; flex-shrink: 0; width: 40px; text-align: center;">未知</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <!-- 右侧：超级列表框 -->
-                                <div style="width: 190px; height: 110px; flex: none; border: 1px solid var(--color-border); border-radius: 3px; overflow: hidden; background: var(--color-background); display: flex; flex-direction: column;">
-                                    <!-- 列表表头 -->
-                                    <div style="display: grid; grid-template-columns: 105px 75px; background: var(--color-background-hover); padding: 3px 5px; border-bottom: 1px solid var(--color-border);">
-                                        <div style="font-size: 9.5px; font-weight: 600; color: var(--color-text-primary); text-align: center;">技能名称</div>
-                                        <div style="font-size: 9.5px; font-weight: 600; color: var(--color-text-primary); text-align: center;">PP值</div>
-                                    </div>
-                                    
-                                    <!-- 列表内容 -->
-                                    <div id="other-skill-list" style="overflow-y: auto; flex: 1; min-height: 0;">
-                                        <!-- 技能项由 JS 动态填充 -->
-                                    </div>
-                                </div>
+                    <section class="bp-side">
+                        <div class="flat-head">
+                            <span class="flat-dot enemy"></span>
+                            <span class="flat-title">敌方</span>
+                            <select id="other-pet-select" class="bp-select">
+                                <option value="0">敌方妖怪1</option>
+                            </select>
+                        </div>
+                        <div id="other-buf-list" style="display: flex; flex-wrap: nowrap; gap: 2px; min-width: 0; margin-bottom: 4px; overflow: hidden;"></div>
+                        <div class="bp-meta">
+                            <div><span class="bp-k">妖怪 ID</span><span id="other-spirit-id" class="bp-v">0</span></div>
+                            <div><span class="bp-k">血量</span><span id="other-hp" class="bp-v hp">0/0</span></div>
+                            <div><span class="bp-k">名称</span><span id="other-name" class="bp-v">未知</span></div>
+                        </div>
+                        <div class="bp-skills">
+                            <div class="bp-skill-head"><span>技能</span><span>PP</span></div>
+                            <div id="other-skill-list" class="bp-skill-body">
+                                <div class="flat-empty">暂无技能数据</div>
                             </div>
                         </div>
-                    </div>
-                    
-                    <!-- 道具卡片 -->
-                    <div style="flex: 1 1 230px; min-width: 230px; max-width: 340px; margin-right: 6px; height: 150px; opacity: 0; transform: translateY(4px); animation: fadeInUp var(--duration-slow) var(--easing-enter) forwards; animation-delay: 0.3s;">
-                        <div style="background: var(--color-background); border: 1px solid var(--color-border); border-radius: 4px; padding: 8px; box-shadow: var(--shadow-sm); height: 100%; display: flex; flex-direction: column;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; min-height: 18px;">
-                                <h3 style="font-size: 11.5px; font-weight: 600; color: var(--color-text-primary); margin: 0;">道具</h3>
-                                <button onclick="window.refreshPackItems()" style="padding: 1px 4px; font-size: 8px; background: #2e7d32; color: white; border: none; border-radius: 2px; cursor: pointer;">刷新</button>
-                            </div>
-                            
-                            <!-- 道具选择按钮组容器（带滚动条） -->
-                            <div id="item-buttons-container" style="flex: 1; overflow-y: auto; overflow-x: hidden; margin-bottom: 3px; padding-right: 2px;">
-                                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px;">
-                                    <button class="item-btn item-btn-hp" data-id="100034" onclick="window.selectItem(100034, '天香丸', 170, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
-                                        <span class="item-name">天香丸</span>
-                                        <span style="color: #e53935; font-size: 8px;">+170HP <span class="item-count" data-id="100034">(0)</span></span>
-                                    </button>
-                                    <button class="item-btn item-btn-hp" data-id="100758" onclick="window.selectItem(100758, '培元金丹', 200, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
-                                        <span class="item-name">培元金丹</span>
-                                        <span style="color: #e53935; font-size: 8px;">+200HP <span class="item-count" data-id="100758">(0)</span></span>
-                                    </button>
-                                    <button class="item-btn item-btn-hp" data-id="100006" onclick="window.selectItem(100006, '大金创药', 100, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
-                                        <span class="item-name">大金创药</span>
-                                        <span style="color: #e53935; font-size: 8px;">+100HP <span class="item-count" data-id="100006">(0)</span></span>
-                                    </button>
-                                    <button class="item-btn item-btn-hp" data-id="100031" onclick="window.selectItem(100031, '活血散', 150, 'hp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
-                                        <span class="item-name">活血散</span>
-                                        <span style="color: #e53935; font-size: 8px;">+150HP <span class="item-count" data-id="100031">(0)</span></span>
-                                    </button>
-                                    <button class="item-btn item-btn-mp" data-id="100010" onclick="window.selectItem(100010, '小型法力药剂', 5, 'mp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
-                                        <span class="item-name">小型法力剂</span>
-                                        <span style="color: #1976d2; font-size: 8px;">+5PP <span class="item-count" data-id="100010">(0)</span></span>
-                                    </button>
-                                    <button class="item-btn item-btn-mp" data-id="100011" onclick="window.selectItem(100011, '中型法力药剂', 10, 'mp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
-                                        <span class="item-name">中型法力剂</span>
-                                        <span style="color: #1976d2; font-size: 8px;">+10PP <span class="item-count" data-id="100011">(0)</span></span>
-                                    </button>
-                                    <button class="item-btn item-btn-mp" data-id="100012" onclick="window.selectItem(100012, '大型法力药剂', 20, 'mp')" style="display: flex; flex-direction: column; align-items: center; padding: 3px 4px; font-size: 9px; background: #fafafa; color: #333; border: 1px solid #e0e0e0; border-radius: 3px; cursor: pointer; transition: all 0.15s ease;">
-                                        <span class="item-name">大型法力剂</span>
-                                        <span style="color: #1976d2; font-size: 8px;">+20PP <span class="item-count" data-id="100012">(0)</span></span>
-                                    </button>
-                                </div>
-                            </div>
-                            <!-- 选中提示 -->
-                            <div id="selected-item-hint" style="font-size: 8px; color: var(--color-text-tertiary); text-align: center; padding: 1px 2px; background: var(--color-background-secondary); border-radius: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">点击选择道具</div>
-                            
-                            <!-- 操作行：数量 + 购买 + 使用 -->
-                            <div style="display: flex; gap: 4px; align-items: center;">
-                                <span style="font-size: 9px; color: var(--color-text-secondary); white-space: nowrap; flex: none;">数量</span>
-                                <input type="number" id="item-count-input" value="1" min="1" max="99" style="width: 32px; flex: none; font-size: 9px; padding: 2px 3px; border: 1px solid var(--color-border); border-radius: 2px; text-align: center;">
-                                <button id="buy-item-btn" onclick="window.buySelectedItem()" style="flex: 1; padding: 3px 4px; font-size: 9px; background: #2e7d32; color: white; border: none; border-radius: 2px; cursor: pointer;">购买</button>
-                                <button id="use-item-btn" onclick="window.useSelectedItem()" style="flex: 1; padding: 3px 4px; font-size: 9px; background: var(--color-primary); color: white; border: none; border-radius: 2px; cursor: pointer;">使用</button>
+                    </section>
+
+                    <div class="flat-sep"></div>
+
+                    <!-- 道具 -->
+                    <section class="bp-items">
+                        <div class="flat-head">
+                            <span class="flat-dot goods"></span>
+                            <span class="flat-title">道具</span>
+                            <div class="flat-tools">
+                                <button class="flat-link" onclick="window.refreshPackItems()">刷新</button>
                             </div>
                         </div>
-                    </div>
+                        <div id="item-buttons-container" class="bp-items-grid">
+                            <button class="item-btn item-btn-hp" data-id="100034" onclick="window.selectItem(100034, '天香丸', 170, 'hp')">
+                                <span class="item-name">天香丸</span>
+                                <span style="color: #d13438; font-size: 8px;">+170HP <span class="item-count" data-id="100034">(0)</span></span>
+                            </button>
+                            <button class="item-btn item-btn-hp" data-id="100758" onclick="window.selectItem(100758, '培元金丹', 200, 'hp')">
+                                <span class="item-name">培元金丹</span>
+                                <span style="color: #d13438; font-size: 8px;">+200HP <span class="item-count" data-id="100758">(0)</span></span>
+                            </button>
+                            <button class="item-btn item-btn-hp" data-id="100006" onclick="window.selectItem(100006, '大金创药', 100, 'hp')">
+                                <span class="item-name">大金创药</span>
+                                <span style="color: #d13438; font-size: 8px;">+100HP <span class="item-count" data-id="100006">(0)</span></span>
+                            </button>
+                            <button class="item-btn item-btn-hp" data-id="100031" onclick="window.selectItem(100031, '活血散', 150, 'hp')">
+                                <span class="item-name">活血散</span>
+                                <span style="color: #d13438; font-size: 8px;">+150HP <span class="item-count" data-id="100031">(0)</span></span>
+                            </button>
+                            <button class="item-btn item-btn-mp" data-id="100010" onclick="window.selectItem(100010, '小型法力剂', 5, 'mp')">
+                                <span class="item-name">小型法力剂</span>
+                                <span style="color: #0078d4; font-size: 8px;">+5PP <span class="item-count" data-id="100010">(0)</span></span>
+                            </button>
+                            <button class="item-btn item-btn-mp" data-id="100011" onclick="window.selectItem(100011, '中型法力剂', 10, 'mp')">
+                                <span class="item-name">中型法力剂</span>
+                                <span style="color: #0078d4; font-size: 8px;">+10PP <span class="item-count" data-id="100011">(0)</span></span>
+                            </button>
+                            <button class="item-btn item-btn-mp" data-id="100012" onclick="window.selectItem(100012, '大型法力剂', 20, 'mp')">
+                                <span class="item-name">大型法力剂</span>
+                                <span style="color: #0078d4; font-size: 8px;">+20PP <span class="item-count" data-id="100012">(0)</span></span>
+                            </button>
+                        </div>
+                        <div id="selected-item-hint" class="bp-hint">点击选择道具</div>
+                        <div class="bp-actions">
+                            <span style="flex: none; font-size: 9px; color: var(--color-text-tertiary);">数量</span>
+                            <input type="number" id="item-count-input" class="bp-num" value="1" min="1" max="99">
+                            <button id="buy-item-btn" class="bp-btn ghost" onclick="window.buySelectedItem()">购买</button>
+                            <button id="use-item-btn" class="bp-btn" onclick="window.useSelectedItem()">使用</button>
+                        </div>
+                    </section>
                 </div>
             </div>
             <!-- 妖怪背包标签页 -->
             <div id="monster" class="tab-content">
-                <div style="display: flex; gap: 10px; height: 100%;">
-                    <!-- 左侧：妖怪列表 -->
-                    <div class="panel-animate" style="flex: 1; background: var(--color-background); border: 1px solid var(--color-border); border-radius: 4px; padding: 6px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                            <div style="display: flex; align-items: center; gap: 6px;">
-                                <h3 style="font-size: 11px; font-weight: 600; color: var(--color-text-primary); margin: 0;">妖怪列表</h3>
-                                <div id="monster-count" class="badge badge-success" style="padding: 0 4px; font-size: 9px;">0</div>
-                            </div>
-                            <button onclick="window.queryMonsters()" style="padding: 2px 6px; font-size: 9px; background: #2e7d32; color: white; border: none; border-radius: 2px; cursor: pointer;">刷新妖怪</button>
-                        </div>
-                        
-                        <!-- 妖怪列表容器 -->
-                        <div style="flex: 1; border: 1px solid var(--color-border); border-radius: 3px; overflow: hidden; background: var(--color-background); display: flex; flex-direction: column;">
-                            <!-- 列表表头 -->
-                            <div style="display: grid; grid-template-columns: 28px 48px 28px 28px 26px 26px 24px 32px 130px 1fr; background: var(--color-background-hover); padding: 2px 4px; border-bottom: 1px solid var(--color-border); font-size: 9.5px; font-weight: 600; color: var(--color-text-primary);">
-                                <div style="text-align: center;">#</div>
-                                <div style="text-align: center;">名称</div>
-                                <div style="text-align: center;">ID</div>
-                                <div style="text-align: center;">性别</div>
-                                <div style="text-align: center;">等级</div>
-                                <div style="text-align: center;">血量</div>
-                                <div style="text-align: center;">系别</div>
-                                <div style="text-align: center;">性格</div>
-                                <div style="text-align: center;">资质</div>
-                                <div style="text-align: left; padding-left: 4px;">技能</div>
-                            </div>
-                            
-                            <!-- 列表内容 -->
-                            <div id="monster-list" style="overflow-y: auto; flex: 1; font-size: 9.5px;">
-                                <div style="text-align: center; padding: 20px; color: var(--color-text-tertiary);">暂无妖怪数据，请打开游戏妖怪背包</div>
+                <div class="flat-pane">
+                    <!-- 妖怪列表 -->
+                    <section class="mb-list">
+                        <div class="flat-head">
+                            <span class="flat-dot bag"></span>
+                            <span class="flat-title">妖怪列表</span>
+                            <span id="monster-count" class="badge badge-success" style="padding: 0 4px; font-size: 8.5px;">0</span>
+                            <div class="flat-tools">
+                                <button class="flat-link" onclick="window.queryMonsters()">刷新</button>
                             </div>
                         </div>
-                    </div>
-                    
-                    <!-- 右侧：选中妖怪详情 -->
-                    <div class="panel-animate" style="width: 200px; background: var(--color-background); border: 1px solid var(--color-border); border-radius: 4px; padding: 6px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column;">
-                        <h3 style="font-size: 11px; font-weight: 600; color: var(--color-text-primary); margin: 0 0 4px 0; border-bottom: 1px solid var(--color-border); padding-bottom: 4px;">妖怪详情</h3>
-                        
-                        <div id="monster-detail" style="flex: 1; overflow-y: auto; font-size: 9px;">
-                            <div style="text-align: center; padding: 20px; color: var(--color-text-tertiary);">点击左侧妖怪查看详情</div>
+                        <div class="mb-table">
+                            <div class="mb-thead">
+                                <span style="text-align: center;">#</span>
+                                <span style="text-align: center;">名称</span>
+                                <span style="text-align: center;">ID</span>
+                                <span style="text-align: center;">性别</span>
+                                <span style="text-align: center;">等级</span>
+                                <span style="text-align: center;">血量</span>
+                                <span style="text-align: center;">系别</span>
+                                <span style="text-align: center;">性格</span>
+                                <span style="text-align: center;">资质</span>
+                                <span style="text-align: left; padding-left: 2px;">技能</span>
+                            </div>
+                            <div id="monster-list" style="overflow-y: auto; flex: 1; min-height: 0;">
+                                <div class="flat-empty">暂无妖怪数据，请打开游戏妖怪背包</div>
+                            </div>
                         </div>
-                    </div>
+                    </section>
+
+                    <div class="flat-sep"></div>
+
+                    <!-- 妖怪详情 -->
+                    <section class="mb-detail">
+                        <div class="flat-head">
+                            <span class="flat-dot bag"></span>
+                            <span class="flat-title">妖怪详情</span>
+                        </div>
+                        <div id="monster-detail" class="mb-detail-body">
+                            <div class="flat-empty">点击左侧妖怪查看详情</div>
+                        </div>
+                    </section>
                 </div>
             </div>
             <!-- 设置标签页 -->
@@ -5833,12 +6121,15 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 // 更新技能列表
                 const mySkillList = document.getElementById('my-skill-list');
                 mySkillList.innerHTML = '';
+                if (!(Array.isArray(myActive.skills) && myActive.skills.length > 0)) {
+                    mySkillList.innerHTML = '<div class="flat-empty">暂无技能数据</div>';
+                }
                 (Array.isArray(myActive.skills) ? myActive.skills : []).forEach(skill => {
                     const row = document.createElement('div');
                     row.className = 'skill-row';
                     row.innerHTML = `
-                        <div style="font-size: 9px; color: var(--color-text-primary); text-align: center;">${skill.name ? skill.name : ('技能' + skill.id)}</div>
-                        <div style="font-size: 9px; color: var(--color-text-primary); text-align: center;">${skill.pp}/${skill.maxPp}</div>
+                        <div>${skill.name ? skill.name : ('技能' + skill.id)}</div>
+                        <div>${skill.pp}/${skill.maxPp}</div>
                     `;
                     mySkillList.appendChild(row);
                 });
@@ -5881,12 +6172,15 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 // 更新技能列表
                 const otherSkillList = document.getElementById('other-skill-list');
                 otherSkillList.innerHTML = '';
+                if (!(Array.isArray(otherActive.skills) && otherActive.skills.length > 0)) {
+                    otherSkillList.innerHTML = '<div class="flat-empty">暂无技能数据</div>';
+                }
                 (Array.isArray(otherActive.skills) ? otherActive.skills : []).forEach(skill => {
                     const row = document.createElement('div');
                     row.className = 'skill-row';
                     row.innerHTML = `
-                        <div style="font-size: 9px; color: var(--color-text-primary); text-align: center;">${skill.name ? skill.name : ('技能' + skill.id)}</div>
-                        <div style="font-size: 9px; color: var(--color-text-primary); text-align: center;">${skill.pp}/${skill.maxPp}</div>
+                        <div>${skill.name ? skill.name : ('技能' + skill.id)}</div>
+                        <div>${skill.pp}/${skill.maxPp}</div>
                     `;
                     otherSkillList.appendChild(row);
                 });
@@ -6015,7 +6309,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             
             listContainer.innerHTML = '';
             if (!monsters || monsters.length === 0) {
-                listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--color-text-tertiary);">暂无妖怪数据，请打开游戏妖怪背包</div>';
+                listContainer.innerHTML = '<div class="flat-empty">暂无妖怪数据，请打开游戏妖怪背包</div>';
                 if (countElement) countElement.textContent = '0';
                 return;
             }
@@ -6023,33 +6317,9 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             if (countElement) countElement.textContent = monsters.length;
             
             monsters.forEach((monster, index) => {
-                const row = document.createElement('div');
-                row.style.display = 'grid';
-                row.style.gridTemplateColumns = '28px 48px 28px 28px 26px 26px 24px 32px 130px 1fr';
-                row.style.padding = '3px 4px';
-                row.style.borderBottom = '1px solid var(--color-border)';
-                row.style.alignItems = 'center';
-                row.style.minHeight = '24px';
-                row.style.cursor = 'pointer';
-                row.style.transition = 'background-color 0.1s linear';
-                
-                if (window.selectedMonsterIndex === index) {
-                    row.style.backgroundColor = 'rgba(0, 120, 212, 0.1)';
-                }
-                
+                                const row = document.createElement('div');
+                row.className = 'mb-row' + (window.selectedMonsterIndex === index ? ' is-selected' : '');
                 row.onclick = () => window.selectMonster(index);
-                row.onmouseover = () => {
-                    if (window.selectedMonsterIndex !== index) {
-                        row.style.backgroundColor = 'var(--color-background-hover)';
-                    }
-                };
-                row.onmouseout = () => {
-                    if (window.selectedMonsterIndex !== index) {
-                        row.style.backgroundColor = 'transparent';
-                    } else {
-                        row.style.backgroundColor = 'rgba(0, 120, 212, 0.1)';
-                    }
-                };
                 
                 // 获取性格名称
                 const geniusName = monster.geniusName || geniusNames[monster.geniusType] || '平衡';
@@ -6060,7 +6330,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 // 获取性别名称
                 const sexNames = ['未知', '雌', '雄', '无'];
                 const sexName = sexNames[monster.sex] || '未知';
-                const sexColor = monster.sex === 1 ? '#e91e63' : (monster.sex === 2 ? '#2196f3' : 'var(--color-text-secondary)');
+                const sexColor = monster.sex === 1 ? '#d13438' : (monster.sex === 2 ? '#0078d4' : 'var(--color-text-secondary)');
                 
                 // 格式化技能列表 - 显示所有技能，用/分隔
                 let skillNames = '';
@@ -6073,13 +6343,13 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 // 判断是否首发
                 const isFirst = monster.isfirst === 1;
                 const nameStyle = isFirst ? 'color: var(--color-primary); font-weight: 600;' : 'color: var(--color-text-primary);';
-                const firstBadge = isFirst ? '<span style="background: var(--color-primary); color: white; padding: 0 2px; border-radius: 2px; font-size: 7px; margin-left: 2px;">首</span>' : '';
+                const firstBadge = isFirst ? '<span style="background: var(--color-primary); color: white; padding: 0 2px; border-radius: 2px; font-size: 7px; margin-right: 2px;">首</span>' : '';
                 
                 // 系别颜色
                 const elemColor = {
-                    '金': '#FFD700', '木': '#228B22', '水': '#1E90FF', '火': '#FF4500', '土': '#8B4513',
-                    '妖': '#9400D3', '魔': '#4B0082', '毒': '#32CD32', '圣': '#FFD700', '翼': '#87CEEB',
-                    '雷': '#FFD700', '幻': '#DA70D6', '怪': '#696969', '风': '#00CED1', '灵': '#00FA9A'
+                    '金': '#b8860b', '木': '#2e7d32', '水': '#1565c0', '火': '#d84315', '土': '#795548',
+                    '妖': '#7b1fa2', '魔': '#4a148c', '毒': '#558b2f', '圣': '#b8860b', '翼': '#4f86c6',
+                    '雷': '#c9a227', '幻': '#ab47bc', '怪': '#616161', '风': '#00838f', '灵': '#00897b'
                 };
                 const typeColor = elemColor[monster.typeName] || 'var(--color-text-primary)';
                 
@@ -6100,16 +6370,16 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 }
                 
                 row.innerHTML = `
-                    <div style="text-align: center; color: var(--color-text-secondary);">${index + 1}</div>
-                    <div style="text-align: center; ${nameStyle} white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${monster.name || '未知'}">${monster.name || '未知'}</div>
-                    <div style="text-align: center; color: var(--color-text-secondary); font-size: 8.5px;">${monster.iid || 0}</div>
-                    <div style="text-align: center; color: ${sexColor};">${sexName}</div>
-                    <div style="text-align: center; color: var(--color-text-primary);">${monster.level || 1}</div>
-                    <div style="text-align: center; color: #e74c3c;">${monster.hp || 0}</div>
-                    <div style="text-align: center; color: ${typeColor}; font-weight: 500;">${monster.typeName || '未知'}</div>
-                    <div style="text-align: center; color: #9b59b6;">${geniusName}</div>
-                    <div style="text-align: center; color: #e67e22; font-size: 8px; white-space: nowrap;" title="${aptitudeName}">${aptitudeDisplay}</div>
-                    <div style="color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px;" title="${skillNames}">${skillNames}</div>
+                    <span style="text-align: center; color: var(--color-text-tertiary); font-variant-numeric: tabular-nums;">${index + 1}</span>
+                    <span style="text-align: center; ${nameStyle}" title="${monster.name || '未知'}">${firstBadge}${monster.name || '未知'}</span>
+                    <span style="text-align: center; color: var(--color-text-tertiary); font-size: 8.5px;">${monster.iid || 0}</span>
+                    <span style="text-align: center; color: ${sexColor};">${sexName}</span>
+                    <span style="text-align: center;">${monster.level || 1}</span>
+                    <span style="text-align: center; color: #d13438; font-variant-numeric: tabular-nums;">${monster.hp || 0}</span>
+                    <span style="text-align: center; color: ${typeColor}; font-weight: 500;">${monster.typeName || '未知'}</span>
+                    <span style="text-align: center; color: #8e44ad;">${geniusName}</span>
+                    <span style="text-align: center; color: #c26a00; font-size: 8px;" title="${aptitudeName}">${aptitudeDisplay}</span>
+                    <span style="color: var(--color-text-secondary); padding-left: 2px;" title="${skillNames}">${skillNames}</span>
                 `;
                 
                 listContainer.appendChild(row);
@@ -6145,89 +6415,74 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             let skillsHtml = '';
             if (monster.skills && monster.skills.length > 0) {
                 monster.skills.forEach(skill => {
-                    skillsHtml += `
-                        <div style="display: flex; justify-content: space-between; padding: 2px 4px; background: var(--color-background-hover); border-radius: 2px; margin-bottom: 2px; font-size: 9.5px;">
-                            <span style="font-weight: 500;">${skill.name || ('技能' + skill.id)}</span>
-                            <span style="color: var(--color-text-secondary);">PP: ${skill.pp || 0}/${skill.maxPp || 0}</span>
-                        </div>
-                    `;
+                    skillsHtml += `<div class="skill-row"><div>${skill.name || ('技能' + skill.id)}</div><div>${skill.pp || 0}/${skill.maxPp || 0}</div></div>`;
                 });
             } else {
-                skillsHtml = '<div style="text-align: center; color: var(--color-text-tertiary);">无技能数据</div>';
+                skillsHtml = '<div class="flat-empty">无技能数据</div>';
             }
             
             // 构建灵玉列表
             let symmHtml = '';
             if (monster.symmList && monster.symmList.length > 0) {
                 monster.symmList.forEach(symm => {
-                    symmHtml += `<span style="display: inline-block; background: #e8f5e8; color: #2e7d32; padding: 1px 4px; border-radius: 2px; margin: 1px; font-size: 8.5px;">${symm.name || ('灵玉' + symm.id)}</span>`;
+                    symmHtml += `<span class="mb-chip">${symm.name || ('灵玉' + symm.id)}</span>`;
                 });
             } else {
                 symmHtml = '<span style="color: var(--color-text-tertiary);">无</span>';
             }
             
+            const expPct = monster.needExp > 0 ? Math.min(100, Math.round((monster.exp || 0) * 100 / monster.needExp)) : 0;
             detailContainer.innerHTML = `
-                <div style="margin-bottom: 6px; padding: 4px; background: var(--color-background-secondary); border-radius: 3px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 12.5px; font-weight: 600; color: ${isFirst ? 'var(--color-primary)' : 'var(--color-text-primary)'};">${monster.name || '未知'}</span>
-                        ${isFirst ? '<span style="background: var(--color-primary); color: white; padding: 1px 4px; border-radius: 2px; font-size: 8.5px;">首发</span>' : ''}
-                    </div>
-                    <div style="color: var(--color-text-secondary); font-size: 9.5px;">配置ID: ${monster.iid || 0} | 唯一ID: ${monster.id || 0}</div>
-                    <div style="color: var(--color-text-secondary); font-size: 9.5px;">系别: ${monster.typeName || '未知'} | 性别: ${sexName} | 资质: ${aptitudeName}</div>
+                <div style="display: flex; align-items: baseline; gap: 4px;">
+                    <span style="font-size: 12px; font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: ${isFirst ? 'var(--color-primary)' : 'var(--color-text-primary)'};">${monster.name || '未知'}</span>
+                    ${isFirst ? '<span class="badge badge-success" style="padding: 0 4px; font-size: 8px;">首发</span>' : ''}
+                    <span style="margin-left: auto; flex: none; font-size: 8.5px; color: var(--color-text-tertiary);">Lv${monster.level || 1}</span>
                 </div>
-                
-                <div style="margin-bottom: 6px;">
-                    <div style="font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">基础属性</div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2px; font-size: 9.5px;">
-                        <div>等级: <span style="font-weight: 500;">Lv${monster.level || 1}</span></div>
-                        <div>经验: <span style="font-weight: 500;">${monster.exp || 0}/${monster.needExp || 0}</span></div>
-                        <div style="color: #e74c3c;">血量: <span style="font-weight: 500;">${monster.hp || 0}</span></div>
-                        <div style="color: #e67e22;">攻击: <span style="font-weight: 500;">${monster.attack || 0}</span></div>
-                        <div style="color: #3498db;">防御: <span style="font-weight: 500;">${monster.defence || 0}</span></div>
-                        <div style="color: #9b59b6;">法术: <span style="font-weight: 500;">${monster.magic || 0}</span></div>
-                        <div style="color: #1abc9c;">抗性: <span style="font-weight: 500;">${monster.resistance || 0}</span></div>
-                        <div style="color: #2ecc71;">速度: <span style="font-weight: 500;">${monster.speed || 0}</span></div>
-                    </div>
+                <div style="display: flex; gap: 4px; font-size: 8.5px; color: var(--color-text-tertiary); white-space: nowrap; overflow: hidden;">
+                    <span style="overflow: hidden; text-overflow: ellipsis;">${monster.typeName || '未知'} · ${sexName} · ${geniusName} · ${aptitudeName}</span>
+                    <span style="margin-left: auto; flex: none; font-variant-numeric: tabular-nums;">经验 ${expPct}%</span>
                 </div>
-                
-                <div style="margin-bottom: 6px;">
-                    <div style="font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">性格: ${geniusName}</div>
+                <div style="margin-top: 1px; font-size: 8px; color: var(--color-text-tertiary); font-variant-numeric: tabular-nums; opacity: 0.85;">
+                    ID ${monster.iid || 0} / ${monster.id || 0}
                 </div>
-                
-                <div style="margin-bottom: 6px;">
-                    <div style="font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">资质: ${aptitudeName}</div>
-                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; font-size: 9px;">
-                        ${(() => {
-                            if (!monster.geniusList || monster.geniusList.length === 0) return '<div style="color: var(--color-text-tertiary);">无资质数据</div>';
-                            const starColors = ['', '#9e9e9e', '#4caf50', '#2196f3', '#9c27b0', '#ff9800'];
-                            // geniusList顺序：攻击[0]/防御[1]/法术[2]/抗性[3]/体力[4]/速度[5]
-                            // 显示顺序：体力/攻击/防御/法术/抗性/速度
-                            const displayOrder = [4, 0, 1, 2, 3, 5];
-                            return displayOrder.map(idx => {
-                                const g = monster.geniusList[idx];
-                                const level = g.level - 1; // 星级1-5（减1）
-                                const stars = '★'.repeat(level) + '☆'.repeat(5 - level);
-                                return `<div style="padding: 1px 2px; background: var(--color-background-hover); border-radius: 2px;">
-                                    <span style="color: var(--color-text-secondary);">${g.name}:</span>
-                                    <span style="font-weight: 500; color: ${starColors[level] || 'var(--color-text-primary)'};">${g.value}</span>
-                                    <span style="color: ${starColors[level] || 'var(--color-text-tertiary)'}; font-size: 7px;">${stars}</span>
-                                </div>`;
-                            }).join('');
-                        })()}
-                    </div>
+
+                <div class="mb-sec">基础属性</div>
+                <div class="mb-kv three">
+                    <div><span class="bp-k">血量</span><span class="bp-v" style="color: #d13438;">${monster.hp || 0}</span></div>
+                    <div><span class="bp-k">攻击</span><span class="bp-v" style="color: #c26a00;">${monster.attack || 0}</span></div>
+                    <div><span class="bp-k">防御</span><span class="bp-v" style="color: #2f6fb5;">${monster.defence || 0}</span></div>
+                    <div><span class="bp-k">法术</span><span class="bp-v" style="color: #8e44ad;">${monster.magic || 0}</span></div>
+                    <div><span class="bp-k">抗性</span><span class="bp-v" style="color: #12876f;">${monster.resistance || 0}</span></div>
+                    <div><span class="bp-k">速度</span><span class="bp-v" style="color: #2e7d32;">${monster.speed || 0}</span></div>
                 </div>
-                
-                <div style="margin-bottom: 6px;">
-                    <div style="font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">技能 (${monster.skills ? monster.skills.length : 0}个)</div>
-                    ${skillsHtml}
+
+
+                <div class="mb-sec">资质 · ${aptitudeName}</div>
+                <div class="mb-kv three">
+                    ${(() => {
+                        if (!monster.geniusList || monster.geniusList.length === 0) return '<div style="color: var(--color-text-tertiary);">无资质数据</div>';
+                        const starColors = ['', '#9e9e9e', '#4caf50', '#2196f3', '#9c27b0', '#ff9800'];
+                        // geniusList顺序：攻击[0]/防御[1]/法术[2]/抗性[3]/体力[4]/速度[5]
+                        // 显示顺序：体力/攻击/防御/法术/抗性/速度
+                        const displayOrder = [4, 0, 1, 2, 3, 5];
+                        return displayOrder.map(idx => {
+                            const g = monster.geniusList[idx];
+                            const level = g.level - 1; // 星级1-5（减1）
+                            const stars = '★'.repeat(level) + '☆'.repeat(5 - level);
+                            return `<div title="${g.name} Lv${g.level}">
+                                <span class="bp-k">${g.name}</span>
+                                <span class="bp-v" style="color: ${starColors[level] || 'var(--color-text-primary)'};">${g.value}</span>
+                            </div>`;
+                        }).join('');
+                    })()}
                 </div>
-                
-                <div>
-                    <div style="font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; border-bottom: 1px solid var(--color-border); padding-bottom: 2px;">灵玉 (${monster.symmList ? monster.symmList.length : 0}个)</div>
-                    <div style="display: flex; flex-wrap: wrap;">${symmHtml}</div>
-                </div>
-            `;
-        };
+
+                <div class="mb-sec">技能 <span style="margin-left: auto;">${monster.skills ? monster.skills.length : 0} 个</span></div>
+                ${skillsHtml}
+
+                <div class="mb-sec">灵玉 <span style="margin-left: auto;">${monster.symmList ? monster.symmList.length : 0} 个</span></div>
+                <div style="display: flex; flex-wrap: wrap;">${symmHtml}</div>
+            `;        };
 
         /**
          * 刷新妖怪列表（发送封包请求）
@@ -6290,32 +6545,22 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             window.selectedItemName = itemName;
             window.selectedItemValue = value;
             window.selectedItemType = type || 'hp';
-            
+
             // 更新按钮选中状态
-            document.querySelectorAll('.item-btn').forEach(btn => {
-                btn.style.background = '#fafafa';
-                btn.style.color = '#333';
-                btn.style.borderColor = '#e0e0e0';
-                btn.style.fontWeight = 'normal';
-            });
-            
-            // 高亮当前选中的按钮
+            document.querySelectorAll('.item-btn').forEach(btn => btn.classList.remove('selected'));
             const currentBtn = document.querySelector('.item-btn[data-id="' + itemId + '"]');
-            if (currentBtn) {
-                currentBtn.style.background = '#e3f2fd';
-                currentBtn.style.color = '#1976d2';
-                currentBtn.style.borderColor = '#1976d2';
-                currentBtn.style.fontWeight = '600';
-            }
-            
+            if (currentBtn) currentBtn.classList.add('selected');
+
+            var typeText = type === 'mp' ? 'PP' : 'HP';
+            var valueColor = type === 'mp' ? '#0078d4' : '#d13438';
+
             // 更新选中提示
             const hintEl = document.getElementById('selected-item-hint');
             if (hintEl) {
-                var typeText = type === 'mp' ? 'PP' : 'HP';
-                hintEl.innerHTML = '<span style="color: var(--color-primary);">✓</span> ' + itemName + ' <span style="color: ' + (type === 'mp' ? '#1976d2' : '#e53935') + ';">+' + value + typeText + '</span>';
+                hintEl.innerHTML = '<span style="color: var(--color-primary);">✓</span> ' + itemName +
+                    ' <span style="color: ' + valueColor + ';">+' + value + typeText + '</span>';
             }
-            
-            var typeText = type === 'mp' ? 'PP' : 'HP';
+
             window.updateHelperText('已选择: ' + itemName + ' (效果: +' + value + typeText + ')');
         };
 
