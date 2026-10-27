@@ -356,7 +356,9 @@ void HandleBuyDiceCommand() {
 }
 
 void HandleBuyDice18Command() {
-    HandleBoolResultCommand(SendBuyDicePacket, L"已购买18个骰子");
+    // 买骰子的结果要看服务器回包（operation==6 的 result），不是发包成功就算买到：
+    // result: 0=成功 / -1=铜钱不足 / -3=当日已达上限
+    HandleBoolResultCommand(SendBuyDicePacket, L"购买请求已发送", L"购买请求发送失败");
 }
 
 void HandleClearPacketListCommand() {

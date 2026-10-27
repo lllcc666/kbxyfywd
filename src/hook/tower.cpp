@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -34,42 +35,52 @@
 
 CRITICAL_SECTION g_towerCS;  // 玄塔临界区
 
+// 玄塔"已离开场景"标记：EXIT_WORLD 回包置位，进场景回包清零。
+// 不进 g_towerCS，收包热路径上直接存原子量。
+std::atomic<bool> g_towerMapLeft{false};
+
 // 玄塔活动全局变量
+// 只投普通骰子：如意骰子归用户手动操作，这里只读它的数量用于提示。
 static bool g_towerAutoMode = false;        // 自动模式
-static int g_towerDiceCount = 0;            // 实际骰子数量
-static int g_towerRemainingDice = 0;       // 剩余骰子数
-bool g_towerMapEntered = false;     // 是否已进入地图
-static bool g_towerBattleStarted = false;  // 是否已开始战斗
-static bool g_towerResultReceived = false; // 是否收到查询结果响应
+static int g_towerSpecDiceCount = 0;        // 如意骰子数量（不投，仅用于提示）
+static int g_towerRemainingDice = 0;       // 剩余普通骰子数
+
+// 塔顶判定：玄塔共 90 格（0..89），9 层以后到 89 即终点。
+// 依据 AS3 FindTowerCache.as:137 的 if(this._nowpos >= 89) this._nowpos = 89;
+static constexpr int kTowerTopNodeIndex = 89;
 
 // 投掷骰子结果追踪
 static bool g_towerThrowResponseReceived = false;  // 是否收到投掷响应
 static bool g_towerLastThrowSuccess = false;       // 最后一次投掷是否成功
-static int g_towerLastThrowNodeType = 0;           // 最后一次投掷节点类型
 
 // CHECK_INFO 响应追踪
 static bool g_towerCheckInfoReceived = false;      // 是否收到CHECK_INFO响应
 static int g_towerPassFlag = 0;                    // 通关标志（0=未通关，1=已通关）
-static bool g_towerIsCompleted = false;            // 玄塔是否已完成（nodetype==8）
+static int g_towerNowPos = 0;                      // 当前所在格（0..89）
 
-// BUY_BONES 响应追踪
-static bool g_towerBuyBonesReceived = false;       // 是否收到BUY_BONES响应
-static bool g_towerBuyBonesSuccess = false;        // 购买是否成功
-static int g_towerBuyBonesNum = 0;                 // 购买后的骰子数量
+// 骰子数量的"权威版本号"：CHECK_INFO / UPDATE_BONES_NUM / BUY_BONES 每写一次就 +1。
+// 投掷成功时本地先减 1 是"预扣"，但如果服务器在这期间已经推了权威数量（op9），
+// 再减就成了重复扣减、少投一次。用版本号对一下，权威值更新过就不减。
+static uint32_t g_towerBonesGen = 0;               // 权威数量版本号
+static uint32_t g_towerThrowGenAtSend = 0;         // 本次投掷发包时的版本号
 
 // 查询玄塔信息
 // Opcode: 旧活动总线, Params: 341, Body: [1] (CHECK_INFO)
+// 带真正的回包等待：回包 opcode 与 params 都能对上（与 trial.cpp:109 同款），
+// 省掉原来 3 秒盲轮询，也不会误收其它模块的 341 包。
 BOOL SendTowerCheckInfoPacket() {
     auto packet = PacketBuilder()
         .SetOpcode(Opcode::ACTIVITY_QINGYANG_SEND)
         .SetParams(341)
         .WriteInt32(1)
         .Build();
-    return SendPacketBytes(packet);
+    return SendPacketBytes(packet, Opcode::TRIAL_BACK, 3000, 341, true);
 }
 
-// 购买骰子（18个）
-// Opcode: 旧活动总线, Params: 341, Body: [6, 18] (BUY_BONES, 数量18)
+// 购买普通骰子
+// Opcode: 旧活动总线, Params: 341, Body: [6, num] (BUY_BONES, 数量)
+// 返回 TRUE 只代表封包发出去了；买没买到由 operation==6 回包的 result 决定，
+// 结果文案在 ProcessTowerActivityResponse 里按 result 分支给出。
 BOOL SendBuyDicePacket() {
     auto packet = PacketBuilder()
         .SetOpcode(Opcode::ACTIVITY_QINGYANG_SEND)
@@ -77,14 +88,10 @@ BOOL SendBuyDicePacket() {
         .WriteInt32(6)
         .WriteInt32(18)
         .Build();
-    BOOL result = SendPacketBytes(packet);
-    if (result) {
-        UIBridge::Instance().UpdateHelperText(L"已购买18个骰子");
-    }
-    return result;
+    return SendPacketBytes(packet);
 }
 
-// 投掷骰子
+// 投掷普通骰子
 // Opcode: 旧活动总线, Params: 341, Body: [2] (THROW_BONES)
 BOOL SendThrowBonesPacket() {
     auto packet = PacketBuilder()
@@ -92,7 +99,8 @@ BOOL SendThrowBonesPacket() {
         .SetParams(341)
         .WriteInt32(2)
         .Build();
-    return SendPacketBytes(packet);
+    // 同样带回包等待，THROW_BONES 的 operation==2 回包是本模块解析的那一条
+    return SendPacketBytes(packet, Opcode::TRIAL_BACK, 3000, 341, true);
 }
 
 // 退出世界（回家第一步）
@@ -107,6 +115,8 @@ BOOL SendExitScenePacket(uint32_t userId) {
 
 // 查询玄塔结果
 // Opcode: 旧活动总线, Params: 341, Body: [4] (REACH_RESULT)
+// 回包无正文（AS3 只用来触发 resultEndBack），我们不解析，所以不等回包，
+// 免得服务端偶尔不回时每投一次白等 3 秒。
 BOOL SendTowerResultPacket() {
     auto packet = PacketBuilder()
         .SetOpcode(Opcode::ACTIVITY_QINGYANG_SEND)
@@ -127,162 +137,209 @@ BOOL SendReenterTowerMapPacket() {
 }
 
 // 玄塔自动跑塔线程
-// 流程：循环投掷20次（带响应等待）→ 退出回家
+// 流程：查一次状态 → 循环投掷普通骰子直到耗尽/到顶 → 退出回家
 DWORD WINAPI TowerAutoThreadProc(LPVOID lpParam) {
-    std::wstring* pStatus = reinterpret_cast<std::wstring*>(lpParam);
+    // pStatus 归线程所有：无论从哪条路径退出都要释放，否则每点一次一键就漏一个 wstring。
+    std::unique_ptr<std::wstring> pStatus(reinterpret_cast<std::wstring*>(lpParam));
     bool success = true;
     int successCount = 0;
 
     // 辅助函数：更新状态到UI
     auto updateStatus = [&](const std::wstring& status) {
+        if (!pStatus) {
+            UIBridge::Instance().UpdateHelperText(status);
+            return;
+        }
         *pStatus = status;
         UIBridge::Instance().UpdateHelperText(status);
     };
 
-    // 辅助函数：投掷单次骰子并等待响应
+    // 辅助函数：投掷单次普通骰子并等待响应
+    // SendThrowBonesPacket 内部已带回包等待，这里只需要把 operation==2 的解析结果读回来。
     // 返回值：true=成功, false=失败
     auto throwOnceAndWait = [&]() -> bool {
-        // 重置投掷响应标志
         {
             CriticalSectionLock lock(g_towerCS);
             g_towerThrowResponseReceived = false;
             g_towerLastThrowSuccess = false;
+            g_towerThrowGenAtSend = g_towerBonesGen;  // 记住发包时的权威版本号
         }
 
-        // 发送投掷骰子封包
         if (!SendThrowBonesPacket()) {
             return false;
         }
 
-        // 等待 THROW_BONES 响应（最多3秒）
-        int waitCount = 0;
-        bool received = false;
-        bool throwSuccess = false;
-        
-        while (waitCount < 30) {
+        // 回包已到（或已超时），业务解析在分发线程上，补一段自旋等 operation==2 落值。
+        // 最多等 2 秒：正常情况下 throw 回包紧跟 UPDATE_BONES_NUM 到达，先后不定。
+        for (int i = 0; i < 100; ++i) {
             {
                 CriticalSectionLock lock(g_towerCS);
-                received = g_towerThrowResponseReceived;
-                if (received) {
-                    throwSuccess = g_towerLastThrowSuccess;
+                if (g_towerThrowResponseReceived) {
+                    return g_towerLastThrowSuccess;
                 }
             }
-            if (received) break;
-            Sleep(100);
-            waitCount++;
+            if (ManagedThread::StopRequested()) {
+                return false;
+            }
+            ManagedThread::SleepCancellable(20);
         }
-
-        return received && throwSuccess;
+        return false;
     };
 
     // 初始化状态
     {
         CriticalSectionLock lock(g_towerCS);
-        g_towerDiceCount = 0;
+        g_towerSpecDiceCount = 0;
         g_towerRemainingDice = 0;
         g_towerThrowResponseReceived = false;
         g_towerLastThrowSuccess = false;
         g_towerCheckInfoReceived = false;
-        g_towerBuyBonesReceived = false;
-        g_towerBuyBonesSuccess = false;
-        g_towerBuyBonesNum = 0;
-        g_towerPassFlag = 0;           // 重置通关标志
-        g_towerIsCompleted = false;    // 重置完成标志
+        g_towerPassFlag = 0;
+        g_towerNowPos = 0;
     }
 
     // ==================== 一键跑塔流程开始 ====================
-    
-    // 步骤1: 循环投掷骰子直到耗尽
-    updateStatus(L"开始投掷骰子...");
-    int totalAttempts = 0;
-    int maxTotalAttempts = 100;  // 防止无限循环的安全限制
-    
-    while (totalAttempts < maxTotalAttempts) {
-        // 1. 查询玄塔信息，获取当前骰子数量
-        {
-            CriticalSectionLock lock(g_towerCS);
-            g_towerCheckInfoReceived = false;
-        }
-        SendTowerCheckInfoPacket();
-        
-        // 等待 CHECK_INFO 响应（最多3秒）
-        int waitCount = 0;
+
+    // 只查一次状态：骰子数之后由 UPDATE_BONES_NUM(operation=9) 与本地投掷实时维护，
+    // 不必每次投掷前都发一遍 CHECK_INFO 再等 3 秒。
+    updateStatus(L"查询玄塔状态...");
+    {
+        CriticalSectionLock lock(g_towerCS);
+        g_towerCheckInfoReceived = false;
+    }
+    if (!SendTowerCheckInfoPacket()) {
+        updateStatus(L"错误：查询玄塔信息超时");
+        success = false;
+        goto cleanup;
+    }
+
+    // 发包函数已等到回包，这里补一小段自旋等业务解析落值
+    {
         bool checkReceived = false;
-        while (waitCount < 30) {
+        for (int i = 0; i < 50; ++i) {
             {
                 CriticalSectionLock lock(g_towerCS);
                 checkReceived = g_towerCheckInfoReceived;
             }
             if (checkReceived) break;
-            Sleep(100);
-            waitCount++;
+            ManagedThread::SleepCancellable(20);
         }
-        
         if (!checkReceived) {
             updateStatus(L"错误：查询骰子数量超时");
             success = false;
             goto cleanup;
         }
-        
-        // 2. 获取当前骰子数量和通关状态
-        int currentDice = 0;
+    }
+
+    // 开跑前看一次达标状态与骰子库存
+    {
         int passFlag = 0;
-        bool isCompleted = false;
+        int nowPos = 0;
+        int normalDice = 0;
+        int specDice = 0;
         {
             CriticalSectionLock lock(g_towerCS);
-            currentDice = g_towerRemainingDice;
             passFlag = g_towerPassFlag;
-            isCompleted = g_towerIsCompleted;
+            nowPos = g_towerNowPos;
+            normalDice = g_towerRemainingDice;
+            specDice = g_towerSpecDiceCount;
         }
-        
-        // 3. 检查是否已通关（passflag==1 或之前已标记完成）
-        if (passFlag == 1 || isCompleted) {
-            updateStatus(L"玄塔已通关，停止投掷");
-            break;
+
+        if (passFlag == 1 || nowPos >= kTowerTopNodeIndex) {
+            updateStatus(L"玄塔已通关，今日无需再投");
+            goto cleanup;
         }
-        
-        // 4. 如果骰子数量为0，退出循环
-        if (currentDice <= 0) {
-            updateStatus(L"骰子已耗尽，停止投掷");
-            break;
+        if (normalDice <= 0) {
+            // 如意骰子不做自动投掷，只提示用户自己手动处理
+            if (specDice > 0) {
+                updateStatus(L"普通骰子已用完（如意骰子 " + std::to_wstring(specDice) +
+                             L" 个，请手动使用）");
+            } else {
+                updateStatus(L"骰子已耗尽，请先购买");
+            }
+            goto cleanup;
         }
-        
-        // 4. 投掷一次骰子
-        totalAttempts++;
-        updateStatus(L"投掷骰子（剩余 " + std::to_wstring(currentDice) + L" 个）...");
-        
-        // 发送 THROW_BONES 并等待响应
-        if (throwOnceAndWait()) {
+    }
+
+    // 步骤1: 循环投掷普通骰子直到耗尽 / 到顶 / 连续失败
+    updateStatus(L"开始投掷骰子...");
+    {
+        // 骰子单次上限 20（服务器硬上限），40 次是给中途补发留的余量。
+        // 真正的退出条件是下面三条；原 100 次上限永远触发不到，是死代码。
+        const int maxTotalAttempts = 40;
+        // 连续失败熔断：服务器持续回 result==-1（骰子已扣光、活动结算中）时不要空转
+        const int kMaxConsecutiveFailures = 5;
+        int totalAttempts = 0;
+        int consecutiveFailures = 0;
+
+        while (totalAttempts < maxTotalAttempts) {
+            // 退出流程走 RequestStopAll + JoinAll：这里必须能被打断。
+            // 打断不了的后果是 JoinAll 超时后线程被 detach，然后继续往已卸载的钩子上发包、
+            // 回调已销毁的 UI —— 那正是"关窗口时闪退"的经典长相。
+            if (ManagedThread::StopRequested()) {
+                break;
+            }
+            int currentDice = 0;
+            {
+                CriticalSectionLock lock(g_towerCS);
+                currentDice = g_towerRemainingDice;
+            }
+            if (currentDice <= 0) {
+                updateStatus(L"骰子已耗尽，停止投掷");
+                break;
+            }
+
+            totalAttempts++;
+            updateStatus(L"投掷骰子（剩余 " + std::to_wstring(currentDice) + L" 个）...");
+
+            if (!throwOnceAndWait()) {
+                ++consecutiveFailures;
+                if (consecutiveFailures >= kMaxConsecutiveFailures) {
+                    updateStatus(L"错误：连续 " + std::to_wstring(consecutiveFailures) +
+                                 L" 次投掷失败，停止（可能骰子已耗尽或活动结算中）");
+                    success = false;
+                    break;
+                }
+                continue;  // 失败不结算，直接重试
+            }
+
             successCount++;
-        }
-        Sleep(50);
-        
-        // 检查是否通关（nodetype == 8）
-        {
-            CriticalSectionLock lock(g_towerCS);
-            if (g_towerIsCompleted || g_towerLastThrowNodeType == 8) {
+            consecutiveFailures = 0;
+
+            // 到顶判定：位置由 operation==2 的 step 本地累加、封顶 89。
+            // nodetype==8 只是"本次投掷触发了终点特效"，不等于真站在 89 格，不能拿它判通关。
+            bool reachedTop = false;
+            {
+                CriticalSectionLock lock(g_towerCS);
+                reachedTop = (g_towerNowPos >= kTowerTopNodeIndex);
+            }
+
+            // 结算本次移动（AS3 每次移动落地后都会发 REACH_RESULT）
+            SendTowerResultPacket();
+
+            if (reachedTop) {
                 updateStatus(L"已到达玄塔终点，通关！");
-                // 发送 REACH_RESULT 后退出
-                SendTowerResultPacket();
-                Sleep(100);
                 break;
             }
         }
-        
-        // 发送 REACH_RESULT
-        SendTowerResultPacket();
-        Sleep(100);
+
+        if (totalAttempts >= maxTotalAttempts) {
+            updateStatus(L"警告：达到最大投掷次数限制，已停止");
+        }
+
+        bool reachedTop = false;
+        {
+            CriticalSectionLock lock(g_towerCS);
+            reachedTop = (g_towerNowPos >= kTowerTopNodeIndex);
+        }
+        if (!reachedTop) {
+            updateStatus(L"投掷完成，成功 " + std::to_wstring(successCount) + L" 次");
+        }
     }
-    
-    if (totalAttempts >= maxTotalAttempts) {
-        updateStatus(L"警告：达到最大投掷次数限制（100次）");
-    }
-    
-    updateStatus(L"投掷完成，成功 " + std::to_wstring(successCount) + L" 次");
 
     // 步骤2和3: 自动回家（如果勾选）
-    if (g_autoGoHome.load()) {
-        Sleep(200);
+    if (g_autoGoHome.load() && !ManagedThread::StopRequested()) {
+        ManagedThread::SleepCancellable(200);
 
         // 步骤2: 退出场景回家
         updateStatus(L"步骤2: 退出场景回家...");
@@ -291,31 +348,52 @@ DWORD WINAPI TowerAutoThreadProc(LPVOID lpParam) {
             success = false;
             goto cleanup;
         }
-        Sleep(800);
+        // 等到真的收到进场景回包再进下一步，弱网下固定 800ms 不够
+        {
+            bool left = false;
+            for (int i = 0; i < 50; ++i) {
+                ManagedThread::SleepCancellable(40);
+                if (g_towerMapLeft.load()) {
+                    left = true;
+                    break;
+                }
+                if (ManagedThread::StopRequested()) {
+                    break;
+                }
+            }
+            if (!left && !ManagedThread::StopRequested()) {
+                ManagedThread::SleepCancellable(400);  // 没等到回执就再兜一下，后面进地图时服务器会自己纠正
+            }
+        }
 
         // 步骤3: 重新进入玄塔地图（刷新活动状态）
+        if (ManagedThread::StopRequested()) {
+            goto cleanup;
+        }
         updateStatus(L"步骤3: 重新进入玄塔地图...");
         if (!SendReenterTowerMapPacket()) {
             updateStatus(L"错误：重新进入地图失败！");
             success = false;
             goto cleanup;
         }
-        Sleep(800);
+        ManagedThread::SleepCancellable(400);
     }
 
 cleanup:
     // 重置状态标志变量
     {
         CriticalSectionLock lock(g_towerCS);
-        g_towerMapEntered = false;
-        g_towerBattleStarted = false;
-        g_towerResultReceived = false;
         g_towerThrowResponseReceived = false;
         g_towerCheckInfoReceived = false;
-        g_towerBuyBonesReceived = false;
         g_towerAutoMode = false;
         g_towerPassFlag = 0;           // 重置通关标志
-        g_towerIsCompleted = false;    // 重置完成标志
+        g_towerNowPos = 0;
+    }
+
+    // 被退出流程打断的收尾不要再回调 UI：这时宿主窗口可能已经在销毁，
+    // 从正在收尾的线程里往那边推消息就是踩空（关窗口闪退的典型路径）。
+    if (ManagedThread::StopRequested()) {
+        return 0;
     }
 
     // 根据成功/失败状态更新 UI
@@ -330,40 +408,38 @@ cleanup:
 
 // 一键玄塔完整流程
 BOOL StartOneKeyTowerPacket() {
-    bool autoMode = false;
-    {
-        CriticalSectionLock lock(g_towerCS);
-        autoMode = g_towerAutoMode;
-    }
-
-    if (autoMode) {
-        UIBridge::Instance().UpdateHelperText(L"一键玄塔已在运行中，请勿重复点击");
-        return FALSE;  // 已经在运行
-    }
-
     if (g_userId == 0) {
         UIBridge::Instance().UpdateHelperText(L"错误：请先进入游戏获取卡布号");
         return FALSE;
     }
 
+    // 占位与判定放在同一把锁里：分两步做的话，连点两下会双双读到 false，
+    // 起两份跑塔线程互相清状态，还会把对方的投掷结果当自己的。
+    bool alreadyRunning = false;
+    {
+        CriticalSectionLock lock(g_towerCS);
+        alreadyRunning = g_towerAutoMode;
+        if (!alreadyRunning) {
+            g_towerAutoMode = true;
+        }
+    }
+    if (alreadyRunning) {
+        UIBridge::Instance().UpdateHelperText(L"一键玄塔已在运行中，请勿重复点击");
+        return FALSE;  // 已经在运行
+    }
+
     // 初始化状态
     {
         CriticalSectionLock lock(g_towerCS);
-        g_towerAutoMode = true;
-        g_towerMapEntered = false;
-        g_towerBattleStarted = false;
-        g_towerResultReceived = false;
-        g_towerDiceCount = 0;
+        g_towerSpecDiceCount = 0;
         g_towerRemainingDice = 0;
         g_towerThrowResponseReceived = false;
         g_towerLastThrowSuccess = false;
         g_towerCheckInfoReceived = false;
-        g_towerBuyBonesReceived = false;
-        g_towerBuyBonesSuccess = false;
-        g_towerBuyBonesNum = 0;
         g_towerPassFlag = 0;           // 重置通关标志
-        g_towerIsCompleted = false;    // 重置完成标志
+        g_towerNowPos = 0;
     }
+    g_towerMapLeft.store(false);
 
     std::wstring* pStatus = new(std::nothrow) std::wstring(L"一键玄塔初始化...");
     if (!pStatus) {
@@ -388,16 +464,9 @@ BOOL StartOneKeyTowerPacket() {
 
 // 处理玄塔活动响应（在HookedRecv中调用）
 void ProcessTowerActivityResponse(const GamePacket& packet) {
-    // 处理地图进入响应（Opcode 1315395 = ENTER_SCENE_BACK）
-    if (packet.opcode == Opcode::ENTER_SCENE_BACK) {
-        CriticalSectionLock lock(g_towerCS);
-        g_towerMapEntered = true;
-    }
-
-    // 处理战斗开始响应（Opcode 1317120 = BATTLE_START）
-    if (packet.opcode == Opcode::BATTLE_START) {
-        CriticalSectionLock lock(g_towerCS);
-        g_towerBattleStarted = true;
+    // 退出世界回包：一键玄塔用它确认"家已经回成了"，而不是盲等 800ms
+    if (packet.opcode == Opcode::EXIT_WORLD_BACK) {
+        g_towerMapLeft.store(true);
     }
 
     // 处理玄塔活动响应（支持两个 Opcode：1185569 和 1324097 (TRIAL_BACK), Params = 341）
@@ -412,24 +481,25 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
             // 总大小：4 + 7*4 + 90*4 = 392 字节
             if (operation == 1 && packet.body.size() >= 392) {
                 int32_t nbones = ReadInt32LE(packet.body.data(), offset);  // 普通骰子数量
-                int32_t sbones = ReadInt32LE(packet.body.data(), offset);  // 特殊骰子数量
+                int32_t sbones = ReadInt32LE(packet.body.data(), offset);  // 如意骰子数量
                 int32_t passflag = ReadInt32LE(packet.body.data(), offset); // 通关标志（0=未通关，1=已通关）
-                // 其余字段: getMonsterTime, nowpos, buycount, noTip, nodeList[90]
+                (void)ReadInt32LE(packet.body.data(), offset);              // getMonsterTime：未使用
+                int32_t nowpos = ReadInt32LE(packet.body.data(), offset);   // 当前所在格（0..89）
+                // 其余字段: buycount, noTip, nodeList[90]
 
                 CriticalSectionLock lock(g_towerCS);
                 // 更新骰子数量（上限20）
                 if (nbones > 20) nbones = 20;
                 if (sbones > 20) sbones = 20;
-                g_towerDiceCount = nbones;
                 g_towerRemainingDice = nbones;
+                // 如意骰子只记账不投掷，留给用户手动用
+                g_towerSpecDiceCount = sbones;
+                ++g_towerBonesGen;           // 权威数量已更新
                 g_towerPassFlag = passflag;  // 存储通关标志
+                g_towerNowPos = nowpos;
                 g_towerCheckInfoReceived = true;
             }
-            // REACH_RESULT 响应 (operation = 4)：查询结果
-            else if (operation == 4) {
-                CriticalSectionLock lock(g_towerCS);
-                g_towerResultReceived = true;
-            }
+            // REACH_RESULT 响应 (operation = 4)：查询结果，无可读字段
             // UPDATE_BONES_NUM 响应 (operation = 9)：服务器通知更新骰子数量
             // AS3 代码: mbody.nbones = body.readInt(); mbody.sbones = body.readInt();
             // Body 结构：[operation:4][nbones:4][sbones:4]
@@ -440,8 +510,9 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
                 CriticalSectionLock lock(g_towerCS);
                 if (nbones > 20) nbones = 20;
                 if (sbones > 20) sbones = 20;
-                g_towerDiceCount = nbones;
                 g_towerRemainingDice = nbones;
+                g_towerSpecDiceCount = sbones;
+                ++g_towerBonesGen;           // 权威数量已更新
             }
             // BUY_BONES 响应 (operation = 6)：购买骰子结果
             // AS3 代码: mbody.result = body.readInt(); mbody.num = body.readInt(); mbody.buycount = body.readInt();
@@ -455,16 +526,27 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
                 int32_t num = ReadInt32LE(packet.body.data(), offset);       // 骰子数量
                 (void)ReadInt32LE(packet.body.data(), offset);               // buycount：占位字段
 
-                CriticalSectionLock lock(g_towerCS);
-                g_towerBuyBonesSuccess = (result == 0);
-                g_towerBuyBonesNum = num;
-                g_towerBuyBonesReceived = true;
-                
-                // 购买成功时更新骰子数量
+                {
+                    CriticalSectionLock lock(g_towerCS);
+                    // 购买成功时更新骰子数量
+                    if (result == 0) {
+                        if (num > 20) num = 20;
+                        g_towerRemainingDice = num;
+                        ++g_towerBonesGen;  // 权威数量已更新
+                    }
+                }
+
+                // 文案按 AS3 FindTowerControl.as:162-177 的三个分支给，
+                // 不能再用"发包成功=已购买"骗人。
                 if (result == 0) {
-                    if (num > 20) num = 20;
-                    g_towerDiceCount = num;
-                    g_towerRemainingDice = num;
+                    UIBridge::Instance().UpdateHelperText(L"购买骰子成功！");
+                } else if (result == -1) {
+                    UIBridge::Instance().UpdateHelperText(L"铜钱不足，购买失败");
+                } else if (result == -3) {
+                    UIBridge::Instance().UpdateHelperText(L"当天购买的普通骰子已经达到上限了");
+                } else {
+                    UIBridge::Instance().UpdateHelperText(L"购买骰子失败（result=" +
+                                                          std::to_wstring(result) + L"）");
                 }
             }
             // THROW_BONES 响应 (operation = 2)：投掷骰子结果
@@ -473,35 +555,36 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
             // 总大小：4 + 6*4 = 28 字节
             // result: 0=成功, -1=失败
             // step: 投掷步数
-            // nodetype: 节点类型 (8=通关终点)
+            // nodetype: 本次投掷触发的事件类型（8=终点特效, 9=跳层），不是"落点格类型"，不能当通关判据
             // param3: 随机骰子点数
             else if (operation == 2 && packet.body.size() >= 28) {
                 int32_t result = ReadInt32LE(packet.body.data(), offset);    // 结果 (0=成功, -1=失败)
-                (void)ReadInt32LE(packet.body.data(), offset);                // 步数（未使用）
-                int32_t nodetype = ReadInt32LE(packet.body.data(), offset);  // 节点类型
-                int32_t param1 = ReadInt32LE(packet.body.data(), offset);
-                int32_t param2 = ReadInt32LE(packet.body.data(), offset);
-                int32_t param3 = ReadInt32LE(packet.body.data(), offset);    // 随机骰子点数
-                (void)param1;
-                (void)param2;
-                (void)param3;
+                int32_t step = ReadInt32LE(packet.body.data(), offset);      // 投掷步数
+                (void)ReadInt32LE(packet.body.data(), offset);               // nodetype：不参与通关判定
+                (void)ReadInt32LE(packet.body.data(), offset);               // param1
+                (void)ReadInt32LE(packet.body.data(), offset);               // param2
+                (void)ReadInt32LE(packet.body.data(), offset);               // param3
 
                 CriticalSectionLock lock(g_towerCS);
                 // 记录投掷结果
                 g_towerLastThrowSuccess = (result == 0);
-                g_towerLastThrowNodeType = nodetype;
                 g_towerThrowResponseReceived = true;
-                
-                // 检测是否通关（nodetype == 8 表示到达终点）
-                if (nodetype == 8) {
-                    g_towerIsCompleted = true;
+
+                // 投掷成功：本地同步推进位置与剩余骰子。
+                // 与 AS3 FindTowerCache.as:134 addPos 一致，位置封顶在 89。
+                if (result == 0) {
+                    if (step > 0) {
+                        g_towerNowPos += step;
+                    }
+                    if (g_towerNowPos >= kTowerTopNodeIndex) {
+                        g_towerNowPos = kTowerTopNodeIndex;
+                    }
+                    // 预扣一个骰子；但如果服务器在本次投掷期间已经推过权威数量（op9），
+                    // 那份值里已经扣过了，再减就重复扣减、少投一次。
+                    if (g_towerBonesGen == g_towerThrowGenAtSend && g_towerRemainingDice > 0) {
+                        g_towerRemainingDice--;
+                    }
                 }
-                
-                // 投掷成功时减少剩余骰子数
-                if (result == 0 && g_towerRemainingDice > 0) {
-                    g_towerRemainingDice--;
-                }
-                g_towerResultReceived = true;
             }
         }
     }

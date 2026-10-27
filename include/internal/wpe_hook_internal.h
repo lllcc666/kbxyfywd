@@ -18,7 +18,10 @@ extern std::atomic<bool> g_blockOpcodeSend;
 extern std::atomic<bool> g_bHijackEnabled;
 extern EXECUTE_SCRIPT_FUNC g_ExecuteScriptFunc;
 extern CRITICAL_SECTION g_towerCS;
-extern bool g_towerMapEntered;
+
+// 玄塔"已离开场景"标记：收包线程等 EXIT_WORLD 回包时置位，进场景回包时清零。
+// 一键玄塔用它确认回家成功，不再靠固定 Sleep 盲等。
+extern std::atomic<bool> g_towerMapLeft;
 
 // 怪物列表（g_monsterData）由收包线程整体重建、活动线程读取。
 // 统一走快照：拿到的是一份完整拷贝，不会读到正在被改的 vector。

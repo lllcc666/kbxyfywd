@@ -112,6 +112,9 @@ constexpr uint32_t COLLECT_STATUS_BACK = 1318178;
 constexpr uint32_t CHECK_ACCOUNT_SEND = 1183744;
 constexpr uint32_t ENTER_SCENE_SEND = 1184313;
 constexpr uint32_t EXIT_WORLD_SEND = 1184002;   // 退出世界回到个人空间（params=userId）
+// 退出世界的回包。玄塔"回家"流程靠它确认真的离场，不再靠固定 Sleep 盲等。
+// 依据 AS3 MsgDoc.as：OP_CLIENT_REQ_ENTER_ROOM = {send:1184002, back:1315074}。
+constexpr uint32_t EXIT_WORLD_BACK = 1315074;
 
 constexpr uint32_t BATTLE_READY = 1186049;
 constexpr uint32_t BATTLE_PLAY_OVER = 1186056;

@@ -1144,8 +1144,8 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
         // 直接检测 ENTER_SCENE_BACK 响应
         if (opcode == Opcode::ENTER_SCENE_BACK && 
             (magic == PacketProtocol::MAGIC_NORMAL || magic == PacketProtocol::MAGIC_COMPRESSED)) {
-            CriticalSectionLock lock(g_towerCS);
-            g_towerMapEntered = true;
+            // 玄塔不看这个标记，但 g_towerMapLeft 要在这里清掉（回图即代表已经离过场）
+            g_towerMapLeft.store(false);
             g_taskZoneMapEntered = true;
         }
     }
@@ -1455,10 +1455,7 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     };
     const ResponseHandler enterScene = [](const GamePacket&) {
         SetDanceMapEntered(true);
-        {
-            CriticalSectionLock lock(g_towerCS);
-            g_towerMapEntered = true;
-        }
+        g_towerMapLeft.store(false);
         g_heavenFuruiEnteredMap = true;
         g_taskZoneMapEntered = true;
         g_storyTaskMapEntered = true;
@@ -1511,6 +1508,8 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
 
     registerParams(Opcode::TRIAL_BACK, 142, ProcessTrialResponse);
     registerParams(Opcode::TRIAL_BACK, 341, ProcessTowerActivityResponse);
+    // 退出世界回包：一键玄塔靠它确认"已离场"，不再靠固定 Sleep 盲等
+    registerOpcode(Opcode::EXIT_WORLD_BACK, ProcessTowerActivityResponse);
 
     registerOpcode(Opcode::COLLECT_STATUS_BACK, ProcessCollectResponse);
     registerOpcode(Opcode::REQ_PACKAGE_DATA_BACK, ProcessPackageDataResponse);
