@@ -183,6 +183,65 @@ inline bool IsDefaultBlockedPacket(uint32_t opcode, uint32_t params,
     return false;
 }
 
+// 接收方向"屏蔽战斗"的总开关 + 默认屏蔽名单，统一在这里判定。
+inline bool ShouldBlockRecvPacket(uint32_t opcode, uint32_t params,
+                                  const BYTE* body, size_t bodyLen) {
+    if (IsDefaultBlockedPacket(opcode, params, body, bodyLen)) {
+        return true;
+    }
+    // 屏蔽战斗：把 BATTLE_START 拦下来，客户端不进战斗界面。
+    return g_blockBattle.load() && opcode == Opcode::BATTLE_START;
+}
+
+// 就地"中和"本缓冲区里需要屏蔽的封包：只把 4 字节 opcode 写成 0，长度不动。
+//
+// 为什么不是把封包从缓冲区里删掉：
+//   recv 的返回值同时被当作"本次交付字节数"。当一个 recv 里全是屏蔽包时，
+//   删完就只剩 0 字节，而 recv 返回 0 在 WinSock 里等于"对端已关闭"，
+//   客户端会直接断线；所以历史实现只好把原始字节原样放回去——屏蔽等于没做。
+//   实战里 BATTLE_START 基本都是单独一个 TCP 段到达，正好每次踩这个坑，
+//   这就是"屏蔽战斗无效"的直接原因。
+//   换成中和：长度、粘包结构都不变，只是客户端查不到这个 opcode 的处理器，
+//   效果等于没收到这个包，且不会破坏 socket 语义。
+//
+// 从 offset 0 起按 12 字节包头逐包前进；遇到不认识的 magic 或半包就停手，
+// 保证不会把封包体里的数据误当包头改坏。
+inline size_t NeutralizeBlockedRecvPackets(BYTE* buf, int len) {
+    if (buf == nullptr || len <= 0) {
+        return 0;
+    }
+    const size_t total = static_cast<size_t>(len);
+    size_t offset = 0;
+    size_t patched = 0;
+    while (offset + PacketProtocol::HEADER_SIZE <= total) {
+        const BYTE* p = buf + offset;
+        const uint16_t magic = static_cast<uint16_t>(p[0] | (p[1] << 8));
+        if (magic != PacketProtocol::MAGIC_NORMAL && magic != PacketProtocol::MAGIC_COMPRESSED) {
+            break;
+        }
+        const uint16_t bodyLength = static_cast<uint16_t>(p[2] | (p[3] << 8));
+        const size_t packetSize = PacketProtocol::HEADER_SIZE + bodyLength;
+        if (offset + packetSize > total) {
+            break;  // 半包，等下次
+        }
+        const uint32_t opcode = static_cast<uint32_t>(p[4]) |
+                                (static_cast<uint32_t>(p[5]) << 8) |
+                                (static_cast<uint32_t>(p[6]) << 16) |
+                                (static_cast<uint32_t>(p[7]) << 24);
+        const uint32_t params = static_cast<uint32_t>(p[8]) |
+                                (static_cast<uint32_t>(p[9]) << 8) |
+                                (static_cast<uint32_t>(p[10]) << 16) |
+                                (static_cast<uint32_t>(p[11]) << 24);
+        if (ShouldBlockRecvPacket(opcode, params, p + PacketProtocol::HEADER_SIZE, bodyLength)) {
+            memset(buf + offset + 4, 0, 4);  // opcode 清 0
+            ++patched;
+        }
+        offset += packetSize;
+    }
+    return patched;
+}
+
+
 // -------------------------
 // 临界区管理（RAII）
 // -------------------------
@@ -1117,9 +1176,6 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
             }
         }
         
-        // Never return 0 for a successful recv: that is EOF to the game. If every
-        // complete packet was selected for filtering, preserve the original bytes
-        // and keep the connection semantics intact.
         if (!newBuffer.empty()) {
             // 复制新缓冲区到原始缓冲区
             size_t newSize = newBuffer.size();
@@ -1129,7 +1185,15 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
                 // 更新返回值为新大小
                 result = static_cast<int>(newSize);
             }
+        } else {
+            // 本次收到的完整封包全在屏蔽名单里：不能返回 0（=对端关闭），
+            // 也不能原样放回去（等于没屏蔽），改为就地中和 opcode。
+            NeutralizeBlockedRecvPackets(reinterpret_cast<BYTE*>(buf), result);
         }
+    } else if (!packetsToFilter.empty() && hasValidPackets) {
+        // 有跨 recv 的半包，重排会把封包边界搞乱，所以不做删除；
+        // 但"中和"只写 opcode、不改长度，可以按本缓冲区看得见的完整包补一遍。
+        NeutralizeBlockedRecvPackets(reinterpret_cast<BYTE*>(buf), result);
     }
 
     // ========================================================================
