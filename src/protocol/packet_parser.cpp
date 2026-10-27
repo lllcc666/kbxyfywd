@@ -271,12 +271,44 @@ MonsterData SnapshotMonsterData() {
 }
 
 /**
+ * @brief 解析属性强化/弱化等级
+ * @details 游戏里攻击/防御/速度/法术/抗性/命中的增减状态都是 1~6 级，
+ *          AS3 的 BufData.tipString 也是直接拿 param1 当等级用（param1 + "级"）。
+ *          所以正常封包里 param1 就在 1~6；一旦出现 1000000 这类定点/百分比编码
+ *          或字段错位，旧代码会拼出"速度提升1000000级"这种天文数字。
+ *          这里统一收敛到 1~6：
+ *          1) param1 在 1~6 直接用；
+ *          2) 否则退回 param2（部分封包把等级放在 param2）；
+ *          3) 再否则按 1000000/100/10 这类定点缩小后再判断；
+ *          4) 仍无法判定时按满级 6 处理，保证不会显示异常数字。
+ */
+static int ResolveBufLevel(int param1, int param2) {
+    auto normalize = [](long long raw) -> int {
+        if (raw < 0) raw = -raw;
+        if (raw >= 1 && raw <= 6) return static_cast<int>(raw);
+        static const long long kScales[] = {1000000LL, 100000LL, 10000LL, 1000LL, 100LL, 10LL};
+        for (long long scale : kScales) {
+            if (raw % scale != 0) continue;
+            const long long scaled = raw / scale;
+            if (scaled >= 1 && scaled <= 6) return static_cast<int>(scaled);
+        }
+        return 0;
+    };
+    int level = normalize(param1);
+    if (level == 0) level = normalize(param2);
+    if (level == 0 && (param1 != 0 || param2 != 0)) level = 6;
+    return level;
+}
+
+/**
  * @brief 获取 Buff 名称
  * @param bufId Buff ID
  * @param param1 参数1 (用于特殊 Buff 的等级判断)
  * @return Buff 名称
  */
-static std::wstring GetBufName(int bufId, int param1 = 0) {
+static int ResolveBufLevel(int param1, int param2);
+
+static std::wstring GetBufName(int bufId, int param1 = 0, int param2 = 0) {
     // 先从 bufInfo.xml 加载的数据中查找
     {
         std::lock_guard<std::mutex> lock(g_dataMapsMutex);
@@ -291,17 +323,11 @@ static std::wstring GetBufName(int bufId, int param1 = 0) {
     if (builtInName != nullptr) {
         std::wstring baseName = builtInName;
 
-        if (IsSpecialBufId(bufId) && param1 != 0) {
-            int level = (param1 > 0) ? param1 : -param1;
-            // param1 并不总是"强化等级"：部分来源是定点数值（1000000 表示 1.0），
-            // 直接拼成"N级"会显示成"速度提升1000000级"。仅在确实是等级(1~10)时拼接。
-            if (level >= 1000000 && level % 1000000 == 0) {
-                level /= 1000000;
-            }
-            if (level >= 1 && level <= 10) {
+        if (IsSpecialBufId(bufId)) {
+            const int level = ResolveBufLevel(param1, param2);
+            if (level >= 1) {
                 return baseName + std::to_wstring(level) + L"级";
             }
-            return baseName;
         }
         return baseName;
     }
@@ -346,7 +372,7 @@ static std::wstring GetBufTipString(int bufId, int param1, int param2) {
 
 static void ApplyBattleBufToPet(BattleEntity& pet, const BufData& sourceBuf) {
     BufData buf = sourceBuf;
-    buf.name = GetBufName(buf.bufId, buf.param1);
+    buf.name = GetBufName(buf.bufId, buf.param1, buf.param2);
     buf.tipString = GetBufTipString(buf.bufId, buf.param1, buf.param2);
 
     // Standalone type 4/5 are blood/recover events, not persistent Buff rows.
@@ -1368,8 +1394,20 @@ void PacketParser::UpdateUIBattleData() {
     }
     jsData += L"],";
     
-    jsData += L"\"myActiveIndex\":" + std::to_wstring(g_currentBattle.myActiveIndex) + L",";
-    jsData += L"\"otherActiveIndex\":" + std::to_wstring(g_currentBattle.otherActiveIndex) + L",";
+    // 出战序号兜底：解析失败时序号可能是 -1，前端会一直显示队首那只，
+    // 于是"切换宠物后 UI 不跟着换"。这里保证发给前端的永远是合法下标。
+    auto resolveActiveIndex = [](const std::vector<BattleEntity>& team, int32_t index) -> int32_t {
+        if (index >= 0 && index < static_cast<int32_t>(team.size())) return index;
+        for (size_t i = 0; i < team.size(); ++i) {
+            if (!team[i].placeholder && team[i].state == 1) return static_cast<int32_t>(i);
+        }
+        for (size_t i = 0; i < team.size(); ++i) {
+            if (!team[i].placeholder) return static_cast<int32_t>(i);
+        }
+        return 0;
+    };
+    jsData += L"\"myActiveIndex\":" + std::to_wstring(resolveActiveIndex(g_currentBattle.myPets, g_currentBattle.myActiveIndex)) + L",";
+    jsData += L"\"otherActiveIndex\":" + std::to_wstring(resolveActiveIndex(g_currentBattle.otherPets, g_currentBattle.otherActiveIndex)) + L",";
     jsData += L"\"battleType\":" + std::to_wstring(g_currentBattle.battleType) + L",";
     jsData += L"\"escape\":" + std::to_wstring(g_currentBattle.escape) + L",";
     jsData += L"\"round\":" + std::to_wstring(g_currentBattle.round) + L",";
@@ -1701,7 +1739,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         if (buf.addOrRemove == BufDataType::BUF_TYPE_7) {
             if (!reader.ReadI32(buf.param3) || !reader.ReadI32(buf.param4)) return;
         }
-        buf.name = GetBufName(buf.bufId, buf.param1);
+        buf.name = GetBufName(buf.bufId, buf.param1, buf.param2);
         buf.tipString = GetBufTipString(buf.bufId, buf.param1, buf.param2);
 
         BattleData next = GetCurrentBattleSnapshot();
@@ -1783,7 +1821,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
             buf.addOrRemove = BufDataType::BUF_TYPE_1;
             if (!reader.ReadI32(buf.bufId) || !reader.ReadI32(buf.param1) ||
                 !reader.ReadI32(buf.param2)) return;
-            buf.name = GetBufName(buf.bufId, buf.param1);
+            buf.name = GetBufName(buf.bufId, buf.param1, buf.param2);
             buf.tipString = GetBufTipString(buf.bufId, buf.param1, buf.param2);
             if (!bulkTip.empty()) bulkTip += L"，";
             bulkTip += entityLabelBySid(next, buf.defId) + L"：" + buf.name;
@@ -1837,7 +1875,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
                         if (!reader.ReadI32(buf.atkId) || !reader.ReadI32(buf.defId) ||
                             !reader.ReadI32(buf.round) || !reader.ReadI32(buf.param1) ||
                             !reader.ReadI32(buf.param2)) return;
-                        buf.name = GetBufName(buf.bufId, buf.param1);
+                        buf.name = GetBufName(buf.bufId, buf.param1, buf.param2);
                         buf.tipString = GetBufTipString(buf.bufId, buf.param1, buf.param2);
                         ApplyBattleBufToBattle(next, buf.defId, buf);
                         round.bufs.push_back(buf);
@@ -1845,7 +1883,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
                     case BufDataType::BUF_TYPE_2:
                         if (!reader.ReadI32(buf.atkId) || !reader.ReadI32(buf.defId) ||
                             !reader.ReadI32(buf.param1) || !reader.ReadI32(buf.param2)) return;
-                        buf.name = GetBufName(buf.bufId, buf.param1);
+                        buf.name = GetBufName(buf.bufId, buf.param1, buf.param2);
                         buf.tipString = GetBufTipString(buf.bufId, buf.param1, buf.param2);
                         ApplyBattleBufToBattle(next, buf.defId, buf);
                         ApplyBattleBuffBloodEffect(next, buf);
@@ -1927,9 +1965,16 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
                     team[found] = round.switchEntity;
                 }
                 activeIndex = found;
-            } else if (round.sta == 1) {
-                for (auto& pet : next.myPets) if (pet.uniqueId == round.uniqueId) next.myActiveIndex = static_cast<int32_t>(&pet - next.myPets.data());
-                for (auto& pet : next.otherPets) if (pet.uniqueId == round.uniqueId) next.otherActiveIndex = static_cast<int32_t>(&pet - next.otherPets.data());
+            } else {
+                // sta != 1：封包只带了 sid/uniqueId，没有完整实体（常见于"宠物已上场"的同步包）。
+                // 原代码这里写成 `else if (round.sta == 1)`，与上面的 if 同条件，永远进不来，
+                // 于是换宠后出战序号一直是旧值，UI 也就不会跟着切。
+                for (size_t i = 0; i < next.myPets.size(); ++i) {
+                    if (round.uniqueId != 0 && next.myPets[i].uniqueId == round.uniqueId) next.myActiveIndex = static_cast<int32_t>(i);
+                }
+                for (size_t i = 0; i < next.otherPets.size(); ++i) {
+                    if (round.uniqueId != 0 && next.otherPets[i].uniqueId == round.uniqueId) next.otherActiveIndex = static_cast<int32_t>(i);
+                }
             }
         } else if (params == 2) {
             if (!reader.ReadI32(round.atkId) || !reader.ReadI32(round.itemId) ||
@@ -2200,7 +2245,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         buf.bufId = BufDataType::SITE_RECOVER_ID;
         buf.param2 = 0;
         if (!reader.ReadI32(site.siteId) || !reader.ReadI32(buf.defId) || !reader.ReadI32(buf.param1)) return;
-        buf.name = GetBufName(buf.bufId, buf.param1);
+        buf.name = GetBufName(buf.bufId, buf.param1, buf.param2);
         buf.tipString = GetBufTipString(buf.bufId, buf.param1, buf.param2);
         BattleData next = GetCurrentBattleSnapshot();
         const std::wstring targetName = entityLabelBySid(next, buf.defId);

@@ -5945,7 +5945,8 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 const label = BUF_STAT_LABELS[m[1]] || m[1];
                 const arrow = m[2] === '提升' ? '↑' : '↓';
                 const lv = m[3] ? Number(m[3]) : 0;
-                text = label + arrow + (lv > 0 && lv <= 99 ? String(lv) : '');
+                // 属性增减状态在游戏里固定是 1~6 级，超出范围一律视为异常值，不显示数字。
+                text = label + arrow + (lv >= 1 && lv <= 6 ? String(lv) : '');
             } else {
                 text = text.replace(/提升|增加/g, '↑')
                            .replace(/下降|降低|减少/g, '↓')
@@ -6174,6 +6175,25 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
         }
 
         /**
+         * 解析出战序号
+         * C++ 侧解析失败时可能给出 -1（无出战宠物），直接拿它去索引会退化成队首，
+         * 表现就是"切换宠物后 UI 不跟着换"。这里补一层兜底：
+         * 先看序号是否合法，再退回 state===1（在场）的宠物，最后才用第 0 只。
+         */
+        function resolveActiveIndex(pets, index) {
+            if (!Array.isArray(pets) || pets.length === 0) return -1;
+            if (typeof index === 'number' && index >= 0 && index < pets.length) return index;
+            for (let i = 0; i < pets.length; i++) {
+                const pet = pets[i];
+                if (pet && !pet.placeholder && pet.state === 1) return i;
+            }
+            for (let i = 0; i < pets.length; i++) {
+                if (pets[i] && !pets[i].placeholder) return i;
+            }
+            return 0;
+        }
+
+        /**
          * 更新战斗UI数据
          * @param {Object} data - 战斗数据对象
          */
@@ -6187,7 +6207,8 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
 
             // 更新我方数据
             if (data.myPets && data.myPets.length > 0) {
-                const myActive = data.myPets[data.myActiveIndex] || data.myPets[0];
+                const myIdx = resolveActiveIndex(data.myPets, data.myActiveIndex);
+                const myActive = data.myPets[myIdx] || data.myPets[0];
                 document.getElementById('my-spirit-id').textContent = myActive.spiritId;
                 document.getElementById('my-hp').textContent = myActive.hp + '/' + myActive.maxHp;
                 document.getElementById('my-name').textContent = myActive.name ? myActive.name : ('妖怪' + myActive.spiritId);
@@ -6221,10 +6242,10 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                     const option = document.createElement('option');
                     option.value = index;
                     option.textContent = pet.name ? pet.name : ('妖怪' + pet.spiritId);
-                    if (index === data.myActiveIndex) option.selected = true;
+                    if (index === myIdx) option.selected = true;
                     mySelect.appendChild(option);
                 });
-                mySelect.value = String(data.myActiveIndex);
+                mySelect.value = String(myIdx);
             } else {
                 // Clear UI
                 document.getElementById('my-spirit-id').textContent = '0';
@@ -6238,7 +6259,8 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
 
             // 更新敌方数据
             if (data.otherPets && data.otherPets.length > 0) {
-                const otherActive = data.otherPets[data.otherActiveIndex] || data.otherPets[0];
+                const otherIdx = resolveActiveIndex(data.otherPets, data.otherActiveIndex);
+                const otherActive = data.otherPets[otherIdx] || data.otherPets[0];
                 document.getElementById('other-spirit-id').textContent = otherActive.spiritId;
                 document.getElementById('other-hp').textContent = otherActive.hp + '/' + otherActive.maxHp;
                 document.getElementById('other-name').textContent = otherActive.name ? otherActive.name : ('妖怪' + otherActive.spiritId);
@@ -6272,10 +6294,10 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                     const option = document.createElement('option');
                     option.value = index;
                     option.textContent = pet.name ? pet.name : ('妖怪' + pet.spiritId);
-                    if (index === data.otherActiveIndex) option.selected = true;
+                    if (index === otherIdx) option.selected = true;
                     otherSelect.appendChild(option);
                 });
-                otherSelect.value = String(data.otherActiveIndex);
+                otherSelect.value = String(otherIdx);
             } else {
                 // Clear UI
                 document.getElementById('other-spirit-id').textContent = '0';
