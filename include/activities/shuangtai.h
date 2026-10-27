@@ -37,6 +37,9 @@ constexpr uint32_t BATTLE_ROUND_RESULT_BACK = Opcode::BATTLE_ROUND;
 constexpr uint32_t BATTLE_END_BACK = Opcode::BATTLE_END;
 }  // namespace ShuangTai
 
+/// 是否正在等妖怪背包回包：双台谷线程写、收包线程读，必须是原子量
+extern std::atomic<bool> g_shuangtaiWaitingForMonsterData;
+
 BOOL QueryShuangTaiMonsters();
 void UpdateShuangTaiUIFromMonsterData();
 BOOL StartOneKeyShuangTaiPacket(bool blockBattle = false);

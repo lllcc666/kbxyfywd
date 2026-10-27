@@ -760,7 +760,7 @@ def main():
         f.write("    const char* subtaskName;  // UTF-8，子任务名\n")
         f.write("};\n\n")
 
-        f.write("static const Node NODES[] = {\n")
+        f.write("inline constexpr Node NODES[] = {\n")
         for n in sorted(all_nodes, key=lambda x: x["dialogId"]):
             f.write("    {%u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %d, %d, %u},\n" % (
                 n["dialogId"], n["subtaskId"], n["npc"], n["targetScene"],
@@ -787,24 +787,24 @@ def main():
         f.write("    uint32_t scene;\n")
         f.write("    uint32_t npc;\n")
         f.write("};\n\n")
-        f.write("static const AlertTarget ALERT_TARGETS[] = {\n")
+        f.write("inline constexpr AlertTarget ALERT_TARGETS[] = {\n")
         for dialog_id, sc, npc_id in alert_rows:
             f.write("    {%u, %u, %u},\n" % (dialog_id, sc, npc_id))
         f.write("};\n\n")
 
-        f.write("static const Stage STAGES[] = {\n")
+        f.write("inline constexpr Stage STAGES[] = {\n")
         for sub_id in sorted(subtask_entries):
             for sc, npc in subtask_entries[sub_id]["stages"]:
                 f.write("    {%u, %u, %u},\n" % (sub_id, sc, npc))
         f.write("};\n\n")
 
-        f.write("static const EntryCandidate ENTRY_CANDIDATES[] = {\n")
+        f.write("inline constexpr EntryCandidate ENTRY_CANDIDATES[] = {\n")
         for sub_id in sorted(subtask_entries):
             for sc, npc in subtask_entries[sub_id]["entryCandidates"]:
                 f.write("    {%u, %u, %u},\n" % (sub_id, sc, npc))
         f.write("};\n\n")
 
-        f.write("static const PreAction PRE_ACTIONS[] = {\n")
+        f.write("inline constexpr PreAction PRE_ACTIONS[] = {\n")
         for sub_id in sorted(subtask_entries):
             entry = subtask_entries[sub_id]
             for kind, npc, ax, ay, ascene, magic in entry.get("preActions", []):
@@ -814,7 +814,7 @@ def main():
                     npc, ax, ay, magic))
         f.write("};\n\n")
 
-        f.write("static const Subtask SUBTASKS[] = {\n")
+        f.write("inline constexpr Subtask SUBTASKS[] = {\n")
         for sub_id in sorted(subtask_entries):
             e = subtask_entries[sub_id]
             f.write('    {%u, %u, %u, %u, %u, "%s", "%s"},\n' % (
@@ -822,11 +822,11 @@ def main():
                 e["firstDialog"], e["taskName"].replace('"', ''), e["name"].replace('"', '')))
         f.write("};\n\n")
 
-        f.write("static const uint32_t NODE_COUNT = sizeof(NODES) / sizeof(NODES[0]);\n")
-        f.write("static const uint32_t ALERT_TARGET_COUNT =\n")
+        f.write("inline constexpr uint32_t NODE_COUNT = sizeof(NODES) / sizeof(NODES[0]);\n")
+        f.write("inline constexpr uint32_t ALERT_TARGET_COUNT =\n")
         f.write("    sizeof(ALERT_TARGETS) / sizeof(ALERT_TARGETS[0]);\n")
-        f.write("static const uint32_t STAGE_COUNT = sizeof(STAGES) / sizeof(STAGES[0]);\n")
-        f.write("static const uint32_t ENTRY_CANDIDATE_COUNT =\n")
+        f.write("inline constexpr uint32_t STAGE_COUNT = sizeof(STAGES) / sizeof(STAGES[0]);\n")
+        f.write("inline constexpr uint32_t ENTRY_CANDIDATE_COUNT =\n")
         f.write("    sizeof(ENTRY_CANDIDATES) / sizeof(ENTRY_CANDIDATES[0]);\n")
         f.write("static const uint32_t PRE_ACTION_COUNT =\n")
         f.write("    sizeof(PRE_ACTIONS) / sizeof(PRE_ACTIONS[0]);\n")

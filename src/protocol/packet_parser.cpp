@@ -5,11 +5,13 @@
 #include "zlib.h"
 #include "battle_six.h"
 #include "dungeon_jump.h"
+#include "shuangtai.h"
 #include "wpe_hook.h"
 #include "ui_bridge.h"
 #include "utils.h"
 #include <wininet.h>
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <functional>
 #include <limits>
@@ -2815,15 +2817,11 @@ void PacketParser::ProcessMonsterPacket(const GamePacket& packet) {
         g_monsterData.monsters = monsters;
     }
 
-    // 通知副本跳层模块妖怪数据已收到
-    extern struct DungeonJumpState g_dungeonJumpState;
-    g_dungeonJumpState.monsterDataReceived = true;
+    // 通知副本跳层模块妖怪数据已收到（写线程=收包线程，读线程=跳层线程）
+    g_dungeonJumpState.monsterDataReceived.store(true, std::memory_order_release);
 
     // 处理双台谷异步查询
-    extern bool g_shuangtaiWaitingForMonsterData;
-    extern void UpdateShuangTaiUIFromMonsterData();
-    if (g_shuangtaiWaitingForMonsterData) {
-        g_shuangtaiWaitingForMonsterData = false;
+    if (g_shuangtaiWaitingForMonsterData.exchange(false, std::memory_order_acq_rel)) {
         UpdateShuangTaiUIFromMonsterData();
     }
 

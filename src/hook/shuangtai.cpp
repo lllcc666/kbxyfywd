@@ -17,8 +17,6 @@
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
-extern std::unordered_map<int, int> g_skillPowers;
-
 // ============================================================================
 // 双台谷刷级功能实现 - 异步状态机模式
 // ============================================================================
@@ -538,7 +536,7 @@ void StopShuangTai() {
 }
 
 // 查询相关的全局变量（用于异步查询）
-bool g_shuangtaiWaitingForMonsterData = false;
+std::atomic<bool> g_shuangtaiWaitingForMonsterData{false};
 
 BOOL QueryShuangTaiMonsters() {
     UIBridge::Instance().UpdateHelperText(L"双台谷：正在查询妖怪数据...");

@@ -87,7 +87,7 @@ struct Subtask {
     const char* subtaskName;  // UTF-8，子任务名
 };
 
-static const Node NODES[] = {
+inline constexpr Node NODES[] = {
     {200100101, 2001001, 11001, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 5, 0, 0, -1, -1, 0},
     {200100102, 2001001, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1, 0},
     {200100201, 2001002, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 4, 1, 0, 0, -1, 0},
@@ -461,7 +461,7 @@ struct AlertTarget {
     uint32_t npc;
 };
 
-static const AlertTarget ALERT_TARGETS[] = {
+inline constexpr AlertTarget ALERT_TARGETS[] = {
     {200100203, 1008, 16001},
     {200100203, 1008, 16006},
     {200100203, 1015, 19016},
@@ -1005,7 +1005,7 @@ static const AlertTarget ALERT_TARGETS[] = {
     {201100406, 6001, 61117},
 };
 
-static const Stage STAGES[] = {
+inline constexpr Stage STAGES[] = {
     {2001001, 1003, 11001},
     {2001002, 2003, 21101},
     {2001003, 2001, 21203},
@@ -1066,7 +1066,7 @@ static const Stage STAGES[] = {
     {2011004, 6001, 61117},
 };
 
-static const EntryCandidate ENTRY_CANDIDATES[] = {
+inline constexpr EntryCandidate ENTRY_CANDIDATES[] = {
     {2001001, 1003, 11001},
     {2001001, 1003, 11002},
     {2001001, 1003, 11003},
@@ -1399,14 +1399,14 @@ static const EntryCandidate ENTRY_CANDIDATES[] = {
     {2011004, 6001, 61105},
 };
 
-static const PreAction PRE_ACTIONS[] = {
+inline constexpr PreAction PRE_ACTIONS[] = {
     {2001005, 2003, 0, 21103, 0, 0, 0},
     {2001005, 2003, 1, 21108, 414, 213, 1},
     {2003002, 2101, 0, 21601, 0, 0, 0},
     {2004003, 2103, 0, 21801, 0, 0, 0},
 };
 
-static const Subtask SUBTASKS[] = {
+inline constexpr Subtask SUBTASKS[] = {
     {2001001, 2001000, 1003, 11001, 200100101, "皇城危机", "接受使命"},
     {2001002, 2001000, 2003, 21101, 200100201, "皇城危机", "奇怪的声音"},
     {2001003, 2001000, 2001, 21203, 200100301, "皇城危机", "歪打正着揭皇榜"},
@@ -1466,14 +1466,14 @@ static const Subtask SUBTASKS[] = {
     {2011004, 2011000, 6001, 61117, 201100401, "车迟斗法", "斗法之云台求雨"},
 };
 
-static const uint32_t NODE_COUNT = sizeof(NODES) / sizeof(NODES[0]);
-static const uint32_t ALERT_TARGET_COUNT =
+inline constexpr uint32_t NODE_COUNT = sizeof(NODES) / sizeof(NODES[0]);
+inline constexpr uint32_t ALERT_TARGET_COUNT =
     sizeof(ALERT_TARGETS) / sizeof(ALERT_TARGETS[0]);
-static const uint32_t STAGE_COUNT = sizeof(STAGES) / sizeof(STAGES[0]);
-static const uint32_t ENTRY_CANDIDATE_COUNT =
+inline constexpr uint32_t STAGE_COUNT = sizeof(STAGES) / sizeof(STAGES[0]);
+inline constexpr uint32_t ENTRY_CANDIDATE_COUNT =
     sizeof(ENTRY_CANDIDATES) / sizeof(ENTRY_CANDIDATES[0]);
-static const uint32_t PRE_ACTION_COUNT =
+inline constexpr uint32_t PRE_ACTION_COUNT =
     sizeof(PRE_ACTIONS) / sizeof(PRE_ACTIONS[0]);
-static const uint32_t SUBTASK_COUNT = sizeof(SUBTASKS) / sizeof(SUBTASKS[0]);
+inline constexpr uint32_t SUBTASK_COUNT = sizeof(SUBTASKS) / sizeof(SUBTASKS[0]);
 
 }  // namespace StoryTaskRecipe

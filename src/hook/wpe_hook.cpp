@@ -76,15 +76,6 @@ static void ProcessStoryTaskFinishedResponse(const GamePacket& packet);
 // 嵌入资源
 #include "embedded/minhook_data.h"
 
-// 外部变量声明（来自 packet_parser.cpp）
-extern std::unordered_map<int, std::wstring> g_petNames;
-extern std::unordered_map<int, std::wstring> g_skillNames;
-extern std::unordered_map<int, std::wstring> g_elemNames;
-extern std::unordered_map<int, std::wstring> g_geniusNames;
-extern std::unordered_map<int, int> g_skillPowers;
-extern std::unordered_map<int, int> g_skillRanges;
-extern std::unordered_map<int, int> g_petElems;
-
 // MinHook 宏定义
 #ifndef MH_ALL_HOOKS
 #define MH_ALL_HOOKS (nullptr)

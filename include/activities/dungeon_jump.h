@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include <windows.h>
 
 #include <vector>
@@ -38,7 +40,7 @@ struct DungeonJumpState {
     int targetLayer = 1;
     std::vector<MonsterItem> highLevelMonsters;
     int originalFirstSpiritId = 0;
-    bool monsterDataReceived = false;
+    std::atomic<bool> monsterDataReceived{false};  ///< 收包线程写、跳层线程等，必须原子
     int storedMonsterCount = 0;
     int retrievedMonsterCount = 0;
 
