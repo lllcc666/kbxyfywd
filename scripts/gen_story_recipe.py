@@ -220,6 +220,34 @@ def parse_taskprop(path):
         bl = re.search(r'<battle [^>]*level="(\d+)"', body)
         if bl:
             battle_level = int(bl.group(1))
+
+        # AS3 TaskDialog.spliceView 按 index 逐格推进：同一格上可能同时挂 otherpopup /
+        # flash / battle / desc。下面这四项把「这个节点本地要停几次」量化出来，
+        # native 才能像 TaskDialog 一样一句一拍，而不是收到 dialogId 就立刻回包。
+        #   descCount     = <desc> 数（含带 <choose> 的）
+        #   flashMask     = 所有 <flash@position> 的位掩码（第 n 位=1 表示第 n 格是动画）
+        #   battleMask    = 所有 <battle@position> 的位掩码
+        #   flashPosition = 掩码里最低的那一格（兼容旧字段，-1 = 无动画）
+        #   battlePosition= 掩码里最低的那一格（-1 = 无战斗）
+        #   afterFlash    = <battle afterflash="1">：同一格先播动画再开打
+        # 一个节点可能有多个动画格（7 个节点如此：200100601 是 [0,8,10]，
+        # 201000301 是 [8,12]），只存第一个会漏掉后面的动画拍。
+        desc_count = len(re.findall(r'<desc ', body))
+        flash_positions = [int(x) for x in re.findall(r'<flash [^>]*position="(-?\d+)"', body)]
+        battle_positions = [int(x) for x in re.findall(r'<battle [^>]*position="(-?\d+)"', body)]
+        flash_mask = 0
+        for p in flash_positions:
+            if 0 <= p < 32:
+                flash_mask |= 1 << p
+        battle_mask = 0
+        for p in battle_positions:
+            if 0 <= p < 32:
+                battle_mask |= 1 << p
+        after_flash = re.search(r'<battle [^>]*afterflash="1"', body)
+        # <otherpopup> 是玩家要点的弹出按钮（开商店/交物品），position 同 desc。
+        popup_positions = sorted(
+            int(x) for x in re.findall(r'<otherpopup [^>]*position="(-?\d+)"', body))
+
         nodes.append({
             "dialogId": dialog_id,
             "subtaskId": 0,  # 由调用方按 dialogId // 100 统一回填
@@ -229,6 +257,13 @@ def parse_taskprop(path):
             "battleId": int(battle.group(1)) if battle else 0,
             "battleLevel": battle_level,
             "alertText": alert_text,
+            "descCount": desc_count,
+            "flashMask": flash_mask,
+            "battleMask": battle_mask,
+            "flashPosition": min(flash_positions) if flash_positions else -1,
+            "battlePosition": min(battle_positions) if battle_positions else -1,
+            "afterFlash": 1 if after_flash else 0,
+            "popupPositions": popup_positions,
         })
     return nodes
 
@@ -669,6 +704,15 @@ def main():
         f.write("    uint32_t shootY;      // 射击目标场景坐标 Y\n")
         f.write("    uint32_t shootSpecial;// 目标 special（必须与法术 actionId 对应）\n")
         f.write("    uint32_t alertScene;  // alert 点击目标所在场景（0=未知；与当前场景不同就先切图）\n")
+        f.write("    // ── 本地推进节奏（AS3 TaskDialog.spliceView 的 index 语义）──\n")
+        f.write("    // 一个 dialog 节点里的多句 desc 是客户端本地逐句点完的，末尾才发一次 TASK_TALK，\n")
+        f.write("    // 所以 native 必须知道「这个节点本地要停几拍」，否则会一跳一发、多发对话。\n")
+        f.write("    uint32_t descCount;     // <desc> 条数（含带 <choose> 的），0 = 无本地对白\n")
+        f.write("    uint32_t flashMask;     // 动画格位掩码：第 n 位=1 表示第 n 格播动画\n")
+        f.write("    uint32_t battleMask;    // 战斗格位掩码：第 n 位=1 表示第 n 格开战\n")
+        f.write("    int32_t flashPosition;  // 掩码里最低的动画格（-1 = 无动画）\n")
+        f.write("    int32_t battlePosition; // 掩码里最低的战斗格（-1 = 无战斗）\n")
+        f.write("    uint8_t afterFlash;     // battle@afterflash=1：同格先播动画再开打\n")
         f.write("};\n\n")
 
         f.write("// 子任务依次要走的场景，以及每个场景里该交互的任务对象。\n")
@@ -718,13 +762,16 @@ def main():
 
         f.write("static const Node NODES[] = {\n")
         for n in sorted(all_nodes, key=lambda x: x["dialogId"]):
-            f.write("    {%u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u},\n" % (
+            f.write("    {%u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %d, %d, %u},\n" % (
                 n["dialogId"], n["subtaskId"], n["npc"], n["targetScene"],
                 n["battleId"], n["battleLevel"], n["kind"],
                 n.get("alertNpc", 0),
                 n.get("shootNpc", 0), n.get("shootX", 0),
                 n.get("shootY", 0), n.get("shootSpecial", 0),
-                n.get("alertScene", 0)))
+                n.get("alertScene", 0),
+                n.get("descCount", 0), n.get("flashMask", 0),
+                n.get("battleMask", 0), n.get("flashPosition", -1),
+                n.get("battlePosition", -1), n.get("afterFlash", 0)))
         f.write("};\n\n")
 
         # alert 的多目标表：收集类提示点名的对象有好几个、还分散在多个场景，

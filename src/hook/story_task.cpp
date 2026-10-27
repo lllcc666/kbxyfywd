@@ -458,6 +458,20 @@ constexpr DWORD STORY_MAGIC_INDEX_TIMEOUT_MS = 2000;
 // 残留对白清理上限：进子任务前最多连清 4 个，动作之间最多连清 3 个。
 constexpr int STORY_DIALOG_DRAIN_LIMIT = 4;
 constexpr int STORY_DIALOG_DRAIN_BETWEEN_ACTIONS = 3;
+// 发完 TASK_TALK 后、按 targetScene 切图前的观察窗。AS3 的切图由服务端回包驱动
+// （TaskControl.onDialogFinished → toOtherScene），不是发包即切。这段窗口让服务端
+// 有机会先推下一句；推了就不切（下一句自己带 targetScene），没推才认定该切。
+constexpr DWORD STORY_SCENE_SWITCH_SETTLE_MS = 1500;
+
+// 主线流程自己会等的那几条回包。停止时只取消这几个，不动别的活动。
+constexpr uint32_t kStoryCancelOpcodes[] = {
+    Opcode::TASK_TALK_BACK,
+    Opcode::NPCTASKLIST_BACK,
+    Opcode::NPC_LIST_BACK,
+    Opcode::GET_MAGIC_INDEX_BACK,
+    Opcode::ENTER_SCENE_BACK,
+    Opcode::TASK_FINISHED_BACK,
+};
 
 // 等到服务端推出下一个对白节点；返回 true 表示队列里已经有一个待回应的节点。
 static bool WaitStoryDialog(unsigned long long sessionId, DWORD timeoutMs) {
@@ -788,6 +802,131 @@ void HandleStoryBattlePacket(const GamePacket& packet) {
     }
 }
 
+// ── 本地推进（对齐 AS3 TaskDialog.spliceView）────────────────────────────
+// AS3 的真相（MainGame_remote/scripts/com/game/modules/view/task/TaskDialog.as）：
+//   :245  setData 里 this.index = 0
+//   :253  spliceView 每一拍只看 this.index 这一个数：
+//         :268 otherpopup[i].position == index && afterChoose == 0 → openPopUp
+//         :281 flag = (battle.position == index)
+//         :288 flash[i].position == index → if (fla.afterbattle && flag) startBattle
+//                                           else playAnimation
+//         :299 if (flag) startBattle
+//         :318 battle.position == index → startBattle
+//         :324 if (index < totalLength) { taskObj = describe[index]; ++index; initView(); }
+//         :332 else onAccept(true)              ← 整节点结束
+// 也就是说 index 与 position 是**同一坐标系、都从 0 开始**。
+// 实测有节点的 battle/flash position 大于 descCount（200300205：4 句 desc、
+// battle position=4），那是个永远不会被命中的废格——AS3 里 index 到不了 4。
+// 所以推进上限必须夹在 totalLength 上，不能拿 position 去撑大拍数。
+constexpr uint32_t STORY_BEAT_FLASH = 1u << 0;
+constexpr uint32_t STORY_BEAT_BATTLE = 1u << 1;
+constexpr uint32_t STORY_BEAT_AFTER_FLASH_BATTLE = 1u << 2;
+
+// 掩码里最高置位的下标（掩码为 0 时返回 0，调用方已先判空）。
+static uint32_t StoryMaskHighestBit(uint32_t mask) {
+    unsigned long index = 0;
+    _BitScanReverse(&index, mask);
+    return static_cast<uint32_t>(index);
+}
+
+// 这个节点本地要停几拍。= AS3 的 totalLength，即 describe.length。
+// 只有「没有 desc、但有动画/战斗」的节点（6 个 flash-only、2 个 battle-only）
+// 才用位置撑出拍数，因为它们的动作确实发生在 index 0..n 上。
+static uint32_t StoryNodeBeatCount(const StoryTaskRecipe::Node& node) {
+    if (node.descCount > 0) {
+        return node.descCount;
+    }
+    uint32_t count = 0;
+    if (node.flashMask != 0) {
+        count = StoryMaskHighestBit(node.flashMask) + 1;
+    }
+    if (node.battleMask != 0) {
+        const uint32_t highest = StoryMaskHighestBit(node.battleMask) + 1;
+        if (highest > count) {
+            count = highest;
+        }
+    }
+    return count;
+}
+
+// 这一拍 spliceView 会落到哪个分支（返回 STORY_BEAT_* 位组合）。
+// 严格照抄 :268 / :281 / :288 / :299 / :318 的判断顺序：
+//   有 flash 也有 battle：flash 命中时，若 afterbattle 且 battle 同格 → 先开战；
+//                          否则只播动画（even if battle 同格）。
+//   flash 命中但 battle 不同格            → 播动画。
+//   flash 未命中但 battle 同格            → 开战。
+static uint32_t StoryNodeBeatAction(const StoryTaskRecipe::Node& node, uint32_t beat) {
+    if (beat >= 32) {
+        return 0;  // 掩码放不下的格子：按 spliceView 的「不命中」处理
+    }
+    const bool flashHere = (node.flashMask & (1u << beat)) != 0;
+    const bool battleHere = (node.battleMask & (1u << beat)) != 0;
+    if (flashHere && battleHere) {
+        // :288 fla.position == index 命中，:290 判断 fla.afterbattle && flag。
+        if (node.afterFlash != 0) {
+            return STORY_BEAT_FLASH | STORY_BEAT_BATTLE | STORY_BEAT_AFTER_FLASH_BATTLE;
+        }
+        return STORY_BEAT_FLASH;
+    }
+    if (flashHere) {
+        return STORY_BEAT_FLASH;
+    }
+    if (battleHere) {
+        return STORY_BEAT_BATTLE;
+    }
+    return 0;
+}
+
+// 单拍结果。区分「这一拍没事」「这一拍要开战」「流程该退出」三种，
+// 不再用 bool 一个通道糊住——之前 battleId<=0 的节点会把整条子任务判成失败。
+enum class StoryBeatResult {
+    Continue,   // 这一拍处理完，继续下一拍
+    Battle,     // 这一拍要开战，battleSid 已填
+    Abort,      // 会话已切换 / 用户已停止，外层直接退出
+};
+
+static StoryBeatResult AdvanceStoryNodeBeat(unsigned long long sessionId,
+                                           const StoryTaskRecipe::Node& node,
+                                           uint32_t beat,
+                                           uint32_t npcId,
+                                           uint32_t& battleSid) {
+    if (g_storyTaskSession.load() != sessionId || !g_storyTaskRunning.load()) {
+        return StoryBeatResult::Abort;
+    }
+    const uint32_t action = StoryNodeBeatAction(node, beat);
+    if ((action & STORY_BEAT_FLASH) != 0) {
+        // 动画在本地点掉即可，协议层什么都不发。
+        if ((action & STORY_BEAT_AFTER_FLASH_BATTLE) != 0) {
+            UpdateStoryTaskUi(L"主线任务：先播动画再开战 " + std::to_wstring(node.dialogId) +
+                                 L"（第 " + std::to_wstring(beat + 1) + L" 拍）",
+                             true);
+        }
+        if ((action & STORY_BEAT_BATTLE) == 0) {
+            return StoryBeatResult::Continue;
+        }
+        // afterbattle 命中：动画播完接着开打，不能在这里 return，否则战斗被吞掉。
+    }
+    if ((action & STORY_BEAT_BATTLE) == 0) {
+        return StoryBeatResult::Continue;
+    }
+
+    // 同一场战斗已经在打（或刚打完这个节点）时不再重复开战。
+    if (g_storyBattleDialogId.load() == node.dialogId) {
+        return StoryBeatResult::Continue;
+    }
+    battleSid = BuildStoryBattleSid(node, npcId);
+    if (battleSid == 0) {
+        // battleId<=0 的这种节点没有可打的仗：当作「这一拍跳过」，
+        // 而不是让整条子任务判失败。
+        UpdateStoryTaskUi(L"主线任务：战斗节点无有效战斗号，跳过 " +
+                             std::to_wstring(node.dialogId),
+                         true);
+        return StoryBeatResult::Continue;
+    }
+    return StoryBeatResult::Battle;
+}
+
+// 整节点执行：本地把每一格点完，末尾才发一次 TASK_TALK。
 static bool ReplyStoryDialogNode(unsigned long long sessionId, uint32_t dialogId,
                                  uint32_t npcId, bool forceReply) {
     if (g_storyTaskSession.load() != sessionId) {
@@ -796,12 +935,17 @@ static bool ReplyStoryDialogNode(unsigned long long sessionId, uint32_t dialogId
 
     const StoryTaskRecipe::Node* node = FindStoryNode(dialogId);
 
-    // alert 是纯提示节点（TaskXMLParser 解析成 alert，由 TaskAlert/TaskTips 展示）。
-    // 普通 alert 不发包；但提示里点名的场景对象要补点一次，否则玩家侧流程停住。
-    // forceReply 例外：服务端在回包里给了 flag（type 2/14/17），说明关掉提示后要回
+    // alert 是纯提示节点。AS3 TaskXMLParser.parseXML 的 alert 分支只构造 alert 对象，
+    // 连 desc 都不解析，TaskAlert.show 之后 dispos 也不走发包分支
+    // （TaskView.tipsNeedSendPacket 只在 needToChangeMouse.sendback 有值时才发，
+    //  实测 110 个 alert 节点没有一个带 flag）。所以 alert 在 AS3 里**什么都不发**。
+    // forceReply 例外：服务端在 type 2/14/17 的回包里给了 flag，说明关掉提示后要回
     // TASK_TALK(flag,[dialogId])，此时按普通对白处理。
     if (!forceReply && node != nullptr && node->kind == StoryTaskRecipe::KIND_ALERT) {
-        return FollowStoryAlertNpc(sessionId, *node, npcId);
+        // 主动点提示对象是 native 的兜底策略（AS3 没有这一步，配方里的目标也是从
+        // 提示文案猜出来的）。默认不跑，只有连续静默后才由调用方显式触发。
+        UpdateStoryTaskUi(L"主线任务：提示节点 " + std::to_wstring(dialogId), true);
+        return true;
     }
 
     // 配方表里没有的节点（例如临时/动态节点）：当作普通对白回应，保持流程前进。
@@ -810,39 +954,49 @@ static bool ReplyStoryDialogNode(unsigned long long sessionId, uint32_t dialogId
         return SendTaskZoneTalkPacket(npcId, dialogId) != FALSE;
     }
 
-    switch (node->kind) {
-        case StoryTaskRecipe::KIND_BATTLE: {
-            // 同一个战斗节点被重复回应（重复点击把它又排队了一次）时只开一次战，
-            // 否则会连开两场，第二场没有节点可收尾。
-            if (g_storyBattleActive.load() && g_storyBattleDialogId.load() == dialogId) {
-                UpdateStoryTaskUi(L"主线任务：战斗已在进行，忽略重复的战斗节点 " +
-                                     std::to_wstring(dialogId),
+    // 本地逐拍推进：这是 AS3「一跳一链」的核心。多句 desc 在本地点完，
+    // 一拍一个包都不发，直到最后一拍才 TASK_TALK。
+    const uint32_t beats = StoryNodeBeatCount(*node);
+    for (uint32_t beat = 0; beat < beats; ++beat) {
+        uint32_t battleSid = 0;
+        switch (AdvanceStoryNodeBeat(sessionId, *node, beat, npcId, battleSid)) {
+            case StoryBeatResult::Abort:
+                return false;
+            case StoryBeatResult::Battle:
+                // 战斗拍：记下这条节点，打完仗还要再回一次 TASK_TALK 服务端才判定完成。
+                g_storyBattleDialogId.store(dialogId);
+                g_storyBattleNpcId.store(npcId);
+                g_storyBattleArmTick.store(GetTickCount());
+                UpdateStoryTaskUi(L"主线任务：发起任务战斗 " +
+                                     std::to_wstring(node->battleId) + L"（第 " +
+                                     std::to_wstring(beat + 1) + L" 拍）",
                                  true);
-                return true;
-            }
-            const uint32_t sid = BuildStoryBattleSid(*node, npcId);
-            if (sid == 0) {
+                return SendBattlePacket(battleSid) != FALSE;
+            case StoryBeatResult::Continue:
                 break;
-            }
-            // 战斗由服务端在点击后自行结算；这里只发点击，随后等待完成通知。
-            // 记下这条节点：打完仗还要再回一次 TASK_TALK，服务端才判定该子任务完成。
-            g_storyBattleDialogId.store(dialogId);
-            g_storyBattleNpcId.store(npcId);
-            g_storyBattleArmTick.store(GetTickCount());
-            UpdateStoryTaskUi(L"主线任务：发起任务战斗 " + std::to_wstring(node->battleId), true);
-            return SendBattlePacket(sid) != FALSE;
         }
-        default:
-            // 含 <choose> 的节点也走这里：AS3 TaskDialog.onClickPersonSay 对 flag 1/2/3
-            // 是本地分支（flag=1 继续、flag=2 直接关窗），都不发 TRAIN_INFO；
-            // 只有服务端回包带 chooseId 时才发，本流程拿不到该字段，故只回 TASK_TALK。
-            break;
+        // 每拍之间留一点间隔，等价于玩家点击的节奏，避免服务端把连续动作并成一包。
+        if (beat + 1 < beats) {
+            Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+        }
     }
 
+    // 含 <choose> 的节点也走这里：AS3 TaskDialog.onClickPersonSay 对 flag 1/2/3
+    // 是本地分支（flag=1 继续、flag=2 直接关窗），都不发 TRAIN_INFO；
+    // 只有服务端回包带 chooseId 时才发，本流程拿不到该字段，故只回 TASK_TALK。
     if (!SendTaskZoneTalkPacket(npcId, dialogId)) {
         return false;
     }
-    // 推进这句对白后按节点自带的 targetScene 切场景（AS3 DIALOGFINISHED 的后续动作）。
+    // 末尾这句发完才轮到切场景（AS3 opNPCEffectComplete → SENDTOOTHERSCENE）。
+    // 但此刻服务端还没消化这次 TASK_TALK，直接切图会把回包落到新场景上，
+    // 对话流与场景 NPC 列表全错位（200100304 的 targetScene=2002 就是这个坑）。
+    // 所以先给服务端一个回包窗口：它推了下一句就说明这句已消化，切图交给下一句决定。
+    if (node->targetScene == 0) {
+        return true;
+    }
+    if (WaitStoryDialog(sessionId, STORY_SCENE_SWITCH_SETTLE_MS)) {
+        return true;
+    }
     return SwitchStoryScene(sessionId, node->targetScene);
 }
 
@@ -1086,10 +1240,14 @@ static bool RunStorySubtask(unsigned long long sessionId, const StoryTaskRecipe:
     // 60 秒不够用（2002003 失落的经文实测 8 个目标 + 切图 ≈ 50 秒）。
     const DWORD subtaskTimeoutMs = 90000;
     const DWORD subtaskStart = GetTickCount();
-    uint32_t answeredCount = 0;
+    // 每个子任务开头清掉「当前对话节点」：alert 兜底会用它去查配方，留着上个子任务的
+    // 节点会让兜底跑在已经完全无关的旧提示上。
+    g_storyTaskCurrentDialog.store(0);
     // 最近一个对白的 NPC：服务端静默时用它补点一次（见下面的 retryClickCount）。
     uint32_t lastTalkNpc = subtask.entryNpc;
     int retryClickCount = 0;
+    // alert 兜底只跑一次：配方里的提示目标是文案正则猜的，不能反复拿来试。
+    bool alertFallbackTried = false;
 
     while (g_storyTaskRunning.load() && g_storyTaskSession.load() == sessionId) {
         if (IsStorySubtaskFinishedInCache(subtask.subtaskId)) {
@@ -1128,12 +1286,30 @@ static bool RunStorySubtask(unsigned long long sessionId, const StoryTaskRecipe:
                 Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
                 continue;
             }
+            // 补点两次仍静默：才动用配方里从 alert 文案猜出来的提示目标。
+            // AS3 的 alert 只展示提示、自己什么都不发（TaskXMLParser 的 alert 分支连
+            // desc 都不解析），所以这一步是 native 的**兜底**，不是主路径：
+            // 主路径永远是「服务端推对话 → 本地按格点完 → 回一次 TASK_TALK」。
+            // 只在真卡住时跑，跑一次不成就收尾，绝不把静默当成循环条件。
+            if (!alertFallbackTried && g_storyTaskCurrentDialog.load() != 0 &&
+                !battleRunning) {
+                alertFallbackTried = true;
+                const StoryTaskRecipe::Node* stuckNode =
+                    FindStoryNode(g_storyTaskCurrentDialog.load());
+                if (stuckNode != nullptr &&
+                    stuckNode->kind == StoryTaskRecipe::KIND_ALERT) {
+                    UpdateStoryTaskUi(L"主线任务：提示节点无后续，尝试兜底点击", true);
+                    if (FollowStoryAlertNpc(sessionId, *stuckNode, subtask.entryNpc)) {
+                        retryClickCount = 0;
+                        continue;
+                    }
+                }
+            }
             UpdateStoryTaskUi(L"主线任务：对话流结束 " + std::to_wstring(subtask.subtaskId), true);
             return false;
         }
 
         g_storyTaskCurrentDialog.store(dialogId);
-        ++answeredCount;
         lastTalkNpc = npcId == 0 ? subtask.entryNpc : npcId;
         retryClickCount = 0;
         if (!ReplyStoryDialogNode(sessionId, dialogId, npcId == 0 ? subtask.entryNpc : npcId,
@@ -1207,6 +1383,11 @@ static DWORD WINAPI StoryTaskThreadProc(LPVOID lpParam) {
     }
     PushStoryTaskProgressToUi();
 
+    // 失败计数：只有「全部勾选子任务都确认完成」才算流程执行完毕。
+    int subtaskOk = 0;
+    int subtaskSkipped = 0;
+    int subtaskFailed = 0;
+
     for (uint32_t i = 0; i < StoryTaskRecipe::SUBTASK_COUNT && g_storyTaskRunning.load(); ++i) {
         if (g_storyTaskSession.load() != sessionId) {
             break;
@@ -1215,9 +1396,11 @@ static DWORD WINAPI StoryTaskThreadProc(LPVOID lpParam) {
 
         // 跳过未勾选或已完成的子任务。
         if (!IsStorySubtaskSelected(subtask.subtaskId)) {
+            ++subtaskSkipped;
             continue;
         }
         if (IsStorySubtaskFinishedInCache(subtask.subtaskId)) {
+            ++subtaskOk;
             continue;
         }
 
@@ -1229,13 +1412,16 @@ static DWORD WINAPI StoryTaskThreadProc(LPVOID lpParam) {
                 break;
             }
             if (IsStorySubtaskFinishedInCache(subtask.subtaskId)) {
+                ++subtaskOk;
                 continue;
             }
             // 单步失败：记录后继续下一个，避免整条链断在一个非阻塞子任务上。
             UpdateStoryTaskUi(L"主线任务：子任务未确认完成 " + std::to_wstring(subtask.subtaskId), true);
             flowFailed = true;
+            ++subtaskFailed;
             continue;
         }
+        ++subtaskOk;
     }
 
     // 会话号先校验再清运行标记：被 Stop 掉或已被新会话取代的旧线程，
@@ -1245,14 +1431,19 @@ static DWORD WINAPI StoryTaskThreadProc(LPVOID lpParam) {
     }
     const bool stillRunning = g_storyTaskRunning.exchange(false);
     g_storyTaskMapEntered = false;
-    if (!flowFailed) {
+    // 之前这里只判 !flowFailed，于是「一个子任务都没跑」（全被跳过 / 中途停止）
+    // 也会报「流程已执行完毕」。改成要求至少成功推进过一个子任务，且无失败。
+    if (!flowFailed && subtaskOk > 0) {
         flowCompleted = true;
     }
 
     if (flowCompleted) {
         UpdateStoryTaskUi(L"主线任务：主线任务流程已执行完毕", false);
     } else if (stillRunning) {
-        UpdateStoryTaskUi(L"主线任务：主线任务流程结束（部分子任务未确认完成）", false);
+        UpdateStoryTaskUi(L"主线任务：主线任务流程结束（成功 " + std::to_wstring(subtaskOk) +
+                              L" / 失败 " + std::to_wstring(subtaskFailed) + L" / 跳过 " +
+                              std::to_wstring(subtaskSkipped) + L"）",
+                          false);
     } else {
         UpdateStoryTaskUi(L"主线任务：已停止", false);
     }
@@ -1314,7 +1505,12 @@ VOID StopStoryTask() {
     g_storyBattleDialogId.store(0);
     g_storyBattleNpcId.store(0);
     g_storyBattleArmTick.store(0);
-    ResponseWaiter::CancelWait();
+    // 只定向取消「主线流程自己在等」的那几个回包，不再全局 CancelWait()。
+    // 全局取消会把八卦灵盘、自动战斗、进图等所有正在 WaitForResponse 的流程一起打断，
+    // 表现为「停主线 → 别的活动也跟着卡住/误判超时」。
+    for (uint32_t opcode : kStoryCancelOpcodes) {
+        ResponseWaiter::CancelWait(opcode);
+    }
     UpdateStoryTaskUi(L"主线任务：已停止", false);
 }
 
@@ -1441,10 +1637,27 @@ void StoryTaskOnDialogResponse(const GamePacket& packet) {
             return;
         }
         case 8: {
-            if (offset + 4 > packet.body.size()) return;
-            PushStoryPendingDialog(
-                static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset)), 0,
-                packet.params);
+            // AS3 TaskParse.onGetDialogBack:8 —— OPENDIALOGMSG.ABILITY：
+            //   [dialogId, abilityNum, (ability)*]
+            //   ability 每项 = [id(功能类型), ...]，id == 1 时后面还跟 gamenum + gamelist。
+            // native 不走 UI 的「功能开启」面板，只需要 dialogId 推进对话；但必须把
+            // abilityNum 段**读完**，否则后续字段从中间开始解析、整包错位。
+            if (offset + 8 > packet.body.size()) return;
+            const uint32_t dialogId =
+                static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+            const int abilityNum = ReadInt32LE(packet.body.data(), offset);
+            for (int i = 0; i < abilityNum && offset + 4 <= packet.body.size(); ++i) {
+                const int abilityId = ReadInt32LE(packet.body.data(), offset);
+                if (abilityId != 1) {
+                    continue;
+                }
+                if (offset + 4 > packet.body.size()) break;
+                const int gameNum = ReadInt32LE(packet.body.data(), offset);
+                for (int g = 0; g < gameNum && offset + 4 <= packet.body.size(); ++g) {
+                    ReadInt32LE(packet.body.data(), offset);  // gamelist 项：AS3 只喂给面板
+                }
+            }
+            PushStoryPendingDialog(dialogId, 0, packet.params);
             return;
         }
         default:
@@ -1484,8 +1697,9 @@ void StoryTaskOnNpcTaskListResponse(const GamePacket& packet) {
         }
     }
 
-    uint32_t listDialogId = 0;
+    uint32_t firstMatchDialogId = 0;
     uint32_t sameGroupDialogId = 0;
+    uint32_t leaveDialogId = 0;
     std::vector<uint32_t> acceptSubtaskIds;
     bool canReceive = false;
 
@@ -1499,14 +1713,27 @@ void StoryTaskOnNpcTaskListResponse(const GamePacket& packet) {
             ReadInt32LE(packet.body.data(), offset);  // state：AS3 只透传给列表项，不过滤
             // dialogId / 100 = 子任务号（200100101 -> 2001001），与本步匹配的才是目标。
             const uint32_t entrySubtask = entryDialogId / 100;
+            // 「离开 / 放弃」项（dialogId 末两位为 02）：任何情况下都不该被自动选中
+            // 当作前进路径。这个判断必须放在两个匹配分支**之前**——否则它一旦落在
+            // 本子任务分支里，就会被当成 firstMatchDialogId 直接发 TASK_TALK。
+            if (entryDialogId % 100 == 2) {
+                if (leaveDialogId == 0) {
+                    leaveDialogId = entryDialogId;
+                }
+                continue;
+            }
             if (currentSubtask != 0 && entrySubtask == currentSubtask) {
-                listDialogId = entryDialogId;
+                // AS3 TaskControl.onNPCTaskListBack:876 是**顺序**取第一条 taskprop，
+                // 不是取最小值。这里记录列表里第一条匹配项，与 AS3 行为一致。
+                if (firstMatchDialogId == 0) {
+                    firstMatchDialogId = entryDialogId;
+                }
             } else if (currentSubtask != 0 &&
-                       entrySubtask / 1000 == currentSubtask / 1000 &&
-                       (sameGroupDialogId == 0 || entryDialogId < sameGroupDialogId)) {
-                // 退一步：同组内取 dialogId 最小的那条（AS3 按 dialogId 升序排列，
-                // 对应"列表里最靠前、尚未完成"的节点），避免随机落到组内靠后的子任务。
-                sameGroupDialogId = entryDialogId;
+                       entrySubtask / 1000 == currentSubtask / 1000) {
+                // 退一步：同组（同一大章）内的条目。同样按 AS3 顺序取第一条。
+                if (sameGroupDialogId == 0) {
+                    sameGroupDialogId = entryDialogId;
+                }
             }
         }
     } else if (listType == 1 && taskCount > 0) {
@@ -1540,11 +1767,17 @@ void StoryTaskOnNpcTaskListResponse(const GamePacket& packet) {
 
     // 取本步该回的对话节点：
     //   type==1 且有条目 → AS3 只弹接取窗（onNPCTaskListBack 直接 return），没有对话；
-    //   type==0 且有条目 → 优先本子任务条目，其次同组条目，都没有就不回（窗口由玩家点）；
+    //   type==0 且有条目 → 依 AS3 顺序语义：本子任务的**首条** > 同组的**首条**；
+    //                      同组里若只剩「离开」项（dialogId%100==2），宁可不回，也不把
+    //                      「离开/放弃」当成前进路径（AS3 里它只是列表底部的一个选项）。
     //   其余（无 type 字段 / taskcount<=0）→ 用 body 首个 int 作为默认对白标识。
     uint32_t dialogId = 0;
     if (listType == 0 && taskCount > 0) {
-        dialogId = (listDialogId != 0) ? listDialogId : sameGroupDialogId;
+        if (firstMatchDialogId != 0) {
+            dialogId = firstMatchDialogId;
+        } else if (sameGroupDialogId != 0 && sameGroupDialogId != leaveDialogId) {
+            dialogId = sameGroupDialogId;
+        }
     } else if (!(listType == 1 && taskCount > 0)) {
         dialogId = headerDialogId;
     }
@@ -1590,7 +1823,20 @@ void StoryTaskOnNpcTaskListResponse(const GamePacket& packet) {
 // 这是自动化唯一能拿到「服务端动态任务 NPC」的途径 —— 抓包里推进 2001003 的
 // NPC_STATUS(21319) 对应的 id 在 data/npc.xml 中不存在，只出现在这条回包里。
 void StoryTaskOnNpcListResponse(const GamePacket& packet) {
-    if (!g_storyTaskRunning.load() || packet.body.size() < 4) {
+    // 会话校验：NPCLIST(1315854) 是全局广播型回包，切图、其它活动、玩家手动点 NPC
+    // 都会触发。这里若不校验会话，正在跑的旧流程会拿着新场景的 NPC 列表继续发包，
+    // 目标全错。所以必须同时满足：引擎在跑 + 这条回包属于当前会话。
+    const unsigned long long sessionId = g_storyTaskSession.load();
+    if (!g_storyTaskRunning.load() || sessionId == 0 || packet.body.size() < 4) {
+        return;
+    }
+    // 进图校验：本流程主动发过 ENTER_SCENE 时，只认这次进图的回包，避免上一个场景的
+    // 迟到的 NPC 列表覆盖本场景。
+    // 但**不能**要求 g_storyTaskMapEnterSession == sessionId：开局角色就已经站在目标
+    // 场景里时根本不会发 ENTER_SCENE，那个原子量会一直停在上一个会话号，
+    // 于是该子任务所有 NPC_LIST_BACK 都被丢掉、TakeStorySceneNpcList 必然超时。
+    // 所以判据是「本会话发过进图 → 必须是这次进图」或「本会话没发过进图 → 直接收」。
+    if (g_storyTaskMapEnterSession.load() == sessionId && !g_storyTaskMapEntered.load()) {
         return;
     }
     size_t offset = 0;

@@ -51,6 +51,12 @@ using ResponseHandler = void (*)(const GamePacket&);
 
 class ResponseWaiter {
 public:
+    // 定向取消表的表项。放在 public 段，供实现文件的自由函数使用。
+    struct CancelEntry {
+        uint32_t opcode;
+        uint64_t serial;
+    };
+
     static void Initialize();
     static void Cleanup();
 
@@ -67,9 +73,16 @@ public:
     );
 
     static void NotifyResponse(uint32_t opcode, uint32_t params);
-    static void CancelWait();
+    // CancelWait(nullptr) = 全局取消（停机用）；CancelWait(opcode) = 只取消等该 opcode 的
+    // 等待者，不动其它活动的等待。原实现只能全局取消，停一条主线流程会把八卦灵盘、
+    // 战斗、进图等所有正在等待的流程一起打断。
+    static void CancelWait(uint32_t opcode = 0);
+
+    // 当前是否被取消（opcode=0 时只看全局取消）。供调用方在重试前自检。
+    static bool IsCancelled(uint32_t opcode = 0);
 
 private:
+    static bool IsCancelledLocked(uint32_t opcode, uint64_t cancelToken);
     static CRITICAL_SECTION s_cs;
     static CONDITION_VARIABLE s_cv;
     static uint64_t s_responseSerial;
