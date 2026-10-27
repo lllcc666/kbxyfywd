@@ -293,7 +293,15 @@ static std::wstring GetBufName(int bufId, int param1 = 0) {
 
         if (IsSpecialBufId(bufId) && param1 != 0) {
             int level = (param1 > 0) ? param1 : -param1;
-            return baseName + std::to_wstring(level) + L"级";
+            // param1 并不总是"强化等级"：部分来源是定点数值（1000000 表示 1.0），
+            // 直接拼成"N级"会显示成"速度提升1000000级"。仅在确实是等级(1~10)时拼接。
+            if (level >= 1000000 && level % 1000000 == 0) {
+                level /= 1000000;
+            }
+            if (level >= 1 && level <= 10) {
+                return baseName + std::to_wstring(level) + L"级";
+            }
+            return baseName;
         }
         return baseName;
     }

@@ -726,7 +726,7 @@
         .flat-dot.bag { background: var(--color-primary); }
 
         .flat-title {
-            font-size: 10.5px;
+            font-size: 11px;
             font-weight: 600;
             letter-spacing: 0.02em;
             color: var(--color-text-primary);
@@ -765,17 +765,30 @@
 
         /* 战斗数据：我方 / 敌方 */
         .bp-side {
-            flex: 1 1 292px;
+            flex: 1 1 300px;
             display: flex;
             flex-direction: column;
-            min-width: 210px;
+            min-width: 220px;
+            min-height: 0;
+            padding-left: 8px;
+            border-left: 2px solid transparent;
+        }
+
+        .bp-ally { border-left-color: rgba(46, 125, 50, 0.38); }
+        .bp-enemy { border-left-color: rgba(209, 52, 56, 0.38); }
+        .bp-goods { border-left-color: rgba(245, 124, 0, 0.38); }
+
+        .bp-side > .flat-head,
+        .bp-items > .flat-head {
+            padding-bottom: 3px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.07);
         }
 
         .bp-select {
-            flex: 0 1 158px;
-            min-width: 86px;
+            flex: 0 1 168px;
+            min-width: 88px;
             margin-left: auto;
-            height: 20px;
+            height: 19px;
             padding: 0 3px;
             font-size: 9.5px;
             color: var(--color-text-primary);
@@ -788,49 +801,95 @@
         .bp-select:hover { border-color: var(--color-border-hover); }
         .bp-select:focus { border-color: var(--color-primary); }
 
-        .bp-meta {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 3px 8px;
-            margin-bottom: 6px;
+        /* 名称 / 血量 / ID：压成一行，把高度让给技能表 */
+        .bp-idline {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            min-height: 16px;
+            margin-bottom: 3px;
         }
 
-        .bp-meta > div { min-width: 0; }
-
-        .bp-k {
-            display: block;
-            font-size: 7.5px;
-            line-height: 10px;
-            letter-spacing: 0.03em;
-            color: var(--color-text-tertiary);
-        }
-
-        .bp-v {
-            display: block;
-            font-size: 9.5px;
-            line-height: 13px;
+        .bp-name {
+            font-size: 11px;
             font-weight: 600;
+            line-height: 16px;
             color: var(--color-text-primary);
             overflow: hidden;
-            text-overflow: ellipsis;
             white-space: nowrap;
+            text-overflow: ellipsis;
         }
 
-        .bp-v.hp { color: #d13438; }
+        .bp-sid {
+            flex: none;
+            font-size: 8px;
+            line-height: 12px;
+            color: var(--color-text-tertiary);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .bp-sid b {
+            font-weight: 500;
+            color: var(--color-text-secondary);
+        }
+
+        .bp-hp {
+            flex: none;
+            margin-left: auto;
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 16px;
+            color: #d13438;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* 状态条：固定单行，横向滚动，不挤占技能区 */
+        .bp-bufs {
+            display: flex;
+            flex-wrap: nowrap;
+            align-items: center;
+            gap: 3px;
+            height: 0;
+            overflow: hidden;
+        }
+
+        .bp-bufs.has-bufs {
+            height: 17px;
+            margin-bottom: 2px;
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+
+        .bp-bufs::-webkit-scrollbar { height: 3px; }
+        .bp-bufs::-webkit-scrollbar-track { background: transparent; }
+        .bp-bufs::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.16);
+            border-radius: 2px;
+        }
+
+        .buf-round {
+            font-style: normal;
+            margin-left: 3px;
+            font-size: 7px;
+            opacity: 0.75;
+        }
 
         .bp-skills {
             display: flex;
             flex-direction: column;
             flex: 1;
             min-height: 0;
+            margin-top: 2px;
         }
 
         .bp-skill-head {
-            display: grid;
-            grid-template-columns: 1fr auto;
-            padding: 0 4px 2px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 2px 2px;
             font-size: 8px;
             line-height: 11px;
+            letter-spacing: 0.05em;
             color: var(--color-text-tertiary);
             border-bottom: 1px solid var(--color-border);
         }
@@ -843,22 +902,23 @@
 
         .skill-row {
             display: grid;
-            grid-template-columns: 1fr auto;
+            grid-template-columns: minmax(0, 1fr) auto;
             align-items: center;
             gap: 8px;
-            min-height: 17px;
-            padding: 2px 4px;
+            min-height: 15px;
+            padding: 0 2px;
             border-bottom: 1px solid rgba(0, 0, 0, 0.04);
             overflow: hidden;
         }
 
-        .skill-row:last-child { border-bottom: none; }
+        .skill-row:nth-child(even) { background: rgba(0, 0, 0, 0.015); }
 
         .skill-row:hover { background: var(--color-background-hover); }
 
         .skill-row > div {
             overflow: hidden;
-            font-size: 9.5px;
+            font-size: 10px;
+            line-height: 15px;
             white-space: nowrap;
             text-overflow: ellipsis;
         }
@@ -880,7 +940,8 @@
         .bp-items-grid {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 2px;
+            align-content: start;
+            gap: 3px;
             flex: 1;
             min-height: 0;
             overflow-y: auto;
@@ -1038,12 +1099,18 @@
 
         .mb-kv .bp-k {
             display: inline;
+            font-size: 8px;
+            letter-spacing: 0.02em;
+            color: var(--color-text-tertiary);
             line-height: 13px;
             white-space: nowrap;
         }
 
         .mb-kv .bp-v {
             display: inline;
+            font-size: 9px;
+            font-weight: 600;
+            color: var(--color-text-primary);
             line-height: 13px;
             font-variant-numeric: tabular-nums;
         }
@@ -1752,19 +1819,20 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            padding: 2px 2px 3px;
+            padding: 3px 2px;
             font-size: 9px;
             color: var(--color-text-primary);
-            background: transparent;
-            border: 1px solid transparent;
-            border-radius: var(--radius-sm);
+            background: #f8f9fb;
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            border-radius: 4px;
             cursor: pointer;
             white-space: nowrap;
             transition: background var(--duration-fast) var(--easing-standard), border-color var(--duration-fast) var(--easing-standard);
         }
 
         .item-btn:hover {
-            background: var(--color-background-hover);
+            background: #eef3fa;
+            border-color: rgba(0, 120, 212, 0.45);
         }
 
         .item-btn.selected {
@@ -2482,7 +2550,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             <div id="battle" class="tab-content active">
                 <div class="flat-pane">
                     <!-- 我方数据 -->
-                    <section class="bp-side">
+                    <section class="bp-side bp-ally">
                         <div class="flat-head">
                             <span class="flat-dot ally"></span>
                             <span class="flat-title">我方</span>
@@ -2490,12 +2558,12 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                                 <option value="0">妖怪1</option>
                             </select>
                         </div>
-                        <div id="my-buf-list" style="display: flex; flex-wrap: nowrap; gap: 2px; min-width: 0; margin-bottom: 4px; overflow: hidden;"></div>
-                        <div class="bp-meta">
-                            <div><span class="bp-k">妖怪 ID</span><span id="my-spirit-id" class="bp-v">0</span></div>
-                            <div><span class="bp-k">血量</span><span id="my-hp" class="bp-v hp">0/0</span></div>
-                            <div><span class="bp-k">名称</span><span id="my-name" class="bp-v">未知</span></div>
+                        <div class="bp-idline">
+                            <span id="my-name" class="bp-name">未知</span>
+                            <span class="bp-sid">ID <b id="my-spirit-id">0</b></span>
+                            <span id="my-hp" class="bp-hp">0/0</span>
                         </div>
+                        <div id="my-buf-list" class="bp-bufs"></div>
                         <div class="bp-skills">
                             <div class="bp-skill-head"><span>技能</span><span>PP</span></div>
                             <div id="my-skill-list" class="bp-skill-body">
@@ -2507,7 +2575,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                     <div class="flat-sep"></div>
 
                     <!-- 敌方数据 -->
-                    <section class="bp-side">
+                    <section class="bp-side bp-enemy">
                         <div class="flat-head">
                             <span class="flat-dot enemy"></span>
                             <span class="flat-title">敌方</span>
@@ -2515,12 +2583,12 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                                 <option value="0">敌方妖怪1</option>
                             </select>
                         </div>
-                        <div id="other-buf-list" style="display: flex; flex-wrap: nowrap; gap: 2px; min-width: 0; margin-bottom: 4px; overflow: hidden;"></div>
-                        <div class="bp-meta">
-                            <div><span class="bp-k">妖怪 ID</span><span id="other-spirit-id" class="bp-v">0</span></div>
-                            <div><span class="bp-k">血量</span><span id="other-hp" class="bp-v hp">0/0</span></div>
-                            <div><span class="bp-k">名称</span><span id="other-name" class="bp-v">未知</span></div>
+                        <div class="bp-idline">
+                            <span id="other-name" class="bp-name">未知</span>
+                            <span class="bp-sid">ID <b id="other-spirit-id">0</b></span>
+                            <span id="other-hp" class="bp-hp">0/0</span>
                         </div>
+                        <div id="other-buf-list" class="bp-bufs"></div>
                         <div class="bp-skills">
                             <div class="bp-skill-head"><span>技能</span><span>PP</span></div>
                             <div id="other-skill-list" class="bp-skill-body">
@@ -2532,7 +2600,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                     <div class="flat-sep"></div>
 
                     <!-- 道具 -->
-                    <section class="bp-items">
+                    <section class="bp-items bp-goods">
                         <div class="flat-head">
                             <span class="flat-dot goods"></span>
                             <span class="flat-title">道具</span>
@@ -5861,32 +5929,31 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
          * @param {number} round - 回合数
          * @returns {string} 简化后的名称
          */
+        // 状态名压缩：'速度提升3级' -> '速↑3'，'防御力下降' -> '防↓'，'攻击力提升' -> '攻↑'
+        const BUF_STAT_LABELS = {
+            '攻击力': '攻', '攻击': '攻', '防御力': '防', '防御': '防',
+            '速度': '速', '命中率': '命中', '命中': '命中', '暴击': '暴击',
+            '法术': '法', '抗性': '抗', '体力': '体'
+        };
+
         function simplifyBufName(name, round) {
             if (!name) return '状态';
-            
-            let simplified = name;
-            
-            // 处理 "攻击提升X级" -> "攻击+X"
-            const upMatch = name.match(/(攻击|防御|速度|命中|暴击|法术|抗性|体力)提升(\d+)级?/);
-            if (upMatch) {
-                simplified = upMatch[1] + '+' + upMatch[2];
+
+            let text = String(name).replace(/\s+/g, '');
+            const m = text.match(/^(攻击力|防御力|命中率|攻击|防御|速度|命中|暴击|法术|抗性|体力)(提升|下降|降低)(\d+)?级?/);
+            if (m) {
+                const label = BUF_STAT_LABELS[m[1]] || m[1];
+                const arrow = m[2] === '提升' ? '↑' : '↓';
+                const lv = m[3] ? Number(m[3]) : 0;
+                text = label + arrow + (lv > 0 && lv <= 99 ? String(lv) : '');
+            } else {
+                text = text.replace(/提升|增加/g, '↑')
+                           .replace(/下降|降低|减少/g, '↓')
+                           .replace(/级$/, '');
             }
-            
-            // 处理 "攻击降低X级" -> "攻击-X"
-            const downMatch = name.match(/(攻击|防御|速度|命中|暴击|法术|抗性|体力)降低(\d+)级?/);
-            if (downMatch) {
-                simplified = downMatch[1] + '-' + downMatch[2];
-            }
-            
-            // 处理其他升降格式
-            simplified = simplified.replace('提升', '+').replace('降低', '-').replace('级', '');
-            
-            // 追加回合数（如果有）
-            if (round > 0) {
-                simplified += '(' + round + ')';
-            }
-            
-            return simplified;
+
+            if (round > 0) text += '(' + round + ')';
+            return text;
         }
 
         /**
@@ -5897,6 +5964,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
         function renderBufList(bufArr, container) {
             container.innerHTML = '';
             if (!bufArr || bufArr.length === 0) {
+                container.classList.remove('has-bufs');
                 return;
             }
 
@@ -5934,6 +6002,9 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                     bufMap.set(buf.bufId, buf);
                 }
             });
+
+            // 有状态才展开这一行（CSS 里高度 0 -> 17px），避免空白挤占技能区
+            container.classList.toggle('has-bufs', bufMap.size > 0);
 
             // 渲染去重后的 Buff
             bufMap.forEach(buf => {
@@ -5973,7 +6044,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                     tag.style.border = '1px solid rgba(158, 158, 158, 0.3)';
                 }
 
-                tag.style.fontSize = '8px';
+                tag.style.fontSize = '8.5px';
                 tag.style.padding = '1px 4px';
                 tag.style.borderRadius = '2px';
                 tag.style.cursor = 'pointer';
@@ -5994,6 +6065,9 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 }
                 if (buf.tipString) {
                     tooltipContent += '<br>' + buf.tipString;
+                }
+                if (typeof buf.param1 === 'number' && Math.abs(buf.param1) > 99) {
+                    tooltipContent += '<br><span style="color:#888;font-size:8px;">数值: ' + buf.param1 + '</span>';
                 }
                 if (buf.bufId) {
                     tooltipContent += '<br><span style="color:#888;font-size:8px;">ID: ' + buf.bufId + '</span>';
