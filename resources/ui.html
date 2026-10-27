@@ -6067,9 +6067,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 if (buf.tipString) {
                     tooltipContent += '<br>' + buf.tipString;
                 }
-                if (typeof buf.param1 === 'number' && Math.abs(buf.param1) > 99) {
-                    tooltipContent += '<br><span style="color:#888;font-size:8px;">数值: ' + buf.param1 + '</span>';
-                }
+                // 原始数值（如 10000006）是内部定点编码，给用户看只会像乱码，这里不再展示。
                 if (buf.bufId) {
                     tooltipContent += '<br><span style="color:#888;font-size:8px;">ID: ' + buf.bufId + '</span>';
                 }

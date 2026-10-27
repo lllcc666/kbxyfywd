@@ -294,9 +294,15 @@ static int ResolveBufLevel(int param1, int param2) {
         }
         return 0;
     };
-    int level = normalize(param1);
-    if (level == 0) level = normalize(param2);
-    if (level == 0 && (param1 != 0 || param2 != 0)) level = 6;
+    // 实测封包：param1 = 10000006（10*1e6 + 6 这类定点值），param2 = 2，
+    // 游戏内显示的是 2 级 —— 等级取的是 param2；param1 只是该状态的数值。
+    int level = normalize(param2);
+    if (level == 0) level = normalize(param1);
+    if (level == 0 && param1 >= 1000000) {
+        // param1 形如 <定点值>*10 + 等级，低位数字就是等级（兜底）。
+        const int low = param1 % 10;
+        if (low >= 1 && low <= 6) level = low;
+    }
     return level;
 }
 
@@ -365,8 +371,8 @@ static std::wstring GetBufTipString(int bufId, int param1, int param2) {
         return desc;
     }
     
-    // 返回基本名称
-    return GetBufName(bufId, param1);
+    // 返回基本名称（带上解析出的等级，保证与名称一致）
+    return GetBufName(bufId, param1, param2);
 }
 
 
