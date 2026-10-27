@@ -429,6 +429,9 @@ static void RemoveBattleBufFromPet(BattleEntity& pet, int32_t bufId) {
 
 
 static BattleEntity* FindBattleEntityBySid(BattleData& battle, int32_t sid) {
+    // sid == 0 是"没填"：未揭示的占位妖怪 sid 也是 0，按 0 去找会一路挂到
+    // 列表里第一只占位身上（表现就是状态/掉血显示在第一只妖怪上）。
+    if (sid == 0) return nullptr;
     for (auto& pet : battle.myPets) {
         if (pet.sid == sid) return &pet;
     }
@@ -439,6 +442,7 @@ static BattleEntity* FindBattleEntityBySid(BattleData& battle, int32_t sid) {
 }
 
 static const BattleEntity* FindBattleEntityBySid(const BattleData& battle, int32_t sid) {
+    if (sid == 0) return nullptr;  // 0 = 未填，别匹配到 sid 也为 0 的占位妖怪
     for (const auto& pet : battle.myPets) {
         if (pet.sid == sid) return &pet;
     }
@@ -448,14 +452,100 @@ static const BattleEntity* FindBattleEntityBySid(const BattleData& battle, int32
     return nullptr;
 }
 
+/**
+ * @brief 该状态是不是"降低类"（打给对手）
+ * @details 3/5/7/18/21/23 分别是速度/防御/攻击/法术/命中/抗性下降，
+ *          其余状态（提升类、武甲这种技能自加状态）都是加在自己身上。
+ */
+static bool IsDebuffBufId(int32_t bufId) {
+    return bufId == 3 || bufId == 5 || bufId == 7 || bufId == 18 || bufId == 21 || bufId == 23;
+}
+
+/**
+ * @brief 找到状态真正该挂在哪只妖怪身上
+ * @details 不能用 FindBattleEntityBySid 一把梭：
+ *          1) 敌我两边的 sid 都是从 1 开始排的，同一个 sid 两边都有实体，
+ *             老写法先在 myPets 里找，敌方状态会挂到我方同号（常常是第一只）身上；
+ *          2) 部分封包的 defId 给的是 uniqueId（配置ID）而不是战斗 sid；
+ *          3) defId 为 0 时服务端的意思是"施法者自己"（武甲这类自加状态就是这样）。
+ *          所以这里按 sid → uniqueId → atkId 依次降级，并且重号时优先出战中的那只。
+ */
+static BattleEntity* ResolveBufTargetEntity(BattleData& battle, const BufData& buf) {
+    auto collect = [&](std::vector<BattleEntity>& team, std::vector<BattleEntity*>& out, int key, bool byUnique) {
+        for (auto& pet : team) {
+            if (key == 0) continue;
+            if (byUnique ? pet.uniqueId == key : pet.sid == key) out.push_back(&pet);
+        }
+    };
+
+    // 出手方在哪一边：用来在敌我 sid 重号时选对阵营
+    int casterSide = 0;  // 1 = 我方, -1 = 敌方, 0 = 未知
+    if (buf.atkId != 0) {
+        for (const auto& pet : battle.myPets) {
+            if (pet.sid == buf.atkId) { casterSide = 1; break; }
+        }
+        if (casterSide == 0) {
+            for (const auto& pet : battle.otherPets) {
+                if (pet.sid == buf.atkId) { casterSide = -1; break; }
+            }
+        }
+    }
+
+    // 状态落在哪个阵营：降低类打对手，其余打自己（cast 方未知时按老习惯偏我方）
+    int targetSide = casterSide;
+    if (targetSide != 0 && IsDebuffBufId(buf.bufId)) targetSide = -targetSide;
+
+    auto pick = [targetSide](std::vector<BattleEntity*>& myHits,
+                             std::vector<BattleEntity*>& otherHits) -> BattleEntity* {
+        std::vector<BattleEntity*>& prefer = targetSide >= 0 ? myHits : otherHits;
+        std::vector<BattleEntity*>& fallback = targetSide >= 0 ? otherHits : myHits;
+        for (BattleEntity* pet : prefer) {
+            if (pet->state == 1) return pet;
+        }
+        if (!prefer.empty()) return prefer.front();
+        for (BattleEntity* pet : fallback) {
+            if (pet->state == 1) return pet;
+        }
+        if (!fallback.empty()) return fallback.front();
+        return nullptr;
+    };
+
+    std::vector<BattleEntity*> myHits, otherHits;
+    collect(battle.myPets, myHits, buf.defId, false);
+    collect(battle.otherPets, otherHits, buf.defId, false);
+    if (!myHits.empty() || !otherHits.empty()) return pick(myHits, otherHits);
+
+    // defId 对不上战斗 sid：可能给的是配置ID（uniqueId）
+    myHits.clear();
+    otherHits.clear();
+    collect(battle.myPets, myHits, buf.defId, true);
+    collect(battle.otherPets, otherHits, buf.defId, true);
+    if (!myHits.empty() || !otherHits.empty()) return pick(myHits, otherHits);
+
+    // defId 为 0：服务端意思是"施法者自己"（武甲这类自加状态）
+    if (buf.atkId != 0) {
+        myHits.clear();
+        otherHits.clear();
+        collect(battle.myPets, myHits, buf.atkId, false);
+        collect(battle.otherPets, otherHits, buf.atkId, false);
+        if (!myHits.empty() || !otherHits.empty()) return pick(myHits, otherHits);
+    }
+    return nullptr;
+}
+
 static void ApplyBattleBufToBattle(BattleData& battle, int32_t sid, const BufData& bufData) {
-    if (BattleEntity* pet = FindBattleEntityBySid(battle, sid)) {
-        ApplyBattleBufToPet(*pet, bufData);
+    BufData buf = bufData;
+    buf.defId = sid;
+    if (BattleEntity* pet = ResolveBufTargetEntity(battle, buf)) {
+        ApplyBattleBufToPet(*pet, buf);
     }
 }
 
 static void RemoveBattleBufFromBattle(BattleData& battle, int32_t sid, int32_t bufId) {
-    if (BattleEntity* pet = FindBattleEntityBySid(battle, sid)) {
+    BufData probe;
+    probe.defId = sid;
+    probe.bufId = bufId;
+    if (BattleEntity* pet = ResolveBufTargetEntity(battle, probe)) {
         RemoveBattleBufFromPet(*pet, bufId);
     }
 }
