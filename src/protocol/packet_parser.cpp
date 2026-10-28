@@ -2317,16 +2317,30 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
     }
 
     if (packet.opcode == Opcode::BATTLE_END) {
+        // 先把战场标志清掉并推给 UI，再去解析结算明细：
+        // 退出战斗时 body 可能一条结算都没有（逃跑、被中断、body 解码失败），
+        // 旧代码在明细解析失败时直接 return，战斗面板就永远挂着上一场的数据。
+        {
+            BattleData ended = GetCurrentBattleSnapshot();
+            ended.active = false;
+            ended.endParam = params;
+            ended.endResults.clear();
+            ReplaceCurrentBattle(std::move(ended));
+            g_battleStarted = false;
+            UpdateUIBattleData();
+        }
+
         BoundedReader reader(data, size);
         std::vector<BattleEndResult> results;
         if (params == 1) {
             int32_t count = 0;
-            if (!reader.ReadI32(count) || count < 0 || count > 1024) return;
-            results.reserve(static_cast<size_t>(count));
-            for (int32_t i = 0; i < count; ++i) {
-                BattleEndResult result;
-                if (!reader.ReadI32(result.sid) || !reader.ReadI32(result.result)) return;
-                results.push_back(result);
+            if (reader.ReadI32(count) && count >= 0 && count <= 1024) {
+                results.reserve(static_cast<size_t>(count));
+                for (int32_t i = 0; i < count; ++i) {
+                    BattleEndResult result;
+                    if (!reader.ReadI32(result.sid) || !reader.ReadI32(result.result)) break;
+                    results.push_back(result);
+                }
             }
         }
 
@@ -2341,15 +2355,13 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         sendPrompt(L"战斗结束", results.empty() ? L"双方战斗结束" :
                    L"双方战斗结束，服务端返回" + std::to_wstring(results.size()) + L"条结算记录");
 
-        // AS3 keeps BattleData until clearBattleView(); only the session flag
-        // is cleared here so later NEWEXP/FSPK can still attach to the snapshot.
-        BattleData next = GetCurrentBattleSnapshot();
-        next.active = false;
-        next.endParam = params;
-        next.endResults = std::move(results);
-        ReplaceCurrentBattle(std::move(next));
-        g_battleStarted = false;
-        UpdateUIBattleData();
+        // 结算明细补进快照，供后续 NEWEXP/FSPK 继续挂到同一份战场数据上；
+        // active 已经在上面的第一步置 false，UI 不会重新画出战场。
+        {
+            BattleData ended = GetCurrentBattleSnapshot();
+            ended.endResults = std::move(results);
+            ReplaceCurrentBattle(std::move(ended));
+        }
         return;
     }
 

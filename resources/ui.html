@@ -6253,10 +6253,13 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 document.getElementById('my-spirit-id').textContent = '0';
                 document.getElementById('my-hp').textContent = '0/0';
                 document.getElementById('my-name').textContent = '未知';
-                document.getElementById('my-skill-list').innerHTML = '';
+                document.getElementById('my-skill-list').innerHTML = '<div class="flat-empty">暂无技能数据</div>';
                 document.getElementById('my-pet-select').innerHTML = '<option value="0">妖怪1</option>';
                 const myBufList = document.getElementById('my-buf-list');
-                if (myBufList) myBufList.innerHTML = '';
+                if (myBufList) {
+                    myBufList.innerHTML = '';
+                    myBufList.classList.remove('has-bufs');
+                }
             }
 
             // 更新敌方数据
@@ -6305,10 +6308,13 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 document.getElementById('other-spirit-id').textContent = '0';
                 document.getElementById('other-hp').textContent = '0/0';
                 document.getElementById('other-name').textContent = '未知';
-                document.getElementById('other-skill-list').innerHTML = '';
+                document.getElementById('other-skill-list').innerHTML = '<div class="flat-empty">暂无技能数据</div>';
                 document.getElementById('other-pet-select').innerHTML = '<option value="0">敌方妖怪1</option>';
                 const otherBufList = document.getElementById('other-buf-list');
-                if (otherBufList) otherBufList.innerHTML = '';
+                if (otherBufList) {
+                    otherBufList.innerHTML = '';
+                    otherBufList.classList.remove('has-bufs');
+                }
             }
         };
 
