@@ -66,8 +66,7 @@ public:
      * @param cs 临界区对象的引用
      */
     explicit CriticalSectionLock(CRITICAL_SECTION& cs) 
-        : m_cs(cs) 
-        , m_locked(true) {
+        : m_cs(cs) {
         EnterCriticalSection(&m_cs);
     }
 
@@ -75,38 +74,15 @@ public:
      * @brief 析构函数，自动离开临界区
      */
     ~CriticalSectionLock() {
-        if (m_locked) {
-            LeaveCriticalSection(&m_cs);
-        }
+        LeaveCriticalSection(&m_cs);
     }
 
     // 禁止拷贝
     CriticalSectionLock(const CriticalSectionLock&) = delete;
     CriticalSectionLock& operator=(const CriticalSectionLock&) = delete;
 
-    /**
-     * @brief 手动提前解锁
-     */
-    void Unlock() {
-        if (m_locked) {
-            LeaveCriticalSection(&m_cs);
-            m_locked = false;
-        }
-    }
-
-    /**
-     * @brief 手动重新加锁
-     */
-    void Lock() {
-        if (!m_locked) {
-            EnterCriticalSection(&m_cs);
-            m_locked = true;
-        }
-    }
-
 private:
     CRITICAL_SECTION& m_cs;  ///< 临界区引用
-    bool m_locked;           ///< 是否已锁定
 };
 
 // ============================================================================

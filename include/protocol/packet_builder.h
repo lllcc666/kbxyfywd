@@ -39,13 +39,6 @@ public:
     // ================================
 
     /**
-     * @brief 设置 Magic（默认为 0x5344 "SD"）
-     * @param magic Magic 值
-     * @return 引用自身，支持链式调用
-     */
-    PacketBuilder& SetMagic(uint16_t magic);
-
-    /**
      * @brief 设置 Opcode
      * @param opcode 操作码
      * @return 引用自身，支持链式调用
@@ -85,27 +78,6 @@ public:
     PacketBuilder& WriteUInt32(uint32_t value);
 
     /**
-     * @brief 写入 int16 值（小端序）
-     * @param value 整数值
-     * @return 引用自身，支持链式调用
-     */
-    PacketBuilder& WriteInt16(int16_t value);
-
-    /**
-     * @brief 写入 uint16 值（小端序）
-     * @param value 整数值
-     * @return 引用自身，支持链式调用
-     */
-    PacketBuilder& WriteUInt16(uint16_t value);
-
-    /**
-     * @brief 写入单字节
-     * @param value 字节值
-     * @return 引用自身，支持链式调用
-     */
-    PacketBuilder& WriteByte(uint8_t value);
-
-    /**
      * @brief 写入字节数组
      * @param data 字节数组
      * @return 引用自身，支持链式调用
@@ -128,21 +100,6 @@ public:
      * @return 封包字节数组
      */
     std::vector<uint8_t> Build();
-
-    /**
-     * @brief 清空缓冲区，重新开始构建
-     */
-    void Reset();
-
-    // ================================
-    // 工具方法
-    // ================================
-
-    /**
-     * @brief 获取当前 Body 长度
-     * @return Body 长度
-     */
-    size_t GetBodyLength() const { return m_body.size(); }
 
 private:
     // 头部字段

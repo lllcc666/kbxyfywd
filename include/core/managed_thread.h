@@ -52,10 +52,7 @@ public:
     // 等待所有受管线程结束；返回仍未结束的线程数（0 表示干净退出）。
     static size_t JoinAll(DWORD timeoutMs = 5000);
 
-    // 仍在运行（未 join、未结束）的线程名，用于日志定位。
-    static std::wstring DescribeActive();
-
-    // 可选：指定线程名字后再 Start，便于日志区分。
+    // 仍在运行的受管线程数量（日志定位用）。
     static size_t ActiveCount();
 
     // 收养一条不是通过 Start() 创建的线程（历史 CreateThread 调用点）。

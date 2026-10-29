@@ -57,6 +57,15 @@ HWND g_hwnd_loading = nullptr;
 UINT_PTR g_loading_timer = 0;
 int g_loading_angle = 0;
 
+// 加载遮罩看门狗。
+// 遮罩是 WS_EX_TOPMOST | WS_EX_TRANSPARENT 的全窗口置顶窗口，只在 WebView2
+// 控制器创建成功的回调里销毁。环境/控制器任一环节失败，或回调根本没被调用
+// （WebView2 Runtime 缺失、用户数据目录建不出来、安全软件拦掉内存加载的
+// WebView2Loader.dll），遮罩就永久停在最上层且鼠标穿透，用户看到的是
+// 「白屏转圈 + 整个窗口点不动」。所以必须有超时兜底。
+constexpr UINT_PTR kOverlayWatchdogTimerId = 2;
+constexpr UINT kOverlayTimeoutMs = 15000;
+
 // WebView2Loader.dll的内存加载相关
 HMEMORYMODULE g_webView2LoaderModule = nullptr;
 
@@ -678,14 +687,7 @@ BOOL CALLBACK FindRenderWindow(HWND hwnd, LPARAM lParam) {
     TCHAR className[256];
     GetClassName(hwnd, className, 256);
     if (_tcscmp(className, _T("Chrome_RenderWidgetHostHWND")) == 0) {
-        if (lParam != 0) {
-            // 通过参数传递窗口句柄
-            *(HWND*)lParam = hwnd;
-        }
-        else {
-            // 兼容旧代码，使用全局变量
-            g_hWebViewRenderWnd = hwnd;
-        }
+        *(HWND*)lParam = hwnd;
         return FALSE; // 找到了，停止搜索
     }
     return TRUE;
@@ -816,6 +818,10 @@ bool LoadWebView2LoaderFromMemory()
 // 无边框模式标志
 bool g_isBorderless = true;
 
+// 遮罩的创建/销毁成对出现，销毁的实现排在窗口过程之后，
+// 这里先声明，供看门狗分支和 WebView2 各失败分支统一调用。
+void DestroyLoadingOverlay();
+
 // 加载遮罩窗口过程
 LRESULT CALLBACK LoadingWindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
@@ -828,6 +834,20 @@ LRESULT CALLBACK LoadingWindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM l
             g_loading_angle = (g_loading_angle + 10) % 360;
             // 使用 FALSE 避免背景擦除闪烁
             InvalidateRect(hWnd, nullptr, FALSE);
+        }
+        else if (wParam == kOverlayWatchdogTimerId)
+        {
+            // 到点还没走到 DestroyLoadingOverlay，说明 WebView2 这条链断了。
+            // 先把自己撤掉让窗口能操作，再提示原因，不要留一块点不动的置顶白板。
+            KillTimer(hWnd, kOverlayWatchdogTimerId);
+            DestroyLoadingOverlay();
+            MessageBoxW(g_hWnd,
+                L"WebView2 界面初始化超时，主界面未能加载。\n\n"
+                L"常见原因：\n"
+                L"1. 系统缺少 Microsoft Edge WebView2 Runtime；\n"
+                L"2. 安全软件拦截了程序加载 WebView2Loader.dll；\n"
+                L"3. 用户数据目录（%TEMP%\\WV2*.tmp）创建失败或磁盘不可写。",
+                L"界面加载失败", MB_OK | MB_ICONWARNING);
         }
         return 0;
         
@@ -955,7 +975,13 @@ void CreateLoadingOverlay()
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
     wc.lpszClassName = LOADING_CLASS;
-    RegisterClassExW(&wc);
+
+    // 重复注册（同进程二次创建）返回 ERROR_CLASS_ALREADY_EXISTS，属正常，
+    // 只有其它错误码才真的无法创建遮罩。
+    if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+    {
+        return;
+    }
     
     // 创建遮罩窗口（覆盖在主窗口上）
     g_hwnd_loading = CreateWindowExW(
@@ -977,6 +1003,9 @@ void CreateLoadingOverlay()
         
         // 设置定时器更新动画
         g_loading_timer = SetTimer(g_hwnd_loading, 1, 16, nullptr);
+
+        // 看门狗：无论 WebView2 走哪条失败路径，遮罩都不会赖着不走。
+        SetTimer(g_hwnd_loading, kOverlayWatchdogTimerId, kOverlayTimeoutMs, nullptr);
         
         // 显示遮罩窗口
         ShowWindow(g_hwnd_loading, SW_SHOW);
@@ -985,13 +1014,22 @@ void CreateLoadingOverlay()
 }
 
 // 销毁加载遮罩窗口
+// 幂等：看门狗、WebView2 各失败分支、正常完成路径都可能调用它。
 void DestroyLoadingOverlay()
 {
-    if (g_hwnd_loading)
+    if (!g_hwnd_loading)
     {
-        DestroyWindow(g_hwnd_loading);
-        g_hwnd_loading = nullptr;
+        return;
     }
+
+    // 定时器属于窗口，DestroyWindow 时会自动清掉，这里显式 Kill 只为
+    // 避免销毁过程中的 WM_TIMER 重入。
+    KillTimer(g_hwnd_loading, 1);
+    KillTimer(g_hwnd_loading, kOverlayWatchdogTimerId);
+    g_loading_timer = 0;
+
+    DestroyWindow(g_hwnd_loading);
+    g_hwnd_loading = nullptr;
 }
 
 // Win32 窗口过程函数
@@ -1071,10 +1109,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     case AppMessage::kExecuteJs:
         if (lParam) {
             wchar_t* script = (wchar_t*)lParam;
-            if (script) {
-                ExecuteScriptInWebView2(script);
-                delete[] script;
-            }
+            ExecuteScriptInWebView2(script);
+            delete[] script;
         }
         break;
     case AppMessage::kDecomposeComplete:
@@ -1174,6 +1210,8 @@ public:
         if (FAILED(result))
         {
             MessageBoxW(nullptr, L"Failed to create WebView2 environment", L"Error", MB_OK);
+            // 环境建不起来，后续控制器回调永远不会来，遮罩必须在这里撤掉。
+            DestroyLoadingOverlay();
             return result;
         }
 
@@ -1210,6 +1248,7 @@ public:
                 if (FAILED(result))
                 {
                     MessageBoxW(nullptr, L"Failed to create WebView2 controller", L"Error", MB_OK);
+                    DestroyLoadingOverlay();
                     return result;
                 }
 
@@ -1224,6 +1263,7 @@ public:
                         webview->Release();
                     }
                     MessageBoxW(nullptr, L"Failed to get WebView2 interface", L"Error", MB_OK);
+                    DestroyLoadingOverlay();
                     return FAILED(webviewResult) ? webviewResult : E_NOINTERFACE;
                 }
                 g_webview = webview;
@@ -1300,8 +1340,23 @@ public:
         };
         
         // 创建 WebView2 控制器
+        // 同步失败时回调不会被调用，handler 必须在这里自己放掉，否则泄漏。
+        // Release 里 m_refCount 归零会 delete this，所以调用点之后不能再碰它。
         CreateControllerCompletedHandler* create_controller_handler = new CreateControllerCompletedHandler();
-        g_env->CreateCoreWebView2Controller(g_hWnd, create_controller_handler);
+        const HRESULT controllerHr = g_env->CreateCoreWebView2Controller(g_hWnd, create_controller_handler);
+        if (FAILED(controllerHr))
+        {
+            // 成功路径上 WebView2 会持有引用并在回调后释放，这里只处理同步失败。
+            create_controller_handler->Release();
+            MessageBoxW(g_hWnd,
+                L"Failed to request WebView2 controller creation",
+                L"Error", MB_OK);
+            DestroyLoadingOverlay();
+            return controllerHr;
+        }
+
+        // 同上：成功时把本地引用交还给 WebView2 的引用计数。
+        create_controller_handler->Release();
 
         return S_OK;
     }
@@ -1425,20 +1480,68 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     if (LoadWebView2LoaderFromMemory())
     {
         // 创建 WebView2 环境 - 使用临时目录作为用户数据文件夹
-        wchar_t temp_path[MAX_PATH];
-        if (GetTempPathW(MAX_PATH, temp_path) != 0)
+        // 这条链上每一步都可能失败，失败就地把遮罩撤掉并提示，不留置顶白板。
+        wchar_t temp_path[MAX_PATH] = {0};
+        wchar_t user_data_folder[MAX_PATH] = {0};
+        bool envRequested = false;
+
+        if (GetTempPathW(MAX_PATH, temp_path) == 0)
         {
-            // 在临时目录中创建一个唯一的子目录
-            wchar_t user_data_folder[MAX_PATH];
-            if (GetTempFileNameW(temp_path, L"WV2", 0, user_data_folder) != 0)
+            MessageBoxW(g_hWnd, L"无法获取临时目录路径，WebView2 界面无法初始化。",
+                        L"界面加载失败", MB_OK | MB_ICONWARNING);
+        }
+        // GetTempFileNameW 会实际创建占位文件，成功返回时文件已存在，
+        // 返回值非 0 才算拿到路径；拿到后删文件、建同名目录。
+        else if (GetTempFileNameW(temp_path, L"WV2", 0, user_data_folder) == 0)
+        {
+            // 带上错误码：%TEMP% 不可写时（例如进程被降到 Low 完整性级别）
+            // 这里会返回 5（ERROR_ACCESS_DENIED），能直接看出原因。
+            const DWORD tempNameErr = GetLastError();
+            wchar_t diag[512] = {0};
+            swprintf_s(diag, L"无法在临时目录创建 WebView2 用户数据目录名。\n"
+                             L"临时目录：%s\n错误码：%lu",
+                       temp_path, static_cast<unsigned long>(tempNameErr));
+            MessageBoxW(g_hWnd, diag, L"界面加载失败", MB_OK | MB_ICONWARNING);
+        }
+        else
+        {
+            // 删除占位文件，创建目录
+            DeleteFileW(user_data_folder);
+
+            // 原实现只判断了 GetTempFileNameW，CreateDirectoryW 的返回值
+            // 完全没检查：目录没建出来也照样拿去创建环境，必然失败且无提示。
+            if (!CreateDirectoryW(user_data_folder, nullptr) &&
+                GetLastError() != ERROR_ALREADY_EXISTS)
             {
-                // 删除临时文件，创建目录
-                DeleteFileW(user_data_folder);
-                CreateDirectoryW(user_data_folder, nullptr);
-                
-                CreateEnvironmentCompletedHandler* create_env_handler = new CreateEnvironmentCompletedHandler();
-                hr = g_pfnCreateCoreWebView2EnvironmentWithOptions(nullptr, user_data_folder, nullptr, create_env_handler);
+                MessageBoxW(g_hWnd, L"无法创建 WebView2 用户数据目录，WebView2 界面无法初始化。",
+                            L"界面加载失败", MB_OK | MB_ICONWARNING);
             }
+            else
+            {
+                CreateEnvironmentCompletedHandler* create_env_handler = new CreateEnvironmentCompletedHandler();
+                hr = g_pfnCreateCoreWebView2EnvironmentWithOptions(
+                    nullptr, user_data_folder, nullptr, create_env_handler);
+
+                if (FAILED(hr))
+                {
+                    // 同步失败时创建完成回调不会被调用，handler 要自己放掉。
+                    create_env_handler->Release();
+                    MessageBoxW(g_hWnd, L"创建 WebView2 环境失败，WebView2 界面无法初始化。",
+                                L"界面加载失败", MB_OK | MB_ICONWARNING);
+                }
+                else
+                {
+                    envRequested = true;
+                    // 成功时 WebView2 会自己 AddRef/Release；我们持有的这一份
+                    // 必须放掉，否则 CreateEnvironmentCompletedHandler 永不回收。
+                    create_env_handler->Release();
+                }
+            }
+        }
+
+        if (!envRequested)
+        {
+            DestroyLoadingOverlay();
         }
     }
     

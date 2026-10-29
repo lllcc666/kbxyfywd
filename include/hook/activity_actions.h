@@ -59,7 +59,6 @@ BOOL StartOneKeyCollectPacket(DWORD flags);
 void ProcessCollectResponse(const GamePacket& packet);
 
 struct PackItemInfo { uint32_t position; uint32_t id; uint32_t count; uint32_t packcode; };
-struct ItemInfo { uint32_t id; std::wstring name; uint32_t price; std::wstring desc; };
 extern std::map<uint32_t, uint32_t> g_itemPositionMap;
 extern std::vector<PackItemInfo> g_packItems;
 BOOL SendReqPackageDataPacket(uint32_t packType = 0xFFFFFFFF);

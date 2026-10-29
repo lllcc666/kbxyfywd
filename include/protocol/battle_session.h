@@ -37,7 +37,6 @@ public:
     /// 同一把锁内取快照和会话号，避免“快照是旧局、会话号是新局”的竞态。
     BattleData Snapshot(uint64_t* sessionId = nullptr) const;
     bool IsActive() const;
-    uint64_t SessionId() const;
 
 private:
     BattleSession() = default;

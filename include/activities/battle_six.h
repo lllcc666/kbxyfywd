@@ -12,7 +12,6 @@
 
 namespace BattleSix {
     constexpr int ACTIVITY_ID = 999;
-    constexpr int MAX_SPIRIT_COUNT = 6;
 }
 
 struct BattleSixLineupEntry {
@@ -122,16 +121,7 @@ public:
     std::vector<BattleSixSpiritInfo>& GetEnemySpirits() { return m_enemySpirits; }
     void UpdateCombatInfo(int winStreak, int teamNum, int currentCount,
                           int firstSpiritId, std::vector<BattleSixLineupEntry> lineup);
-    int GetWinStreak() const { return m_winStreak; }
-    int GetTeamNum() const { return m_teamNum; }
-    int GetLineupCurrentCount() const { return m_lineupCurrentCount; }
-    int GetFirstSpiritId() const { return m_firstSpiritId; }
-    const std::vector<BattleSixLineupEntry>& GetLineup() const { return m_lineup; }
-    int GetCurrentSpiritIndex() const { return m_currentSpiritIndex; }
-    int GetEnemySid() const { return m_enemySid; }
     void SetMyUniqueId(int id) { m_myUniqueId = id; }
-    void SetEnemySid(int id) { m_enemySid = id; }
-    void SetEnemyUniqueId(int id) { m_enemyUniqueId = id; }
     void SetEnemyActiveIndex(int index) { m_enemyActiveIndex = index; }
     void SetCurrentSpiritIndex(int index) { m_currentSpiritIndex = index; }
 };
@@ -172,7 +162,6 @@ BOOL CancelBattleSixMatch();
 void BattleSixSyncFromBattle(const BattleData& battle, bool initialize);
 void BattleSixNotifyRoundStart();
 void BattleSixMarkSettlement(uint32_t winFlags);
-bool BattleSixIsAutoBattleActive();
 
 // ---------------------------------------------------------------------------
 // 万妖盛会流程机制（实现在 src/hook/battle_six.cpp）

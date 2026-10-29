@@ -20,10 +20,6 @@ void MarkSettlement(uint32_t winFlags) {
     BattleSixMarkSettlement(winFlags);
 }
 
-bool IsAutoBattleActive() {
-    return BattleSixIsAutoBattleActive();
-}
-
 void NotifyMonsterDataReceived() {
     g_dungeonJumpState.monsterDataReceived.store(true, std::memory_order_release);
     if (g_shuangtaiWaitingForMonsterData.exchange(false, std::memory_order_acq_rel)) {

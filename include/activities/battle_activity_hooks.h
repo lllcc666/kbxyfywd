@@ -23,8 +23,6 @@ void SyncAutoBattle(const BattleData& battle, bool initialize);
 void NotifyRoundStart();
 /// 结算标记（BATTLE_NEWEXP 的 win flags）。
 void MarkSettlement(uint32_t winFlags);
-/// 当前是否有自动战斗在跑。
-bool IsAutoBattleActive();
 /// 妖怪背包数据已更新（副本跳层 / 双台谷等待方）。
 void NotifyMonsterDataReceived();
 

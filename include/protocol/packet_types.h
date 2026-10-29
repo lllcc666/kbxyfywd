@@ -284,7 +284,3 @@ inline uint16_t ReadUInt16LE(const uint8_t* data, size_t& offset) {
     offset += 2;
     return val;
 }
-
-inline uint8_t ReadByte(const uint8_t* data, size_t& offset) {
-    return data[offset++];
-}

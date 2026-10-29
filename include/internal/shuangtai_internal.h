@@ -23,12 +23,10 @@ public:
     ShuangTaiAutoBattle();
 
     bool IsRunning() const { return m_running; }
-    ShuangTaiState GetState() const { return m_state; }
 
     bool Start(bool blockBattle);
     void RequestStop();
     void Stop();
-    bool IsStopRequested() const { return m_stopRequested; }
     void Reset();
 
     void OnBattleStartResponse(const GamePacket& packet);

@@ -100,7 +100,7 @@ BOOL SendEnterScenePacket(int mapId, uint32_t expectedOpcode, DWORD timeoutMs) {
 // params=6: 提交分数, Body=[7, serverScore]
 BOOL SendDanceActivityPacketEx(int params, const std::vector<int32_t>& bodyValues) {
     auto packet = PacketBuilder()
-        .SetOpcode(1187375)
+        .SetOpcode(Opcode::DANCE_ACTIVITY_SEND)
         .SetParams(static_cast<uint32_t>(params))
         .WriteInt32Array(bodyValues)
         .Build();
@@ -119,7 +119,7 @@ BOOL SendDanceActivityPacketEx(int params, const std::vector<int32_t>& bodyValue
 // params=2: 退出活动, Body=[0xFFFFFFFF, userId]
 BOOL SendDanceStagePacketEx(int params, const std::vector<int32_t>& bodyValues) {
     auto packet = PacketBuilder()
-        .SetOpcode(1187368)
+        .SetOpcode(Opcode::DANCE_STAGE_SEND)
         .SetParams(static_cast<uint32_t>(params))
         .WriteInt32Array(bodyValues)
         .Build();

@@ -51,8 +51,3 @@ bool BattleSession::IsActive() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_battle.active;
 }
-
-uint64_t BattleSession::SessionId() const {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    return m_sessionId;
-}

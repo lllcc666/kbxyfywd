@@ -140,9 +140,9 @@ static BOOL CollectSingleItem(const CollectItemData& item) {
         g_collectStatus = 0;
         g_collectFinished = false;
         
-        // 4. 开始采集封包: Opcode 1187106, Params=1, Body=stuffId
+        // 4. 开始采集封包: Params=1, Body=stuffId
         auto startPacket = PacketBuilder()
-            .SetOpcode(1187106)
+            .SetOpcode(Opcode::COLLECT_STATUS_SEND)
             .SetParams(1)
             .WriteInt32(item.stuffId)
             .Build();
@@ -192,28 +192,16 @@ static BOOL CollectSingleItem(const CollectItemData& item) {
             waitCount++;
         }
 
-        // 5. 结束采集封包: Opcode 1187106 (小端序: 221D1200)
-        BYTE endPacket[16];
-        memset(endPacket, 0, sizeof(endPacket));
-        endPacket[0] = 0x44;  // Magic: "SD"
-        endPacket[1] = 0x53;
-        endPacket[2] = 0x04;  // Length: 4 (小端序)
-        endPacket[3] = 0x00;
-        endPacket[4] = 0x22;  // Opcode: 1187106 小端序 (0x00121D22)
-        endPacket[5] = 0x1D;
-        endPacket[6] = 0x12;
-        endPacket[7] = 0x00;
-        endPacket[8] = 0x02;  // Params: 2 (结束采集)
-        endPacket[9] = 0x00;
-        endPacket[10] = 0x00;
-        endPacket[11] = 0x00;
-        // Body: stuffId 小端序写入（32位）
-        endPacket[12] = (item.stuffId) & 0xFF;
-        endPacket[13] = (item.stuffId >> 8) & 0xFF;
-        endPacket[14] = (item.stuffId >> 16) & 0xFF;
-        endPacket[15] = (item.stuffId >> 24) & 0xFF;
+        // 5. 结束采集封包: Params=2, Body=stuffId
+        // 以前这里是手搓的 16 字节数组（Magic/Length/Opcode 逐字节写死），
+        // 与 PacketBuilder 的编码规则完全一致，改成构造器避免两处各维护一份布局。
+        const auto endPacket = PacketBuilder()
+            .SetOpcode(Opcode::COLLECT_STATUS_SEND)
+            .SetParams(2)
+            .WriteInt32(item.stuffId)
+            .Build();
 
-        if (!SendPacket(g_LastGameSocket, endPacket, 16)) {
+        if (!SendPacket(g_LastGameSocket, endPacket.data(), static_cast<DWORD>(endPacket.size()))) {
             return FALSE;
         }
 
@@ -407,235 +395,12 @@ BOOL StartOneKeyCollectPacket(DWORD flags) {
  * - statusid = -2: 未装备采集工具
  */
 void ProcessCollectResponse(const GamePacket& packet) {
-    if (packet.opcode != Opcode::COLLECT_STATUS_BACK) {
-        return;
+    // statusid 在封包的 Params 字段（AS3: event.msg.mParams）
+    const int32_t statusid = static_cast<int32_t>(packet.params);
+    g_collectStatus = statusid;
+
+    // statusid = 2 单次采集完成，3 采集全部结束
+    if (statusid == 2 || statusid == 3) {
+        g_collectFinished = true;
     }
-    
-        // statusid 在封包的 Params 字段（AS3: event.msg.mParams）
-    
-        int32_t statusid = static_cast<int32_t>(packet.params);
-    
-        
-    
-        g_collectStatus = statusid;
-    
-        
-    
-        // 根据AS3代码逻辑：
-    
-        // statusid = 2 表示单次采集完成，获得物品
-    
-        // statusid = 3 表示采集全部结束
-    
-        if (statusid == 2 || statusid == 3) {
-    
-            g_collectFinished = true;
-    
-        }
-    
-        // statusid = 1: 开始采集动画，继续等待
-    
-        // statusid = -1: 每日采集次数用完
-    
-        // statusid = -2: 未装备采集工具
-    
-    }
-    
-    
-    
-    // ============ BOSS专区功能实现 ============
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    /** 发送BOSS战斗封包
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-     * 
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-     * 封包格式（根据易语言代码）：
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-     * - Magic: 21316 (0x5344)
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-     * - Length: 4 (Body长度)
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-     * - Opcode: 1186048 (OP_CLIENT_CLICK_NPC)
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-     * - Params: spiritId (BOSS ID，小端序)
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-     * - Body: 00 00 00 00 (最后4字节替换为0)
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-     * 
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-     * @param spiritId BOSS的妖怪ID（大于10000）
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-     * @return 发送是否成功
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-     */
-    
-    
-    
+}

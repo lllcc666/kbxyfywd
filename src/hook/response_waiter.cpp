@@ -229,14 +229,3 @@ void ResponseWaiter::CancelWait(uint32_t opcode) {
     WakeAllConditionVariable(&s_cv);
 }
 
-bool ResponseWaiter::IsCancelledLocked(uint32_t opcode, uint64_t cancelToken) {
-    // 全局取消对所有人都生效。
-    if (s_cancelSerial.load() != CancelSerialFor(0)) {
-        return true;
-    }
-    if (opcode == 0) {
-        return false;
-    }
-    return CancelSerialFor(opcode) != cancelToken;
-}
-

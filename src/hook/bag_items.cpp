@@ -120,7 +120,7 @@ BOOL SendQueryLingyuPacket() {
     // body 布局：int32 数组长度(固定 1) + int32 元素值。
     const auto buildQuery = [userId](int32_t slot) {
         return PacketBuilder()
-            .SetOpcode(1185809)
+            .SetOpcode(Opcode::SPIRIT_EQUIP_ALL_SEND)
             .SetParams(userId)
             .WriteInt32(1)
             .WriteInt32(slot)
@@ -167,7 +167,6 @@ BOOL SendQueryBagPacket() {
 // jsonArray: JSON数组字符串，如 ["37","52"]
 struct DecomposeTaskData {
     std::string indices;
-    HWND hwnd;  // 窗口句柄用于发送消息
 };
 
 // 分解任务完成消息
@@ -175,8 +174,13 @@ struct DecomposeTaskData {
 DWORD WINAPI DecomposeThreadProc(LPVOID lpParam) {
     DecomposeTaskData* taskData = static_cast<DecomposeTaskData*>(lpParam);
 
-    // 立即启用阻止发送功能，阻止 1185792 和 1185809 的发送
-    g_blockOpcodeSend = true;
+    // 立即启用阻止发送功能，阻止 1185792 和 1185809 的发送。
+    // 用 RAII 收尾：分解过程中任何提前 return 或异常都要把全局标志放掉，
+    // 否则整个进程后续所有发包都会被静默拦掉。
+    struct BlockOpcodeSendGuard {
+        BlockOpcodeSendGuard() { g_blockOpcodeSend = true; }
+        ~BlockOpcodeSendGuard() { g_blockOpcodeSend = false; }
+    } blockOpcodeSendGuard;
 
     // 解析索引数组（例如 "62_61" -> ["62", "61"]）
     std::vector<std::string> indexList;
@@ -198,13 +202,6 @@ DWORD WINAPI DecomposeThreadProc(LPVOID lpParam) {
     // 构建分解封包: 44 53 00 00 16 18 12 00 + 索引(4字节LE)
     // 例如: 分解索引 1234 (0x04D2) -> 44 53 00 00 16 18 12 00 D2 04 00 00
 
-    // 将索引数组合并为一个字符串，用下划线连接
-    std::string indicesStr;
-    for (size_t i = 0; i < indexList.size(); i++) {
-        if (i > 0) indicesStr += "_";
-        indicesStr += indexList[i];
-    }
-
     BOOL allSuccess = TRUE;
 
     // 逐个分解每个灵玉
@@ -219,15 +216,15 @@ DWORD WINAPI DecomposeThreadProc(LPVOID lpParam) {
         }
 
         // 使用 PacketBuilder 构建分解封包
-        // Opcode: 1185814, Params: symmIndex
+        // Opcode: RESOLVE_SPIRIT_SEND, Params: symmIndex
         auto packet = PacketBuilder()
-            .SetOpcode(1185814)
+            .SetOpcode(Opcode::RESOLVE_SPIRIT_SEND)
             .SetParams(static_cast<uint32_t>(indexValue))
             .Build();
 
         // 发送分解封包
         BOOL result = SendPacketBytes(packet);
-        
+
         // 生成十六进制封包字符串并发送到UI
         std::string hexPacket = HexToString(packet.data(), static_cast<DWORD>(packet.size())) + " ";
 
@@ -237,21 +234,18 @@ DWORD WINAPI DecomposeThreadProc(LPVOID lpParam) {
             hexData->len = hexPacket.length() + 1;
             hexData->data = new char[hexData->len];
             strcpy_s(hexData->data, hexData->len, hexPacket.c_str());
-    
+
             PostMessage(g_hWnd, AppMessage::kDecomposeHexPacket, (WPARAM)hexData, 0);
         }
-    
-            // 延迟200ms再分解下一个，避免过快发送
-            if (&indexStr != &indexList.back()) {
-                Sleep(200);
-            }
-    
-            // 更新整体成功状态
-            allSuccess = allSuccess && result;
+
+        // 延迟200ms再分解下一个，避免过快发送
+        if (i + 1 < indexList.size()) {
+            Sleep(200);
         }
 
-    // 禁用阻止发送功能
-    g_blockOpcodeSend = false;
+        // 更新整体成功状态
+        allSuccess = allSuccess && result;
+    }
 
     // 发送完成消息到UI线程
     if (g_hWnd) {
@@ -278,7 +272,6 @@ BOOL SendDecomposeLingyuPacket(const std::wstring& jsonArray) {
     // 创建任务数据结构
     DecomposeTaskData* taskData = new DecomposeTaskData();
     taskData->indices = indices;
-    taskData->hwnd = g_hWnd;
 
     // 创建新线程处理分解任务，避免阻塞主线程
     HANDLE hThread = CreateManagedThread(NULL, 0, DecomposeThreadProc, taskData, 0, NULL);

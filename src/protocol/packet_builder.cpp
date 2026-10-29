@@ -23,11 +23,6 @@ PacketBuilder::PacketBuilder()
 // 头部设置方法
 // ============================================================================
 
-PacketBuilder& PacketBuilder::SetMagic(uint16_t magic) {
-    m_magic = magic;
-    return *this;
-}
-
 PacketBuilder& PacketBuilder::SetOpcode(uint32_t opcode) {
     m_opcode = opcode;
     return *this;
@@ -67,22 +62,6 @@ PacketBuilder& PacketBuilder::WriteInt32(int32_t value) {
 // 线上字节序列与小端 int32 完全一致，直接复用同一份写入逻辑。
 PacketBuilder& PacketBuilder::WriteUInt32(uint32_t value) {
     return WriteInt32(static_cast<int32_t>(value));
-}
-
-// 线上字节序列与小端 int16 完全一致，直接复用同一份写入逻辑。
-PacketBuilder& PacketBuilder::WriteInt16(int16_t value) {
-    m_body.push_back(static_cast<uint8_t>(value & 0xFF));
-    m_body.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
-    return *this;
-}
-
-PacketBuilder& PacketBuilder::WriteUInt16(uint16_t value) {
-    return WriteInt16(static_cast<int16_t>(value));
-}
-
-PacketBuilder& PacketBuilder::WriteByte(uint8_t value) {
-    m_body.push_back(value);
-    return *this;
 }
 
 PacketBuilder& PacketBuilder::WriteBytes(const std::vector<uint8_t>& data) {
@@ -141,14 +120,6 @@ std::vector<uint8_t> PacketBuilder::Build() {
     packet.insert(packet.end(), m_body.begin(), m_body.end());
     
     return packet;
-}
-
-void PacketBuilder::Reset() {
-    m_magic = PacketProtocol::MAGIC_NORMAL;
-    m_opcode = 0;
-    m_params = 0;
-    m_valid = true;
-    m_body.clear();
 }
 
 // ============================================================================

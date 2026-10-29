@@ -158,14 +158,6 @@ uint32_t GetJsonUInt32Value(const std::wstring& msg, const std::wstring& key, ui
     return static_cast<uint32_t>(_wtol(value.c_str()));
 }
 
-DWORD GetJsonDWORDValue(const std::wstring& msg, const std::wstring& key, DWORD defaultValue = 0) {
-    const std::wstring value = GetTrimmedJsonValue(msg, key);
-    if (value.empty()) {
-        return defaultValue;
-    }
-    return static_cast<DWORD>(_wtol(value.c_str()));
-}
-
 void SetHelperText(const std::wstring& text) {
     UIBridge::Instance().UpdateHelperText(text);
 }
@@ -224,10 +216,10 @@ void HandlePacketWindowVisibilityChanged(const std::wstring& msg) {
     const bool visible = GetJsonBoolValue(msg, L"visible");
     RECT packetWindowRect{};
     if (visible) {
-        packetWindowRect.left = static_cast<LONG>(GetJsonDWORDValue(msg, L"left"));
-        packetWindowRect.top = static_cast<LONG>(GetJsonDWORDValue(msg, L"top"));
-        packetWindowRect.right = static_cast<LONG>(GetJsonDWORDValue(msg, L"width"));
-        packetWindowRect.bottom = static_cast<LONG>(GetJsonDWORDValue(msg, L"height"));
+        packetWindowRect.left = static_cast<LONG>(GetJsonUInt32Value(msg, L"left"));
+        packetWindowRect.top = static_cast<LONG>(GetJsonUInt32Value(msg, L"top"));
+        packetWindowRect.right = static_cast<LONG>(GetJsonUInt32Value(msg, L"width"));
+        packetWindowRect.bottom = static_cast<LONG>(GetJsonUInt32Value(msg, L"height"));
         AppHost::SetPacketWindowState(true, packetWindowRect);
         SyncPacketsToUI();
     } else {
@@ -389,7 +381,7 @@ void HandleSetInterceptTypeCommand(const std::wstring& msg) {
 }
 
 void HandleStartDailyTasksCommand(const std::wstring& msg) {
-    const DWORD flags = GetJsonDWORDValue(msg, L"flags");
+    const DWORD flags = GetJsonUInt32Value(msg, L"flags");
     HandleActionCommand([flags]() {
         StartDailyTasksAsync(flags);
     });
@@ -397,7 +389,7 @@ void HandleStartDailyTasksCommand(const std::wstring& msg) {
 
 // 障碍赛跑（Act810）：走新活动总线 1185429，扫荡路径不吃跑酷玩法。
 void HandleStartRunCompetitionCommand(const std::wstring& msg) {
-    const int sweepTimes = static_cast<int>(GetJsonDWORDValue(msg, L"times"));
+    const int sweepTimes = static_cast<int>(GetJsonUInt32Value(msg, L"times"));
     HandleActionCommand([sweepTimes]() {
         StartRunCompetitionAsync(sweepTimes);
     });
@@ -405,8 +397,8 @@ void HandleStartRunCompetitionCommand(const std::wstring& msg) {
 
 // 金平府祈愿（activityId 688）：start → finish 往返。
 void HandleStartJinpingfuWishCommand(const std::wstring& msg) {
-    const int rounds = static_cast<int>(GetJsonDWORDValue(msg, L"times"));
-    const int holdMs = static_cast<int>(GetJsonDWORDValue(msg, L"hold_ms"));
+    const int rounds = static_cast<int>(GetJsonUInt32Value(msg, L"times"));
+    const int holdMs = static_cast<int>(GetJsonUInt32Value(msg, L"hold_ms"));
     HandleActionCommand([rounds, holdMs]() {
         StartJinpingfuWishAsync(rounds, holdMs);
     });
@@ -414,8 +406,8 @@ void HandleStartJinpingfuWishCommand(const std::wstring& msg) {
 
 // 知识小天地（gameType 10003）：小游戏总线开局挂机再结算。
 void HandleStartKnowledgeGardenCommand(const std::wstring& msg) {
-    const int rounds = static_cast<int>(GetJsonDWORDValue(msg, L"times"));
-    const int holdMs = static_cast<int>(GetJsonDWORDValue(msg, L"hold_ms"));
+    const int rounds = static_cast<int>(GetJsonUInt32Value(msg, L"times"));
+    const int holdMs = static_cast<int>(GetJsonUInt32Value(msg, L"hold_ms"));
     HandleActionCommand([rounds, holdMs]() {
         StartKnowledgeGardenAsync(rounds, holdMs);
     });
@@ -423,7 +415,7 @@ void HandleStartKnowledgeGardenCommand(const std::wstring& msg) {
 
 // 五子棋大作战（activityId 22003 / 场景 1010 / NPC 18004）。
 void HandleStartGomokuCommand(const std::wstring& msg) {
-    const int rounds = static_cast<int>(GetJsonDWORDValue(msg, L"times"));
+    const int rounds = static_cast<int>(GetJsonUInt32Value(msg, L"times"));
     HandleActionCommand([rounds]() {
         StartGomokuAsync(rounds);
     });
@@ -438,7 +430,7 @@ void HandleStartTaskZoneCommand() {
 }
 
 void HandleQueryHuangchengWeijiTaskProgressCommand(const std::wstring& msg) {
-    const DWORD taskId = GetJsonDWORDValue(msg, L"task_id", 2001000);
+    const DWORD taskId = GetJsonUInt32Value(msg, L"task_id", 2001000);
     // 必须异步：这个 handler 跑在 WebView 消息线程上，而进度查询要等
     // USER_TASK_LIST_BACK 回包；在该线程上阻塞会一起卡住回包处理，3 秒必然超时。
     // 结果文案由工作线程自己回显，这里不预设成败。
@@ -583,7 +575,7 @@ void HandleEnterBossBattleCommand(const std::wstring& msg) {
 }
 
 void HandleStartOneKeyCollectCommand(const std::wstring& msg) {
-    const DWORD flags = GetJsonDWORDValue(msg, L"flags");
+    const DWORD flags = GetJsonUInt32Value(msg, L"flags");
     HandleBoolResultCommand(
         [flags]() {
             return StartOneKeyCollectPacket(flags);
@@ -615,7 +607,6 @@ void HandleSetBattleSixAutoBattleEnabledCommand(const std::wstring& msg) {
     const std::wstring enabledStr = GetTrimmedJsonValue(msg, L"enabled");
     const bool enabled = (enabledStr == L"true");
     g_battleSixAuto.SetAutoBattle(enabled);
-    SetHelperText(L"调试：enabled=[" + enabledStr + L"] parsed=" + std::wstring(enabled ? L"true" : L"false"));
     SetHelperText(enabled ? L"万妖盛会：自动战斗已启用" : L"万妖盛会：自动战斗已禁用");
 }
 

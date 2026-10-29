@@ -231,18 +231,3 @@ size_t ManagedThread::ActiveCount() {
     }
     return count;
 }
-
-std::wstring ManagedThread::DescribeActive() {
-    std::lock_guard<std::mutex> lock(g_registryMutex);
-    std::wstring result;
-    for (auto& state : g_registry) {
-        if (state->finished.load()) {
-            continue;
-        }
-        if (!result.empty()) {
-            result += L", ";
-        }
-        result += state->name;
-    }
-    return result;
-}

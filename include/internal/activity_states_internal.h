@@ -13,9 +13,7 @@ struct ActivityState {
     std::atomic<int> checkCode{0};
     std::atomic<bool> sweepAvailable{false};
 
-    virtual ~ActivityState() = default;
-
-    virtual void Reset() {
+    void Reset() {
         isRunning = false;
         waitingResponse = false;
         playCount = 0;
@@ -24,18 +22,6 @@ struct ActivityState {
         sweepAvailable = false;
     }
 };
-
-
-
-
-
-
-
-
-
-
-
-
 
 enum HorseRoomStatus {
     HORSE_ROOM_FREE = 0,
@@ -184,7 +170,7 @@ struct HorseCompetitionState : ActivityState {
 
     std::atomic<bool> stopRequested{false};
 
-    void Reset() override {
+    void Reset() {
         ActivityState::Reset();
         inRoom = false;
         isGaming = false;

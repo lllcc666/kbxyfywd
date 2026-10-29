@@ -73,7 +73,6 @@ constexpr uint32_t DANCE_ACTIVITY_SEND = 1187375;
 constexpr uint32_t DANCE_ACTIVITY_BACK = 1318447;
 
 constexpr uint32_t TRAIN_INFO_SEND = 1184772;
-constexpr uint32_t TRAIN_INFO_BACK = 1316142;
 
 constexpr uint32_t USER_TASK_LIST_SEND = 1184777;
 constexpr uint32_t USER_TASK_LIST_BACK = 1315849;
@@ -87,24 +86,17 @@ constexpr uint32_t NPCTASKLIST_BACK = 1315858;
 // 服务端在 NPCTASKLIST_BACK 里用 type=1 给出可接任务列表，客户端点「接受」后
 // 由 TaskControl.onAcceptTask() 以 params=subtaskId 发送，主线任务必须靠它接上。
 constexpr uint32_t ACCEPT_TASK_SEND = 1184774;
-constexpr uint32_t ACCEPT_TASK_BACK = 1315846;
 
 // 子任务完成通知（AS3 MsgDoc.OP_CLIENT_REQ_TASKFINISHED.back）。
 constexpr uint32_t TASK_FINISHED_BACK = 1315847;
 
 constexpr uint32_t TASK_TALK_SEND = 1184788;
 constexpr uint32_t TASK_TALK_BACK = 1315860;
-constexpr uint32_t TASK_SINGLE_INFO_SEND = 1184787;
-constexpr uint32_t TASK_SINGLE_INFO_BACK = 1315859;
 constexpr uint32_t TASK_DAILY_SEND = 1184791;
-constexpr uint32_t TASK_DAILY_BACK = 1315863;
 // 活动向每日任务上报进度用的另一个协议（AS3 的 MsgDoc.OP_CLIENT_DAILYTASK）。
 // 各活动 SWF 在结算后用 sendMessage(OP_CLIENT_DAILYTASK.send, 3, [3,4039001,0])
 // 上报，与上面的 TASK_DAILY_SEND(1184791) 不是同一个 opcode，不要混用。
 constexpr uint32_t TASK_DAILY_REPORT_SEND = 1184812;
-constexpr uint32_t TASK_DAILY_REPORT_BACK = 1315884;
-constexpr uint32_t TASK_ARCHIVES_SEND = 1184811;
-constexpr uint32_t TASK_ARCHIVES_BACK = 1315883;
 
 
 constexpr uint32_t COLLECT_STATUS_SEND = 1187106;
@@ -145,7 +137,6 @@ constexpr uint32_t NPC_LIST_BACK = 1315854;
 // 主线里的「用【粒子光线】射击【封印】」就是这条：actionId 来自服务端下发的法术列表
 // （GETMAGICINDEX_BACK），坐标是目标对象在场景里的位置。
 constexpr uint32_t SEND_ACTION_SEND = 1184784;
-constexpr uint32_t SEND_ACTION_BACK = 1316124;
 
 // 已学法术列表（AS3 MsgDoc.OP_CLIENT_GETMAGICINDEX，back=1316125）。
 // 回包 body = magicCount 组 [id, type, state, num]，params=magicCount。
@@ -205,12 +196,9 @@ constexpr uint32_t SPIRIT_COLLECT_BACK = ACTIVITY_ACTION_BACK;
 constexpr int SPIRIT_COLLECT_ACT_ID = 754;
 
 constexpr uint32_t BUY_GOODS_SEND = 1183760;
-constexpr uint32_t BUY_GOODS_BACK = 1314832;
 constexpr uint32_t REQ_PACKAGE_DATA_SEND = 1183761;
 constexpr uint32_t REQ_PACKAGE_DATA_BACK = 1314833;
 constexpr uint32_t USER_OP_SEND = 1186050;
-constexpr uint32_t USE_PROPS_SEND = 1184310;
-constexpr uint32_t USE_PROPS_BACK = 1315382;
 
 constexpr uint32_t BATTLESIX_COMBAT_INFO_SEND = 1184260;
 constexpr uint32_t BATTLESIX_COMBAT_INFO_BACK = 1315344;

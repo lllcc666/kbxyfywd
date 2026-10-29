@@ -904,7 +904,6 @@ void ProcessBattleSixPrepareCombatResponse(const GamePacket& packet) {
         L"万妖盛会：准备战斗超时，重新匹配...");
 }
 void ProcessBattleSixOtherEscapedResponse(const GamePacket& packet) {
-    (void)packet;
     UIBridge::Instance().UpdateHelperText(L"万妖盛会：对手已逃跑，本场判定胜利");
     if (g_battleSixAuto.IsInBattle()) {
         ProcessBattleSixBattleEndResponse(packet);
@@ -1267,8 +1266,4 @@ void BattleSixMarkSettlement(uint32_t winFlags) {
         g_battleSixSettlementKnown = true;
         g_battleSixSettlementFlags = winFlags;
     }
-}
-
-bool BattleSixIsAutoBattleActive() {
-    return g_battleSixAuto.IsInBattle() && g_battleSixAuto.IsAutoBattleEnabled();
 }

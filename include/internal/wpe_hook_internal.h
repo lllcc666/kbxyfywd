@@ -5,7 +5,6 @@
 #include <unordered_map>
 
 #include "packet_types.h"
-#include "i_packet_sink.h"
 #include "wpe_hook.h"
 #include "utils.h"
 
@@ -83,7 +82,6 @@ public:
     static void CancelWait(uint32_t opcode = 0);
 
 private:
-    static bool IsCancelledLocked(uint32_t opcode, uint64_t cancelToken);
     static CRITICAL_SECTION s_cs;
     static CONDITION_VARIABLE s_cv;
     static uint64_t s_responseSerial;
@@ -95,13 +93,11 @@ private:
 // Response dispatcher
 // ============================================================================
 
-class ResponseDispatcher : public IPacketSink {
+class ResponseDispatcher {
 public:
     static ResponseDispatcher& Instance();
 
     BOOL Dispatch(const GamePacket& packet);
-    void OnPacket(const GamePacket& packet) override { (void)Dispatch(packet); }
-    void Clear();
     void InitializeDefaultHandlers();
 
 private:
