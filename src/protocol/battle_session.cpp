@@ -16,8 +16,7 @@ uint64_t BattleSession::Begin(BattleData battle) {
 
 void BattleSession::Replace(BattleData battle) {
     std::lock_guard<std::mutex> lock(m_mutex);
-    // 已结束的会话不再接受“active=true”的迟到包；结算包本身是 active=false，
-    // 仍允许写回 endResults/FSPK。
+    // 已结束的会话不再接受“active=true”的迟到包，避免重新打开旧战斗。
     if (!m_battle.active && battle.active) return;
     battle.active = m_battle.active;
     m_battle = std::move(battle);

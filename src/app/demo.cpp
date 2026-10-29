@@ -158,9 +158,6 @@ struct ProgramAudioSessionState {
 
 ProgramAudioSessionState g_audioSessionState = { 1.0f, false, false };
 
-// WebView2窗口层级维护相关
-HWND g_hwnd_webview = nullptr;
-
 // 封包窗口状态
 bool g_is_packet_window_visible = false;
 RECT g_packet_window_rect = { 0 };
@@ -1238,30 +1235,7 @@ public:
                 // 恢复WebView2覆盖整个主窗口，确保HTML元素可以显示在WebBrowser上方
                 g_controller->put_Bounds(bounds);
                 
-                // 获取WebView2窗口句柄并保存
-                g_controller->get_ParentWindow(&g_hwnd_webview);
-                
-                // 设置WebView2渲染窗口的基本功能
-                if (g_hwnd_webview)
-                {
-                    // 已移除冗余的透明度和子类化设置
-                }
-                
-                // 尝试使用ICoreWebView2CompositionController接口
-                // 这个接口允许更精细地控制WebView2的渲染区域和透明度
-                ICoreWebView2CompositionController* composition_controller = nullptr;
-                HRESULT hr = g_webview->QueryInterface(IID_PPV_ARGS(&composition_controller));
-                if (SUCCEEDED(hr) && composition_controller)
-                {
-                    // 如果获取到接口，可以在这里添加相关代码
-                    // 例如，设置渲染区域或透明度
-                    // 但由于当前版本可能不支持，我们先不添加具体实现
-                    // 后续可以根据实际需求和支持的版本添加代码
-                    
-                    // 释放接口
-                    composition_controller->Release();
-                }
-                
+
                 // 确保WebView2控件显示在所有窗口最前面
                 EnsureWebView2OnTop();
 

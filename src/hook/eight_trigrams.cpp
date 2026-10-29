@@ -160,15 +160,6 @@ static size_t FindEightTrigramsStepIndexAfterGroup(uint32_t groupId) {
     }
     return EIGHT_TRIGRAMS_STEP_COUNT;
 }
-static size_t FindEightTrigramsStepIndexByDialogId(uint32_t dialogId) {
-    for (size_t i = 0; i < EIGHT_TRIGRAMS_STEP_COUNT; ++i) {
-        if (EIGHT_TRIGRAMS_STEPS[i].dialogId == dialogId) {
-            return i;
-        }
-    }
-    return EIGHT_TRIGRAMS_STEP_COUNT;
-}
-
 std::wstring BuildUInt32JsonArray(const std::vector<uint32_t>& values) {
     std::wstring result = L"[";
     for (size_t i = 0; i < values.size(); ++i) {
@@ -201,7 +192,6 @@ static void PushHuangchengWeijiProgressToUi(uint32_t taskId = HUANGCHENG_WEIJI_T
 static void UpdateEightTrigramsResumeHint(size_t nextIndex) {
     g_eightTrigramsResumeStepIndex.store(static_cast<int>(nextIndex));
 }
-static void UpdateEightTrigramsResumeHintByDialogId(uint32_t dialogId);
 
 static void ResetTaskZoneUserTaskListCache() {
     std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
@@ -222,10 +212,6 @@ static void ResetEightTrigramsProgressState() {
     g_eightTrigramsProgress.taskTalkResponseDialogId = 0;
     g_eightTrigramsProgress.taskTalkResponseNpcId = 0;
     g_eightTrigramsProgress.taskTalkResponseMatchNpcId = true;
-    g_eightTrigramsProgress.capturePostBattleTaskTalkResponse = false;
-    g_eightTrigramsProgress.postBattleTaskTalkResponseReceived = false;
-    g_eightTrigramsProgress.postBattleTaskTalkDialogId = 0;
-    g_eightTrigramsProgress.postBattleTaskTalkNpcId = 0;
     g_eightTrigramsProgress.talkCurrentId = 0;
     g_eightTrigramsProgress.talkDialogId = 0;
     g_eightTrigramsProgress.talkTrigram = 0;
@@ -607,24 +593,6 @@ void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet) {
             return;
     }
 
-    // 805/806 是结果对话本身，回包只作记录，不参与战后确认时序。
-    bool postBattleResponseCaptured = false;
-    if (hasDialogId && (dialogId == 400600805 || dialogId == 400600806)) {
-        std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
-        if (g_taskZoneRunning.load() &&
-            g_eightTrigramsProgress.capturePostBattleTaskTalkResponse) {
-            g_eightTrigramsProgress.capturePostBattleTaskTalkResponse = false;
-            g_eightTrigramsProgress.postBattleTaskTalkResponseReceived = true;
-            g_eightTrigramsProgress.postBattleTaskTalkDialogId = dialogId;
-            g_eightTrigramsProgress.postBattleTaskTalkNpcId = hasNpcId ? npcId : 101301;
-            postBattleResponseCaptured = true;
-        }
-    }
-    if (postBattleResponseCaptured) {
-        UpdateTaskZoneUi(L"任务区：收到墨魂战后回话", true);
-        return;
-    }
-
     // 水魂战后对话的打开包和确认包由任务线程按固定参数发送，
     // 不等待服务端先返回 dialogId。
     bool responseCaptured = false;
@@ -799,33 +767,6 @@ static bool WaitForEightTrigramsWaterSoulReward(
     return false;
 }
 
-[[maybe_unused]] static bool WaitForEightTrigramsPostBattleDialog(
-    unsigned long long sessionId,
-    DWORD timeoutMs) {
-    const DWORD startTick = GetTickCount();
-    while (g_taskZoneRunning.load() && g_taskZoneSession.load() == sessionId) {
-        {
-            std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
-            if (g_eightTrigramsProgress.postBattleTaskTalkResponseReceived) {
-                return true;
-            }
-        }
-
-        if (GetTickCount() - startTick >= timeoutMs) {
-            return false;
-        }
-        Sleep(50);
-    }
-    return false;
-}
-
-[[maybe_unused]] static void UpdateEightTrigramsResumeHintByDialogId(uint32_t dialogId) {
-    const size_t stepIndex = FindEightTrigramsStepIndexByDialogId(dialogId);
-    if (stepIndex < EIGHT_TRIGRAMS_STEP_COUNT) {
-        UpdateEightTrigramsResumeHint(stepIndex + 1);
-    }
-}
-
 // 布防水魂交丹对话采集：点击 61242 之前调用，随后收到的 TASK_TALK_BACK 会写入进度状态。
 static void ArmEightTrigramsWaterSoulDialogCapture() {
     std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
@@ -880,13 +821,7 @@ static bool EightTrigramsWaterSoulRewardReceived() {
 BOOL SendTaskZoneTalkPacket(
     uint32_t npcId,
     uint32_t dialogId,
-    uint32_t chooseId,
-    bool waitForBack,
-    DWORD timeoutMs,
-    bool matchNpcId) {
-    (void)waitForBack;
-    (void)timeoutMs;
-    (void)matchNpcId;
+    uint32_t chooseId) {
 
     // 八卦灵盘是固定流程：普通对话只按预设包序列发送，
     // 不等待 TASK_TALK_BACK，也不从回包动态提取下一个 dialogId。

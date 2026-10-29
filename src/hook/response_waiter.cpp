@@ -229,14 +229,6 @@ void ResponseWaiter::CancelWait(uint32_t opcode) {
     WakeAllConditionVariable(&s_cv);
 }
 
-bool ResponseWaiter::IsCancelled(uint32_t opcode) {
-    // 只需要知道「此刻是否处于取消态」，用当前串号探一次即可。
-    EnterCriticalSection(&s_cs);
-    const bool cancelled = IsCancelledLocked(opcode, CancelSerialFor(opcode));
-    LeaveCriticalSection(&s_cs);
-    return cancelled;
-}
-
 bool ResponseWaiter::IsCancelledLocked(uint32_t opcode, uint64_t cancelToken) {
     // 全局取消对所有人都生效。
     if (s_cancelSerial.load() != CancelSerialFor(0)) {

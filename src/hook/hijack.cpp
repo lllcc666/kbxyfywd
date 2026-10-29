@@ -197,19 +197,14 @@ bool ProcessHijack(bool bSend, const BYTE* pData, DWORD* pdwSize, std::vector<BY
             std::vector<BYTE> np;
             np.reserve(pkt.size() + rep.size());
             size_t cursor = 0;
-            bool hitAny = false;
+            size_t hit = at;
             while (true) {
-                size_t hit = 0;
-                if (!FindBytesInRange(pkt.data(), pkt.size(), search, cursor, &hit)) {
-                    break;
-                }
                 np.insert(np.end(), pkt.begin() + cursor, pkt.begin() + hit);
                 np.insert(np.end(), rep.begin(), rep.end());
                 cursor = hit + search.size();
-                hitAny = true;
-            }
-            if (!hitAny) {
-                continue;
+                if (!FindBytesInRange(pkt.data(), pkt.size(), search, cursor, &hit)) {
+                    break;
+                }
             }
             np.insert(np.end(), pkt.begin() + cursor, pkt.end());
 

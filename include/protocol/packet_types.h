@@ -181,16 +181,8 @@ struct BattleData {
     int32_t escape = 0;
     int32_t round = 0;
     bool active = false;
-    int32_t lastCmdType = -1;
     BattleRoundData lastRound;
-    int32_t endParam = 0;
-    std::vector<BattleEndResult> endResults;
-    bool hasFspk = false;
-    BattleFspkData fspk;
-    bool hasSite = false;
-    BattleSiteData site;
     std::vector<int32_t> roundChangeSids;
-    int32_t roundWaitTime = 0;
 };
 
 struct GamePacket {

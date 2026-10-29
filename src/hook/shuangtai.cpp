@@ -239,6 +239,7 @@ void ShuangTaiAutoBattle::SendInitPacket() {
     }, data, 0, nullptr);
     
     if (hThread) CloseHandle(hThread);
+    else delete data;
 }
 
 void ShuangTaiAutoBattle::SendJumpLayerPacket() {
@@ -269,6 +270,7 @@ void ShuangTaiAutoBattle::SendJumpLayerPacket() {
     }, data, 0, nullptr);
     
     if (hThread) CloseHandle(hThread);
+    else delete data;
 }
 
 void ShuangTaiAutoBattle::SendEnterBattlePacket() {
@@ -518,6 +520,7 @@ void ShuangTaiAutoBattle::OnBattleEndResponse(const GamePacket& packet) {
     }, data, 0, nullptr);
     
     if (hThread) CloseHandle(hThread);
+    else delete data;
 }
 
 // ========== 外部接口函数 ==========

@@ -58,10 +58,6 @@ struct EightTrigramsProgressState {
     bool taskTalkResponseHasDialogId = false;
     uint32_t taskTalkResponseNpcId = 0;
     bool taskTalkResponseMatchNpcId = true;
-    bool capturePostBattleTaskTalkResponse = false;
-    bool postBattleTaskTalkResponseReceived = false;
-    uint32_t postBattleTaskTalkDialogId = 0;
-    uint32_t postBattleTaskTalkNpcId = 0;
     uint32_t talkCurrentId = 0;
     uint32_t talkDialogId = 0;
     uint32_t talkTrigram = 0;
@@ -83,9 +79,7 @@ std::wstring BuildUInt32JsonArray(const std::vector<uint32_t>& values);
 void UpdateTaskZoneUi(const std::wstring& text, bool running);
 
 // 对话/点击 NPC：与八卦灵盘和主线任务共用的两条发包路径。
-BOOL SendTaskZoneTalkPacket(uint32_t npcId, uint32_t dialogId, uint32_t chooseId = 0,
-                            bool waitForBack = false, DWORD timeoutMs = 0,
-                            bool matchNpcId = true);
+BOOL SendTaskZoneTalkPacket(uint32_t npcId, uint32_t dialogId, uint32_t chooseId = 0);
 BOOL SendTaskZoneClickPacket(uint32_t npcId, bool battleMode = false);
 
 // 会话复位：hook 初始化与停止拦截时清掉上一轮的对话/奖励等待。

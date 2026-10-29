@@ -239,8 +239,6 @@ inline size_t NeutralizeBlockedRecvPackets(BYTE* buf, int len) {
 
 // 全局临界区一律 leakOnExit：静态析构阶段 hook 线程未必退干净，
 // 删锁的代价（进入已删除的锁 = UB）远大于把这一小块内存留给进程回收。
-CriticalSectionScope g_pendingPacketsCS(true);   ///< 暂存封包临界区
-
 // -------------------------
 // 全局状态
 // -------------------------
@@ -248,8 +246,6 @@ CriticalSectionScope g_pendingPacketsCS(true);   ///< 暂存封包临界区
 // hook 线程在 HookedSend/HookedRecv 里读它判断要不要拦，UI 线程在
 // StopIntercept/CleanupWpeHook 里写，必须是原子量。
 std::atomic<bool> g_bInitialized{false};             ///< 初始化标志
-
-std::vector<std::tuple<BOOL, std::vector<BYTE>, DWORD, DWORD>> g_PendingPackets;
 
 // 拦截设置
 std::atomic<bool> g_bInterceptSend{true};    ///< 是否拦截发送包
@@ -486,11 +482,6 @@ VOID CleanupWpeHook() {
         g_PacketList.clear();
     }
     
-    {
-        CriticalSectionLock lock(g_pendingPacketsCS.Get());
-        g_PendingPackets.clear();
-    }
-
     // 清理玄塔临界区
     CleanupTowerState();
 
@@ -1105,8 +1096,6 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
     // ========================================================================
     // 记录需要过滤的封包索引
     std::vector<size_t> packetsToFilter;
-    bool hasBattleStart = false;
-    bool shouldFilterBattleStart = false;
     
     for (size_t i = 0; i < gamePackets.size(); i++) {
         const auto& gp = gamePackets[i];
@@ -1122,7 +1111,6 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
         
         // 1. 战斗开始响应 - 始终计算并存储 counter
         if (gp.opcode == Opcode::BATTLE_START) {
-            hasBattleStart = true;
             
             // 读取战斗类型
             // AS3 stores battleType in the packet params; body[0] is the first entity state.
@@ -1149,7 +1137,6 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
 
             // 屏蔽战斗功能
             if (g_blockBattle.load()) {
-                shouldFilterBattleStart = true;
                 packetsToFilter.push_back(i);
             }
         }
@@ -1413,38 +1400,6 @@ BOOL ResponseDispatcher::RegisterUnlocked(uint32_t opcode, uint32_t params, Resp
     if (!handler) return FALSE;
     m_handlers[MakeKey(opcode, params)] = handler;
     return TRUE;
-}
-
-BOOL ResponseDispatcher::Register(uint32_t opcode, ResponseHandler handler) {
-    if (!handler) return FALSE;
-
-    std::lock_guard<std::mutex> lock(m_mutex);
-    return RegisterUnlocked(opcode, handler);
-}
-
-BOOL ResponseDispatcher::Register(uint32_t opcode, uint32_t params, ResponseHandler handler) {
-    if (!handler) return FALSE;
-
-    std::lock_guard<std::mutex> lock(m_mutex);
-    return RegisterUnlocked(opcode, params, handler);
-}
-
-void ResponseDispatcher::Unregister(uint32_t opcode, uint32_t params) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-
-    if (params != 0xFFFFFFFF) {
-        m_handlers.erase(MakeKey(opcode, params));
-        return;
-    }
-
-    m_opcodeOnlyHandlers.erase(opcode);
-    for (auto it = m_handlers.begin(); it != m_handlers.end();) {
-        if (static_cast<uint32_t>(it->first >> 32) == opcode) {
-            it = m_handlers.erase(it);
-        } else {
-            ++it;
-        }
-    }
 }
 
 BOOL ResponseDispatcher::Dispatch(const GamePacket& packet) {

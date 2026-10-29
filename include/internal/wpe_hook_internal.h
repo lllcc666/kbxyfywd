@@ -82,9 +82,6 @@ public:
     // 战斗、进图等所有正在等待的流程一起打断。
     static void CancelWait(uint32_t opcode = 0);
 
-    // 当前是否被取消（opcode=0 时只看全局取消）。供调用方在重试前自检。
-    static bool IsCancelled(uint32_t opcode = 0);
-
 private:
     static bool IsCancelledLocked(uint32_t opcode, uint64_t cancelToken);
     static CRITICAL_SECTION s_cs;
@@ -102,9 +99,6 @@ class ResponseDispatcher : public IPacketSink {
 public:
     static ResponseDispatcher& Instance();
 
-    BOOL Register(uint32_t opcode, ResponseHandler handler);
-    BOOL Register(uint32_t opcode, uint32_t params, ResponseHandler handler);
-    void Unregister(uint32_t opcode, uint32_t params = 0xFFFFFFFF);
     BOOL Dispatch(const GamePacket& packet);
     void OnPacket(const GamePacket& packet) override { (void)Dispatch(packet); }
     void Clear();

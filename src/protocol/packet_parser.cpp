@@ -1769,9 +1769,6 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         if (params < 0) return;
 
         const int32_t localUserId = static_cast<int32_t>(g_userId.load());
-        // 观战模式未实现（AS3 用 GameData.lookBattle == 1，这里的包没有该字段）。
-        const bool observer = false;
-
         BattleData parsedBattle;
         bool parsed = false;
         std::function<bool(BoundedReader, int32_t, BattleData)> parseEntities;
@@ -1787,9 +1784,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
 
             BattleEntity pet;
             if (!ReadBattleEntityAfterState(reader, state, pet)) return false;
-            const bool isMy = observer
-                ? pet.groupType == 1
-                : (localUserId > 0 ? pet.userId == localUserId : pet.groupType == 1);
+            const bool isMy = localUserId > 0 ? pet.userId == localUserId : pet.groupType == 1;
             pet.mySpirit = isMy;
 
 
@@ -1834,32 +1829,13 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
                 return parseEntities(nextReader, nextState, std::move(candidate));
             };
 
-            const bool normalMNum = !observer && !isMy && pet.rawState == 2;
-            const bool observerMNum = observer && pet.skillNum == 0;
+            const bool normalMNum = !isMy && pet.rawState == 2;
             if (normalMNum) {
                 if (!reader.ReadI32(pet.mNum) || pet.mNum < 0 || pet.mNum > 1024) return false;
                 pet.hasMNum = true;
                 BattleData candidate = appendMNumPlaceholders(appendPet(std::move(base), pet), pet);
                 if (candidate.myPets.empty() && candidate.otherPets.empty()) return false;
                 return continueWith(reader, std::move(candidate));
-            }
-
-            if (observerMNum) {
-                // The AS3 observer parser has two wire layouts: the default look mode
-                // carries mNum, while newLookType==2 does not. Try the no-mNum layout
-                // first and accept only a complete entity list plus escape field.
-                if (continueWith(reader, appendPet(base, pet))) return true;
-
-                BoundedReader withMNumReader = reader;
-                BattleEntity withMNumPet = pet;
-                if (!withMNumReader.ReadI32(withMNumPet.mNum) ||
-                    withMNumPet.mNum < 0 || withMNumPet.mNum > 1024) {
-                    return false;
-                }
-                withMNumPet.hasMNum = true;
-                BattleData candidate = appendMNumPlaceholders(appendPet(std::move(base), withMNumPet), withMNumPet);
-                if (candidate.myPets.empty() && candidate.otherPets.empty()) return false;
-                return continueWith(withMNumReader, std::move(candidate));
             }
 
             return continueWith(reader, appendPet(std::move(base), pet));
@@ -1941,7 +1917,6 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
 
         BattleData next = GetCurrentBattleSnapshot();
         next.roundChangeSids = std::move(sids);
-        next.roundWaitTime = waitTime;
         ++next.round;
         const int32_t roundNumber = next.round;
         ReplaceCurrentBattle(std::move(next));
@@ -2351,7 +2326,6 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
                           L"你已使用6次药剂，无法再使用";
         }
 
-        next.lastCmdType = params;
         next.lastRound = round;
         BattleActivity::SyncAutoBattle(next, false);
         ReplaceCurrentBattle(std::move(next));
@@ -2477,13 +2451,6 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         sendPrompt(L"战斗结束", results.empty() ? L"双方战斗结束" :
                    L"双方战斗结束，服务端返回" + std::to_wstring(results.size()) + L"条结算记录");
 
-        // 结算明细补进快照，供后续 NEWEXP/FSPK 继续挂到同一份战场数据上；
-        // active 已经在上面的第一步置 false，UI 不会重新画出战场。
-        {
-            BattleData ended = GetCurrentBattleSnapshot();
-            ended.endResults = std::move(results);
-            ReplaceCurrentBattle(std::move(ended));
-        }
         return;
     }
 
@@ -2495,10 +2462,6 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         if (!reader.ReadI32(fspk.win)) return;
         fspk.hasReward = fspk.win >= 0;
         if (fspk.hasReward && (!reader.ReadI32(fspk.xianli) || !reader.ReadI32(fspk.zhangong))) return;
-        BattleData next = GetCurrentBattleSnapshot();
-        next.hasFspk = true;
-        next.fspk = fspk;
-        ReplaceCurrentBattle(std::move(next));
         sendJson(L"战斗结算", L"{\"params\":" + std::to_wstring(params) +
                  L",\"win\":" + std::to_wstring(fspk.win) +
                  L",\"xianli\":" + std::to_wstring(fspk.xianli) +
@@ -2523,10 +2486,6 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         } else if (params == BufDataType::COMBAT_SITE_DEL) {
             if (!reader.ReadI32(site.id)) return;
         }
-        BattleData next = GetCurrentBattleSnapshot();
-        next.hasSite = true;
-        next.site = site;
-        ReplaceCurrentBattle(std::move(next));
         sendJson(L"战斗场地", L"{\"params\":" + std::to_wstring(params) +
                  L",\"sn\":" + std::to_wstring(site.sn) +
                  L",\"id\":" + std::to_wstring(site.id) +
@@ -2553,8 +2512,6 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         BattleActivity::SyncAutoBattle(next, false);
         // Site effects are transient BATTLE_BUF events in AS3; do not persist
         // the recovery marker as a normal Buff row.
-        next.hasSite = true;
-        next.site = site;
         ReplaceCurrentBattle(std::move(next));
 
         UpdateUIBattleData();
