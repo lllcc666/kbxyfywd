@@ -35,7 +35,7 @@ def embed_html_to_header(html_file_path, header_file_path):
     try:
         with open(html_file_path, 'r', encoding='utf-8') as f:
             html_content = f.read()
-        
+
         # 压缩HTML内容
         html_content = compress_html(html_content)
         

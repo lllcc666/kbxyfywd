@@ -33,6 +33,7 @@ add_executable(WebView2Demo WIN32
     ${SRC_DIR}/hook/activity_minigames.cpp
     ${SRC_DIR}/hook/activity_counts.cpp
     ${SRC_DIR}/hook/battle.cpp
+    ${SRC_DIR}/hook/battle_activity_hooks.cpp
     ${SRC_DIR}/hook/collect.cpp
     ${SRC_DIR}/hook/dungeon_deepdig.cpp
     ${SRC_DIR}/hook/bag_items.cpp
@@ -48,6 +49,7 @@ add_executable(WebView2Demo WIN32
     ${SRC_DIR}/core/utils.cpp
     ${SRC_DIR}/core/managed_thread.cpp
     ${SRC_DIR}/protocol/packet_parser.cpp
+    ${SRC_DIR}/protocol/battle_session.cpp
     ${SRC_DIR}/protocol/packet_builder.cpp
     ${SRC_DIR}/core/ui_bridge.cpp
     ${SRC_DIR}/core/web_message_handler.cpp
@@ -198,3 +200,11 @@ if(MSVC)
     set_property(TARGET WebView2Demo PROPERTY
         MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 endif()
+
+# 让 VS 解决方案按目录分组，避免 60+ 源文件平铺。
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "src" FILES
+    ${SRC_DIR}/app/demo.cpp
+    ${SRC_DIR}/app/app_host.cpp
+    ${SRC_DIR}/protocol/packet_parser.cpp
+    ${SRC_DIR}/protocol/battle_session.cpp
+)

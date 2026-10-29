@@ -1224,13 +1224,13 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
 
             if (autoRestartCount < MAX_CONSECUTIVE_RESTARTS) {
                 BattleData activeBattle = PacketParser::GetCurrentBattleSnapshot();
-                if (!activeBattle.myPets.empty() || !activeBattle.otherPets.empty()) {
+                if (activeBattle.active) {
                     UpdateTaskZoneUi(L"任务区：等待残留战斗完全结束后再恢复...", true);
                     const DWORD drainStart = GetTickCount();
                     while (g_taskZoneRunning.load() &&
                            g_taskZoneSession.load() == sessionId) {
                         activeBattle = PacketParser::GetCurrentBattleSnapshot();
-                        if (activeBattle.myPets.empty() && activeBattle.otherPets.empty()) {
+                        if (!activeBattle.active) {
                             break;
                         }
                         if (GetTickCount() - drainStart >= BATTLE_DRAIN_TIMEOUT_MS) {
@@ -1242,7 +1242,7 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
                         break;
                     }
                     activeBattle = PacketParser::GetCurrentBattleSnapshot();
-                    if (!activeBattle.myPets.empty() || !activeBattle.otherPets.empty()) {
+                    if (activeBattle.active) {
                         UpdateTaskZoneUi(L"任务区：残留战斗未结束，停止自动重启", false);
                         break;
                     }

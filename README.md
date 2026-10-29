@@ -95,6 +95,7 @@ kbwebui/
 ### `src/protocol/`
 
 - `packet_parser.cpp` — 封包解析、Opcode/Params 识别、zlib 解压、data.zip 解析、战斗数据
+- `battle_session.cpp` — 战斗会话唯一状态源（Begin/Replace/End/Snapshot + sessionId）
 - `packet_builder.cpp` — 封包构造
 
 ### `src/hook/`（一活动一模块）
@@ -112,7 +113,8 @@ kbwebui/
 | `story_task.cpp` | 主线任务（含战斗收尾、配方表驱动） |
 | `eight_trigrams.cpp` | 任务区 / 八卦灵盘 |
 | `battle_six.cpp` | 战斗六人本（战斗流程阶段机 + 看门狗） |
-| `battle.cpp` | 通用战斗发包 |
+| `battle.cpp` | 通用战斗发包（CLICK_NPC / BATTLE_READY / BATTLE_PLAY_OVER / BATTLE_END_SEND） |
+| `battle_activity_hooks.cpp` | 协议层 → 活动层的战斗事件窄接口 |
 | `shuangtai.cpp` | 双台自动战斗 |
 | `spirit_collect.cpp` | 精灵采集 |
 | `dungeon_jump.cpp` / `dungeon_deepdig.cpp` | 跳图 / 地宫挖宝 |

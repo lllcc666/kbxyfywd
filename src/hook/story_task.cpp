@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "battle_packets.h"
 #include "activity_states_internal.h"
 #include "battle_six.h"
 #include "hook_shared.h"

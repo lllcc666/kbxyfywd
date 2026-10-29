@@ -5,6 +5,7 @@
 #include <unordered_map>
 
 #include "packet_types.h"
+#include "i_packet_sink.h"
 #include "wpe_hook.h"
 #include "utils.h"
 
@@ -97,7 +98,7 @@ private:
 // Response dispatcher
 // ============================================================================
 
-class ResponseDispatcher {
+class ResponseDispatcher : public IPacketSink {
 public:
     static ResponseDispatcher& Instance();
 
@@ -105,6 +106,7 @@ public:
     BOOL Register(uint32_t opcode, uint32_t params, ResponseHandler handler);
     void Unregister(uint32_t opcode, uint32_t params = 0xFFFFFFFF);
     BOOL Dispatch(const GamePacket& packet);
+    void OnPacket(const GamePacket& packet) override { (void)Dispatch(packet); }
     void Clear();
     void InitializeDefaultHandlers();
 

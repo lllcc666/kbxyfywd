@@ -1,4 +1,6 @@
 #include "app_host.h"
+#include "iapp_host.h"
+#include "packet_io.h"
 
 #include <windows.h>
 #include <exdisp.h>
@@ -7,7 +9,6 @@
 #include <string>
 
 extern CComPtr<IWebBrowser2> g_pWebBrowser;
-extern HWND g_hWnd;
 extern HWND g_hwnd_webbrowser;
 extern bool g_is_packet_window_visible;
 extern RECT g_packet_window_rect;
@@ -27,6 +28,29 @@ std::wstring ShowOpenFileDialog(const std::wstring& initialDir = L"",
                                 const std::wstring& filter = L"");
 
 namespace AppHost {
+
+namespace {
+
+class DesktopAppHost final : public IAppHost {
+public:
+    HWND GetMainWindow() override { return ::AppHost::GetMainWindow(); }
+    void ExecuteScript(const std::wstring& script) override { ::AppHost::ExecuteScript(script); }
+    void ShowBrowserWindow(bool show) override { ::AppHost::ShowBrowserWindow(show); }
+    bool IsPacketWindowVisible() override { return ::AppHost::IsPacketWindowVisible(); }
+};
+
+DesktopAppHost g_desktopAppHost;
+
+}  // namespace
+
+IAppHost& Instance() { return g_desktopAppHost; }
+
+HWND GetMainWindow() {
+    if (!g_hWnd) {
+        g_hWnd = FindWindowW(L"WebView2DemoWindowClass", nullptr);
+    }
+    return g_hWnd;
+}
 
 void BeginWindowDrag() {
     if (!g_hWnd) {

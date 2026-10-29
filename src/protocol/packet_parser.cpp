@@ -3,10 +3,11 @@
 #include "bounded_reader.h"
 #include <MemoryModule.h>
 #include "zlib.h"
-#include "battle_six.h"
-#include "dungeon_jump.h"
-#include "shuangtai.h"
-#include "wpe_hook.h"
+#include "battle_roster.h"
+#include "battle_activity_hooks.h"
+#include "app_host.h"
+#include "iapp_host.h"
+#include "packet_io.h"
 #include "ui_bridge.h"
 #include "utils.h"
 #include <wininet.h>
@@ -21,17 +22,20 @@
 // 轻量级ZIP解压辅助函数（纯内存，使用已加载的zlib）
 #include "embedded/minizip_helper.h"
 
-// 外部窗口句柄（来自demo.cpp）
-extern HWND g_hWnd;
-
 // minizip module and functions
-BattleData PacketParser::g_currentBattle;
-std::mutex PacketParser::g_battleMutex;
 // 拼包缓冲上限：对端持续发数据却拼不出完整包时清空重来，避免无限增长。
 static constexpr size_t kMaxReceiveBufferBytes = 8u * 1024u * 1024u;
 
 std::vector<uint8_t> PacketParser::g_recvBuffer;
 std::mutex g_parserLifecycleMutex;
+
+
+// 战斗包解析的串行化锁。
+// 每个战斗分支都是"取快照 → 改 → 写回"（BattleSession::Replace），中间会调用
+// BattleActivity::SyncAutoBattle 等外部代码。如果两条线程同时处理两个战斗包，
+// 后写回的那条会把另一条刚算出的血量/状态覆盖掉 —— 表现就是"偶尔掉血不生效"。
+// 用 recursive_mutex：ProcessBattlePacketSafe 内部会调用 ClearBattleState。
+static std::recursive_mutex g_battleParseMutex;
 
 // 全局数据映射表的互斥锁
 static std::mutex g_dataMapsMutex;
@@ -406,6 +410,10 @@ static void ApplyBattleBufToPet(BattleEntity& pet, const BufData& sourceBuf) {
     bool replaced = false;
     for (auto& existing : pet.bufArr) {
         if (existing.bufId == buf.bufId) {
+            // BATTLE_BUFS 这类同步包不带剩余回合数（round 恒为 0）。若直接整条替换，
+            // 面板上本来显示“剩余 3 回合”的状态会被打回 0 并被 UI 隐藏回合数。
+            // 只有在新的 round > 0 时才更新，否则沿用已有的。
+            if (buf.round == 0) buf.round = existing.round;
             existing = buf;
             replaced = true;
             break;
@@ -429,11 +437,38 @@ static void RemoveBattleBufFromPet(BattleEntity& pet, int32_t bufId) {
     }
 }
 
+static bool BattlePetHasBuf(const BattleEntity& pet, int32_t bufId) {
+    for (const auto& buf : pet.bufArr) {
+        if (buf.bufId == bufId) return true;
+    }
+    return false;
+}
+
+/// 按 uniqueId 在双方名册里找实体（跳过占位槽）。用于“换宠提示/日志”等只读场景。
+static const BattleEntity* FindBattleEntityByUniqueId(const BattleData& battle, int32_t uniqueId) {
+    if (uniqueId == 0) return nullptr;
+    for (const auto& pet : battle.myPets) {
+        if (!pet.placeholder && pet.uniqueId == uniqueId) return &pet;
+    }
+    for (const auto& pet : battle.otherPets) {
+        if (!pet.placeholder && pet.uniqueId == uniqueId) return &pet;
+    }
+    return nullptr;
+}
+
 
 static BattleEntity* FindBattleEntityBySid(BattleData& battle, int32_t sid) {
     // sid == 0 是"没填"：未揭示的占位妖怪 sid 也是 0，按 0 去找会一路挂到
     // 列表里第一只占位身上（表现就是状态/掉血显示在第一只妖怪上）。
     if (sid == 0) return nullptr;
+    // 先取在场那只：换宠可能让同一个 sid 在名册里出现两次（旧槽位留在原地
+    // 未清掉），直接返回第一个会命中已经下场的那份，提示与面板就对不上。
+    for (auto& pet : battle.myPets) {
+        if (pet.sid == sid && pet.state == 1) return &pet;
+    }
+    for (auto& pet : battle.otherPets) {
+        if (pet.sid == sid && pet.state == 1) return &pet;
+    }
     for (auto& pet : battle.myPets) {
         if (pet.sid == sid) return &pet;
     }
@@ -446,6 +481,12 @@ static BattleEntity* FindBattleEntityBySid(BattleData& battle, int32_t sid) {
 static const BattleEntity* FindBattleEntityBySid(const BattleData& battle, int32_t sid) {
     if (sid == 0) return nullptr;  // 0 = 未填，别匹配到 sid 也为 0 的占位妖怪
     for (const auto& pet : battle.myPets) {
+        if (pet.sid == sid && pet.state == 1) return &pet;
+    }
+    for (const auto& pet : battle.otherPets) {
+        if (pet.sid == sid && pet.state == 1) return &pet;
+    }
+    for (const auto& pet : battle.myPets) {
         if (pet.sid == sid) return &pet;
     }
     for (const auto& pet : battle.otherPets) {
@@ -454,83 +495,107 @@ static const BattleEntity* FindBattleEntityBySid(const BattleData& battle, int32
     return nullptr;
 }
 
-/**
- * @brief 该状态是不是"降低类"（打给对手）
- * @details 3/5/7/18/21/23 分别是速度/防御/攻击/法术/命中/抗性下降，
- *          其余状态（提升类、武甲这种技能自加状态）都是加在自己身上。
- */
-static bool IsDebuffBufId(int32_t bufId) {
-    return bufId == 3 || bufId == 5 || bufId == 7 || bufId == 18 || bufId == 21 || bufId == 23;
+static BattleEntity* FindBattleEntityBySidInTeam(std::vector<BattleEntity>& team, int32_t sid) {
+    if (sid == 0) return nullptr;
+    // 先找"正在场上"的那只（state == 1）。换宠会在名册里留下离场记录，若同一
+    // sid 出现两次（换宠包没匹配到 uniqueid、被当成新妖怪追加到队尾），
+    // 先撞到的那只可能是早已下场的旧槽位 —— 回合血量/PP 就全写到它身上，
+    // 面板上在场的那只永远不动（“换宠之后被攻击不掉血、技能不减 PP”）。
+    // AS3 battleRoundOpration 只拿本次出战的 playerRole/otherRole 比 sid，
+    // 从不在整份名册里遍历，这里先按 state == 1 收敛，语义与之一致。
+    for (auto& pet : team) {
+        if (pet.sid == sid && pet.state == 1) return &pet;
+    }
+    for (auto& pet : team) {
+        if (pet.sid == sid) return &pet;
+    }
+    return nullptr;
+}
+
+
+static bool BattleTeamHasSid(const std::vector<BattleEntity>& team, int32_t sid) {
+    if (sid == 0) return false;
+    for (const auto& pet : team) {
+        if (pet.sid == sid) return true;
+    }
+    return false;
+}
+static bool BattlePetHasSkill(const BattleEntity& pet, int32_t skillId) {
+    if (skillId <= 0) return false;
+    for (const auto& skill : pet.skills) {
+        if (static_cast<int32_t>(skill.id) == skillId) return true;
+    }
+    return false;
+}
+
+static bool BattleTeamHasSkill(const std::vector<BattleEntity>& team, int32_t skillId) {
+    for (const auto& pet : team) {
+        if (!pet.placeholder && BattlePetHasSkill(pet, skillId)) return true;
+    }
+    return false;
+}
+
+// 敌我两边的 sid 都可能从 1 开始，单靠 sid 会取到我方同号实体。
+// 优先用当前出战索引判断阵营；两个阵营同号时这就是唯一可靠的线索。
+static bool ResolveBattleSideByActiveSid(const BattleData& battle, int32_t sid, bool& isMySide) {
+    if (sid == 0) return false;
+    const bool myActive = battle.myActiveIndex >= 0 &&
+        battle.myActiveIndex < static_cast<int32_t>(battle.myPets.size()) &&
+        battle.myPets[static_cast<size_t>(battle.myActiveIndex)].sid == sid;
+    const bool otherActive = battle.otherActiveIndex >= 0 &&
+        battle.otherActiveIndex < static_cast<int32_t>(battle.otherPets.size()) &&
+        battle.otherPets[static_cast<size_t>(battle.otherActiveIndex)].sid == sid;
+    if (myActive != otherActive) {
+        isMySide = myActive;
+        return true;
+    }
+    return false;
 }
 
 /**
  * @brief 找到状态真正该挂在哪只妖怪身上
- * @details 不能用 FindBattleEntityBySid 一把梭：
- *          1) 敌我两边的 sid 都是从 1 开始排的，同一个 sid 两边都有实体，
- *             老写法先在 myPets 里找，敌方状态会挂到我方同号（常常是第一只）身上；
- *          2) 部分封包的 defId 给的是 uniqueId（配置ID）而不是战斗 sid；
- *          3) defId 为 0 时服务端的意思是"施法者自己"（武甲这类自加状态就是这样）。
- *          所以这里按 sid → uniqueId → atkId 依次降级，并且重号时优先出战中的那只。
+ * @details AS3 的判定非常简单（BaseInfoPanel.as:460-521 addBuf / 523-541 delBuf）：
+ *          直接把 `defid` 和“我方当前出战那只的 sid”“敌方当前出战那只的 sid”比较。
+ *          sid 在一场战斗内是全局唯一的，所以：
+ *            1) 先按 sid 找，命中唯一一只就用它 —— 这是唯一权威路径；
+ *            2) sid 一个都命中不了，才怀疑封包给的是配置 ID（uniqueId）；
+ *            3) defId == 0 表示“施法者自己”，回落到 atkId。
+ *          旧实现额外按“这是不是降低类状态”把阵营翻到对面，那是自创启发式：只要
+ *          defId 明明已经指定了目标，翻转就会把状态挂到对面那只身上（面板表现为
+ *          “自己的增益跑到敌人身上”）。这里去掉翻转，只在真有多只同时命中时才用
+ *          “出战优先 / 施法方优先”挑一只。
  */
 static BattleEntity* ResolveBufTargetEntity(BattleData& battle, const BufData& buf) {
-    auto collect = [&](std::vector<BattleEntity>& team, std::vector<BattleEntity*>& out, int key, bool byUnique) {
+    auto collect = [](std::vector<BattleEntity>& team, std::vector<BattleEntity*>& out,
+                      int32_t key, bool byUnique) {
+        if (key == 0) return;
         for (auto& pet : team) {
-            if (key == 0) continue;
             if (byUnique ? pet.uniqueId == key : pet.sid == key) out.push_back(&pet);
         }
     };
 
-    // 出手方在哪一边：用来在敌我 sid 重号时选对阵营
-    int casterSide = 0;  // 1 = 我方, -1 = 敌方, 0 = 未知
-    if (buf.atkId != 0) {
-        for (const auto& pet : battle.myPets) {
-            if (pet.sid == buf.atkId) { casterSide = 1; break; }
-        }
-        if (casterSide == 0) {
-            for (const auto& pet : battle.otherPets) {
-                if (pet.sid == buf.atkId) { casterSide = -1; break; }
-            }
-        }
-    }
-
-    // 状态落在哪个阵营：降低类打对手，其余打自己（cast 方未知时按老习惯偏我方）
-    int targetSide = casterSide;
-    if (targetSide != 0 && IsDebuffBufId(buf.bufId)) targetSide = -targetSide;
-
-    auto pick = [targetSide](std::vector<BattleEntity*>& myHits,
-                             std::vector<BattleEntity*>& otherHits) -> BattleEntity* {
-        std::vector<BattleEntity*>& prefer = targetSide >= 0 ? myHits : otherHits;
-        std::vector<BattleEntity*>& fallback = targetSide >= 0 ? otherHits : myHits;
-        for (BattleEntity* pet : prefer) {
+    auto pickOne = [](std::vector<BattleEntity*>& hits) -> BattleEntity* {
+        if (hits.size() == 1) return hits.front();
+        for (BattleEntity* pet : hits) {
             if (pet->state == 1) return pet;
         }
-        if (!prefer.empty()) return prefer.front();
-        for (BattleEntity* pet : fallback) {
-            if (pet->state == 1) return pet;
-        }
-        if (!fallback.empty()) return fallback.front();
-        return nullptr;
+        return hits.empty() ? nullptr : hits.front();
     };
 
-    std::vector<BattleEntity*> myHits, otherHits;
-    collect(battle.myPets, myHits, buf.defId, false);
-    collect(battle.otherPets, otherHits, buf.defId, false);
-    if (!myHits.empty() || !otherHits.empty()) return pick(myHits, otherHits);
+    auto lookup = [&](int32_t key, bool byUnique) -> BattleEntity* {
+        std::vector<BattleEntity*> hits;
+        collect(battle.myPets, hits, key, byUnique);
+        collect(battle.otherPets, hits, key, byUnique);
+        return pickOne(hits);
+    };
 
-    // defId 对不上战斗 sid：可能给的是配置ID（uniqueId）
-    myHits.clear();
-    otherHits.clear();
-    collect(battle.myPets, myHits, buf.defId, true);
-    collect(battle.otherPets, otherHits, buf.defId, true);
-    if (!myHits.empty() || !otherHits.empty()) return pick(myHits, otherHits);
-
-    // defId 为 0：服务端意思是"施法者自己"（武甲这类自加状态）
-    if (buf.atkId != 0) {
-        myHits.clear();
-        otherHits.clear();
-        collect(battle.myPets, myHits, buf.atkId, false);
-        collect(battle.otherPets, otherHits, buf.atkId, false);
-        if (!myHits.empty() || !otherHits.empty()) return pick(myHits, otherHits);
+    // 1) sid（权威路径）
+    if (BattleEntity* pet = lookup(buf.defId, false)) return pet;
+    // 2) 封包偶尔给配置 ID
+    if (BattleEntity* pet = lookup(buf.defId, true)) return pet;
+    // 3) defId 为 0 = 施法者自己（武甲这类自加状态）
+    if (buf.defId == 0 && buf.atkId != 0) {
+        if (BattleEntity* pet = lookup(buf.atkId, false)) return pet;
     }
     return nullptr;
 }
@@ -544,85 +609,128 @@ static void ApplyBattleBufToBattle(BattleData& battle, int32_t sid, const BufDat
 }
 
 static void RemoveBattleBufFromBattle(BattleData& battle, int32_t sid, int32_t bufId) {
+    // 对齐 AS3 BaseInfoPanel.delBuf(523-541)：它用**两个独立的 if** 比较
+    // `playerinfo.sid == defId` 与 `otherinfo.sid == defId`，命中哪边就删哪边。
+    // sid 是全局唯一键，正常只会命中一只；旧实现先"二选一"再删，一旦两边都有
+    // 同号实体就会漏删（状态永远挂在面板上不掉）。
+    bool removed = false;
+    if (sid != 0) {
+        if (BattleEntity* mine = FindBattleEntityBySidInTeam(battle.myPets, sid)) {
+            RemoveBattleBufFromPet(*mine, bufId);
+            removed = true;
+        }
+        if (BattleEntity* theirs = FindBattleEntityBySidInTeam(battle.otherPets, sid)) {
+            RemoveBattleBufFromPet(*theirs, bufId);
+            removed = true;
+        }
+    }
+    if (removed) return;
+
+    // sid 对不上：可能给的是配置 ID，或者 defId==0（施法者自己）。
     BufData probe;
     probe.defId = sid;
     probe.bufId = bufId;
-    if (BattleEntity* pet = ResolveBufTargetEntity(battle, probe)) {
-        RemoveBattleBufFromPet(*pet, bufId);
+    if (BattleEntity* target = ResolveBufTargetEntity(battle, probe)) {
+        RemoveBattleBufFromPet(*target, bufId);
     }
 }
 
-static void AdjustBattleEntityHp(BattleData& battle, int32_t sid, int32_t delta) {
-    if (BattleEntity* pet = FindBattleEntityBySid(battle, sid)) {
-        const int64_t nextHp = static_cast<int64_t>(pet->hp) + delta;
-        if (nextHp < 0) pet->hp = 0;
-        else if (nextHp > pet->maxHp) pet->hp = pet->maxHp;
-        else pet->hp = static_cast<int32_t>(nextHp);
-
-    }
+static void AdjustBattleEntityHp(BattleEntity* pet, int32_t delta) {
+    if (!pet) return;
+    const int64_t nextHp = static_cast<int64_t>(pet->hp) + delta;
+    if (nextHp < 0) pet->hp = 0;
+    else if (nextHp > pet->maxHp) pet->hp = pet->maxHp;
+    else pet->hp = static_cast<int32_t>(nextHp);
 }
+
+// 状态/伤害包的 defId 是目标 sid，atkId 是施法者。敌我 sid 重号时不能
+// 直接 FindBattleEntityBySid 取第一个：先按当前出战索引判断施法方，再按
+// “伤害打对面 / 治疗给自己”的规则取目标阵营。
+static BattleEntity* ResolveBattleEffectTarget(BattleData& battle, int32_t defId,
+                                                int32_t atkId, bool selfTarget) {
+    if (defId == 0) defId = atkId;
+    if (defId == 0) return nullptr;
+    BattleEntity* my = FindBattleEntityBySidInTeam(battle.myPets, defId);
+    BattleEntity* other = FindBattleEntityBySidInTeam(battle.otherPets, defId);
+    if (!my && !other) return nullptr;
+    if (my && !other) return my;
+    if (other && !my) return other;
+
+    bool atkIsMy = false;
+    const bool known = ResolveBattleSideByActiveSid(battle, atkId, atkIsMy);
+    // defId == atkId 是反伤/自伤类状态，目标必然和施法者同侧。
+    if (defId == atkId) return known ? (atkIsMy ? my : other) : my;
+    const bool wantMy = known ? (selfTarget ? atkIsMy : !atkIsMy) : true;
+    return wantMy ? my : other;
+}
+
 static void ApplyBattleBuffBloodEffect(BattleData& battle, const BufData& buf) {
     switch (buf.bufId) {
-        case 2: case 9: case 17: case 24: case 29: case 33: case 34: case 59: case 95: case 104: case 113:
-            AdjustBattleEntityHp(battle, buf.defId, -buf.param1);
+        case 2: case 9: case 17: case 24: case 29: case 33: case 34: case 59: case 95: case 104: case 113: {
+            BattleEntity* target = ResolveBattleEffectTarget(battle, buf.defId, buf.atkId, false);
+            AdjustBattleEntityHp(target, -buf.param1);
             if (buf.bufId == 33 && buf.param2 != 0) {
                 const BattleEntity* activeMy = battle.myActiveIndex >= 0 && battle.myActiveIndex < static_cast<int32_t>(battle.myPets.size()) ? &battle.myPets[battle.myActiveIndex] : nullptr;
                 const BattleEntity* activeOther = battle.otherActiveIndex >= 0 && battle.otherActiveIndex < static_cast<int32_t>(battle.otherPets.size()) ? &battle.otherPets[battle.otherActiveIndex] : nullptr;
                 if (activeMy && activeOther) {
-                    AdjustBattleEntityHp(battle, buf.defId == activeMy->sid ? activeOther->sid : activeMy->sid, buf.param2);
+                    BattleEntity* reboundTarget = target == activeMy ? &battle.otherPets[battle.otherActiveIndex] : &battle.myPets[battle.myActiveIndex];
+                    AdjustBattleEntityHp(reboundTarget, buf.param2);
                 }
             }
             break;
+        }
         case 36: case 37: case 45: case 46: case 62: case 103: case 9999:
-            AdjustBattleEntityHp(battle, buf.defId, buf.param1);
+            AdjustBattleEntityHp(ResolveBattleEffectTarget(battle, buf.defId, buf.atkId, true), buf.param1);
             break;
         default:
             break;
     }
 }
-static void ApplyBattlePpDelta(BattleData& battle, int32_t sid, int32_t delta) {
-    if (BattleEntity* pet = FindBattleEntityBySid(battle, sid)) {
-        for (auto& skill : pet->skills) {
-            const int64_t nextPp = static_cast<int64_t>(skill.pp) + delta;
-            if (nextPp < 0) skill.pp = 0;
-            else if (nextPp > skill.maxPp) skill.pp = skill.maxPp;
-            else skill.pp = static_cast<int32_t>(nextPp);
-
-            skill.time = skill.pp;
-        }
+static void ApplyBattlePpDelta(BattleData& battle, int32_t sid, int32_t atkId,
+                               int32_t delta, bool selfTarget) {
+    BattleEntity* pet = ResolveBattleEffectTarget(battle, sid, atkId, selfTarget);
+    if (!pet) return;
+    // 对齐 AS3 handlePPChange(1627-1659)：整只妖怪的**所有技能**一起加减，
+    // 结果夹到 [0, maxtime]。maxPp 未知（<=0）时不能当成上限 0 去夹，
+    // 否则一次 type3 事件就会把全部技能 PP 清零。
+    for (auto& skill : pet->skills) {
+        int64_t nextPp = static_cast<int64_t>(skill.pp) + delta;
+        if (nextPp < 0) nextPp = 0;
+        if (skill.maxPp > 0 && nextPp > skill.maxPp) nextPp = skill.maxPp;
+        skill.pp = static_cast<int32_t>(nextPp);
+        skill.time = skill.pp;
     }
 }
-static void ApplyBattleSkillPpDelta(BattleData& battle, int32_t sid, int32_t skillId, int32_t delta) {
-    if (BattleEntity* pet = FindBattleEntityBySid(battle, sid)) {
-        for (auto& skill : pet->skills) {
-            if (static_cast<int32_t>(skill.id) != skillId) continue;
-            const int64_t nextPp = static_cast<int64_t>(skill.pp) + delta;
-            skill.pp = static_cast<int32_t>(std::max<int64_t>(0, std::min<int64_t>(skill.maxPp, nextPp)));
-            skill.time = skill.pp;
-            return;
-        }
+static void ApplyBattleSkillPpDelta(BattleData& battle, int32_t sid, int32_t atkId,
+                                   int32_t skillId, int32_t delta) {
+    BattleEntity* pet = ResolveBattleEffectTarget(battle, sid, atkId, false);
+    if (!pet) return;
+    for (auto& skill : pet->skills) {
+        if (static_cast<int32_t>(skill.id) != skillId) continue;
+        int64_t nextPp = static_cast<int64_t>(skill.pp) + delta;
+        if (nextPp < 0) nextPp = 0;
+        if (skill.maxPp > 0 && nextPp > skill.maxPp) nextPp = skill.maxPp;
+        skill.pp = static_cast<int32_t>(nextPp);
+        skill.time = skill.pp;
+        return;
     }
 }
 /**
  * @brief 扣除出手方所用技能的 PP
- * @details AS3 在 BattleView 里对出手方（我方或敌方）都会 time--，
- *          带 76 号状态（PP 消耗翻倍）时再额外 -1。
- *          旧实现有两个问题：
- *          1) `if (!pet || !pet->mySpirit) return;` —— 敌方 PP 永远不扣；
- *          2) 用 sid 在双方队伍里查实体，敌我 sid 相同（都是 1~6）时会扣错人，
- *             表现就是"打了半天 PP 一点没变"。
- *          现在按"该 sid 在哪一方 + 当前出战方"判定归属，双方都扣。
+ * @details AS3 BattleView.deductSkillPP(1925-1939) 的全部语义只有三步：
+ *            `if (skillid == skillId && time > 0) { --time;
+ *              if (hasDoubleCost && time > 0) --time; break; }`
+ *          要点：
+ *            1) **time > 0 才扣**（已经是 0 的技能不会被扣成负数，也不会“扣到别的技能上”）；
+ *            2) 76 号状态（PP 消耗翻倍）的第二次扣减要再判一次 time > 0；
+ *            3) 命中即 break —— 只扣一个技能，不继续找同 id 的后续项。
+ *          旧实现没有 time > 0 前置，会把 0 PP 的技能压成负数;同时用 sid 在双方
+ *          队伍里"二选一"，同号时会扣到对面那只身上（表现就是"打了半天 PP 一点没变"）。
  */
 static bool DecreaseBattleSkillPp(BattleData& battle, int32_t sid, int32_t skillId, bool mySideHint) {
-    if (skillId <= 0) return false;
-    auto findInTeam = [sid](std::vector<BattleEntity>& team) -> BattleEntity* {
-        for (auto& pet : team) {
-            if (pet.sid == sid) return &pet;
-        }
-        return nullptr;
-    };
-    BattleEntity* myPet = findInTeam(battle.myPets);
-    BattleEntity* otherPet = findInTeam(battle.otherPets);
+    if (skillId <= 0 || sid == 0) return false;
+    BattleEntity* myPet = FindBattleEntityBySidInTeam(battle.myPets, sid);
+    BattleEntity* otherPet = FindBattleEntityBySidInTeam(battle.otherPets, sid);
     BattleEntity* pet = nullptr;
     if (myPet != nullptr && otherPet != nullptr) {
         pet = mySideHint ? myPet : otherPet;
@@ -631,81 +739,18 @@ static bool DecreaseBattleSkillPp(BattleData& battle, int32_t sid, int32_t skill
     }
     if (pet == nullptr) return false;
 
-    int delta = -1;
-    for (const auto& buf : pet->bufArr) {
-        if (buf.bufId == 76) { delta = -2; break; }
-    }
+    const bool doubleCost = BattlePetHasBuf(*pet, 76);
     for (auto& skill : pet->skills) {
-        if (static_cast<int32_t>(skill.id) == skillId) {
-            skill.pp = skill.pp + delta < 0 ? 0 : skill.pp + delta;
-            skill.time = skill.pp;
-            return true;
-        }
+        if (static_cast<int32_t>(skill.id) != skillId) continue;
+        if (skill.time <= 0) return false;  // AS3: time > 0 才扣
+        --skill.time;
+        if (doubleCost && skill.time > 0) --skill.time;
+        if (skill.time < 0) skill.time = 0;
+        if (skill.maxPp > 0 && skill.time > skill.maxPp) skill.time = skill.maxPp;
+        skill.pp = skill.time;  // pp 是 UI 展示镜像，必须跟 time 保持一致
+        return true;
     }
     return false;
-}
-static void CopyBattleSixSpirit(const BattleEntity& source, BattleSixSpiritInfo& target) {
-    target.sid = source.sid;
-    target.spiritId = source.spiritId;
-    target.uniqueId = source.uniqueId;
-    target.userId = source.userId;
-    target.hp = source.hp;
-    target.maxHp = source.maxHp;
-    target.level = source.level;
-    target.element = source.elem;
-    target.isDead = source.hp <= 0;
-    target.name = source.name;
-    target.skills.clear();
-    target.skills.reserve(source.skills.size());
-    for (const auto& sourceSkill : source.skills) {
-        BattleSixSkillInfo skill;
-        skill.skillId = static_cast<int>(sourceSkill.id);
-        skill.currentPP = sourceSkill.pp;
-        skill.maxPP = sourceSkill.maxPp;
-        skill.available = sourceSkill.pp > 0;
-        skill.name = sourceSkill.name;
-        {
-            std::lock_guard<std::mutex> lock(g_dataMapsMutex);
-            const auto powerIt = g_skillPowers.find(skill.skillId);
-            if (powerIt != g_skillPowers.end()) skill.power = powerIt->second;
-        }
-        target.skills.push_back(std::move(skill));
-    }
-}
-static void SyncBattleSixAutoBattleState(const BattleData& battle, bool initialize) {
-    std::lock_guard<std::recursive_mutex> stateLock(g_battleSixAuto.GetStateMutex());
-    if (!g_battleSixAuto.IsAutoBattleEnabled()) return;
-    if (initialize) {
-        g_battleSixAuto.StartBattle();
-        g_battleSixAuto.GetMySpirits().clear();
-        g_battleSixAuto.GetEnemySpirits().clear();
-    }
-    if (!g_battleSixAuto.IsInBattle()) return;
-    auto syncTeam = [](const std::vector<BattleEntity>& source, std::vector<BattleSixSpiritInfo>& target, int32_t activeIndex) {
-        int activeTargetIndex = -1;
-        for (size_t sourceIndex = 0; sourceIndex < source.size(); ++sourceIndex) {
-            const BattleEntity& sourceSpirit = source[sourceIndex];
-            if (sourceSpirit.placeholder || sourceSpirit.spiritId == 0) continue;
-            int targetIndex = -1;
-            for (size_t i = 0; i < target.size(); ++i) {
-                if (sourceSpirit.uniqueId != 0 && target[i].uniqueId == sourceSpirit.uniqueId) { targetIndex = static_cast<int>(i); break; }
-                if (targetIndex < 0 && sourceSpirit.sid != 0 && target[i].sid == sourceSpirit.sid) targetIndex = static_cast<int>(i);
-            }
-            if (targetIndex < 0) { target.emplace_back(); targetIndex = static_cast<int>(target.size() - 1); }
-            CopyBattleSixSpirit(sourceSpirit, target[targetIndex]);
-            target[targetIndex].position = targetIndex;
-            if (static_cast<int32_t>(sourceIndex) == activeIndex || sourceSpirit.state == 1) activeTargetIndex = targetIndex;
-        }
-        return activeTargetIndex;
-    };
-    const int myActiveIndex = syncTeam(battle.myPets, g_battleSixAuto.GetMySpirits(), battle.myActiveIndex);
-    const int enemyActiveIndex = syncTeam(battle.otherPets, g_battleSixAuto.GetEnemySpirits(), battle.otherActiveIndex);
-    if (myActiveIndex >= 0) {
-        g_battleSixAuto.SetCurrentSpiritIndex(myActiveIndex);
-        g_battleSixAuto.SetMyUniqueId(g_battleSixAuto.GetMySpirits()[myActiveIndex].uniqueId);
-    }
-    if (enemyActiveIndex >= 0) g_battleSixAuto.SetEnemyActiveIndex(enemyActiveIndex);
-    g_battleSixAuto.RefreshEnemyTarget();
 }
 static bool ReadBattleEntityAfterState(BoundedReader& reader, int32_t rawState, BattleEntity& pet) {
     pet.rawState = rawState;
@@ -1088,11 +1133,7 @@ bool PacketParser::Initialize() {
 void PacketParser::Cleanup() {
     std::lock_guard<std::mutex> lifecycleLock(g_parserLifecycleMutex);
     g_recvBuffer.clear();
-    {
-        std::lock_guard<std::mutex> lock(g_battleMutex);
-        g_currentBattle = BattleData{};
-    }
-    g_battleStarted = false;
+    BattleSession::Instance().Reset();
 }
 
 bool PacketParser::UncompressBody(const std::vector<uint8_t>& compressed, std::vector<uint8_t>& decompressed) {
@@ -1153,9 +1194,8 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
         return false;
     }
 
-    std::lock_guard<std::mutex> lifecycleLock(g_parserLifecycleMutex);
-
     if (bSend) {
+        std::lock_guard<std::mutex> lifecycleLock(g_parserLifecycleMutex);
         if (size < PacketProtocol::HEADER_SIZE) {
             return false;
         }
@@ -1190,94 +1230,110 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
         return true;
     }
 
-    const bool hadPendingReceiveBytes = !g_recvBuffer.empty();
+    struct RawRecvPacket {
+        uint16_t magic = 0;
+        uint16_t length = 0;
+        uint32_t opcode = 0;
+        uint32_t params = 0;
+        std::vector<uint8_t> rawBody;
+    };
 
-
-    if (g_recvBuffer.size() + size > kMaxReceiveBufferBytes) {
-        // 缓冲堆到上限说明早就失了包边界（单包 body 最大 64KB）：整块丢掉并释放容量，
-        // 再从本次收到的数据重新对齐，而不是把这次的数据一起扔掉。
-        std::vector<uint8_t>().swap(g_recvBuffer);
-    }
-    const size_t newSize = g_recvBuffer.size() + size;
-    if (g_recvBuffer.capacity() < newSize) {
-        g_recvBuffer.reserve((std::max)(newSize, g_recvBuffer.capacity() * 2));
-    }
-    g_recvBuffer.insert(g_recvBuffer.end(), data, data + size);
-
-    if (g_recvBuffer.size() < PacketProtocol::HEADER_SIZE) {
-        return false;
-    }
-
-    size_t readOffset = 0;
-    const size_t dataSize = g_recvBuffer.size();
+    std::vector<RawRecvPacket> rawPackets;
     bool foundAny = false;
+    bool hadPendingReceiveBytes = false;
+    bool rewritable = false;
 
-    while (readOffset + PacketProtocol::HEADER_SIZE <= dataSize) {
-        const uint16_t magic = static_cast<uint16_t>(g_recvBuffer[readOffset]) |
-                               (static_cast<uint16_t>(g_recvBuffer[readOffset + 1]) << 8);
-        if (magic != PacketProtocol::MAGIC_NORMAL && magic != PacketProtocol::MAGIC_COMPRESSED) {
-            g_recvBuffer.clear();
-            return foundAny;
+    // 生命周期锁只保护 g_recvBuffer 的拼接/切片，zlib 解压放到锁外：
+    // Cleanup 不必再等一次大包解压完成。
+    {
+        std::lock_guard<std::mutex> lifecycleLock(g_parserLifecycleMutex);
+
+        hadPendingReceiveBytes = !g_recvBuffer.empty();
+
+        if (g_recvBuffer.size() + size > kMaxReceiveBufferBytes) {
+            std::vector<uint8_t>().swap(g_recvBuffer);
+        }
+        const size_t newSize = g_recvBuffer.size() + size;
+        if (g_recvBuffer.capacity() < newSize) {
+            g_recvBuffer.reserve((std::max)(newSize, g_recvBuffer.capacity() * 2));
+        }
+        g_recvBuffer.insert(g_recvBuffer.end(), data, data + size);
+
+        if (g_recvBuffer.size() >= PacketProtocol::HEADER_SIZE) {
+            size_t readOffset = 0;
+            const size_t dataSize = g_recvBuffer.size();
+
+            while (readOffset + PacketProtocol::HEADER_SIZE <= dataSize) {
+                const uint16_t magic = static_cast<uint16_t>(g_recvBuffer[readOffset]) |
+                                       (static_cast<uint16_t>(g_recvBuffer[readOffset + 1]) << 8);
+                if (magic != PacketProtocol::MAGIC_NORMAL && magic != PacketProtocol::MAGIC_COMPRESSED) {
+                    g_recvBuffer.clear();
+                    break;
+                }
+
+                const uint16_t bodyLength = static_cast<uint16_t>(g_recvBuffer[readOffset + 2]) |
+                                            (static_cast<uint16_t>(g_recvBuffer[readOffset + 3]) << 8);
+                const size_t packetSize = PacketProtocol::HEADER_SIZE + bodyLength;
+                if (readOffset + packetSize > dataSize) {
+                    break;
+                }
+
+                RawRecvPacket raw;
+                raw.magic = magic;
+                raw.length = bodyLength;
+                raw.opcode = static_cast<uint32_t>(g_recvBuffer[readOffset + 4]) |
+                             (static_cast<uint32_t>(g_recvBuffer[readOffset + 5]) << 8) |
+                             (static_cast<uint32_t>(g_recvBuffer[readOffset + 6]) << 16) |
+                             (static_cast<uint32_t>(g_recvBuffer[readOffset + 7]) << 24);
+                raw.params = static_cast<uint32_t>(g_recvBuffer[readOffset + 8]) |
+                             (static_cast<uint32_t>(g_recvBuffer[readOffset + 9]) << 8) |
+                             (static_cast<uint32_t>(g_recvBuffer[readOffset + 10]) << 16) |
+                             (static_cast<uint32_t>(g_recvBuffer[readOffset + 11]) << 24);
+                const size_t bodyStart = readOffset + PacketProtocol::HEADER_SIZE;
+                const size_t bodyEnd = bodyStart + bodyLength;
+                raw.rawBody.assign(g_recvBuffer.begin() + bodyStart,
+                                   g_recvBuffer.begin() + bodyEnd);
+                rawPackets.push_back(std::move(raw));
+                foundAny = true;
+                readOffset += packetSize;
+            }
+
+            if (readOffset > 0) {
+                g_recvBuffer.erase(g_recvBuffer.begin(), g_recvBuffer.begin() + readOffset);
+            }
         }
 
-        const uint16_t bodyLength = static_cast<uint16_t>(g_recvBuffer[readOffset + 2]) |
-                                    (static_cast<uint16_t>(g_recvBuffer[readOffset + 3]) << 8);
-        const size_t packetSize = PacketProtocol::HEADER_SIZE + bodyLength;
-        if (readOffset + packetSize > dataSize) {
-            break;
-        }
+        rewritable = !hadPendingReceiveBytes && foundAny && g_recvBuffer.empty();
+    }
 
+    outPackets.reserve(rawPackets.size());
+    for (auto& raw : rawPackets) {
         GamePacket packet;
-        packet.magic = magic;
-        packet.length = bodyLength;
+        packet.magic = raw.magic;
+        packet.length = raw.length;
         packet.bSend = FALSE;
-        packet.opcode = static_cast<uint32_t>(g_recvBuffer[readOffset + 4]) |
-                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 5]) << 8) |
-                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 6]) << 16) |
-                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 7]) << 24);
-        packet.params = static_cast<uint32_t>(g_recvBuffer[readOffset + 8]) |
-                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 9]) << 8) |
-                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 10]) << 16) |
-                        (static_cast<uint32_t>(g_recvBuffer[readOffset + 11]) << 24);
-
-        const size_t bodyStart = readOffset + PacketProtocol::HEADER_SIZE;
-        const size_t bodyEnd = bodyStart + bodyLength;
-        packet.rawBody.assign(g_recvBuffer.begin() + bodyStart,
-                              g_recvBuffer.begin() + bodyEnd);
+        packet.opcode = raw.opcode;
+        packet.params = raw.params;
+        packet.rawBody = std::move(raw.rawBody);
         packet.body = packet.rawBody;
 
-        if (magic == PacketProtocol::MAGIC_COMPRESSED) {
+        if (packet.magic == PacketProtocol::MAGIC_COMPRESSED) {
             std::vector<uint8_t> decompressed;
             if (UncompressBody(packet.body, decompressed)) {
                 packet.body = std::move(decompressed);
             }
         }
-
         outPackets.push_back(std::move(packet));
-        foundAny = true;
-        readOffset += packetSize;
-    }
-
-    if (readOffset > 0) {
-        g_recvBuffer.erase(g_recvBuffer.begin(), g_recvBuffer.begin() + readOffset);
     }
 
     if (canRewriteInput) {
-        *canRewriteInput = !hadPendingReceiveBytes && foundAny && g_recvBuffer.empty();
+        *canRewriteInput = rewritable;
     }
     return foundAny;
 }
 
 void PacketParser::SendToUI(const std::wstring& type, const std::wstring& data) {
-    // 如果 g_hWnd 为空，尝试查找窗口
-    if (!g_hWnd) {
-        g_hWnd = FindWindowW(L"WebView2DemoWindowClass", WpeHook::APP_WINDOW_TITLE_W);
-        if (!g_hWnd) {
-            g_hWnd = FindWindowW(L"WebView2DemoWindowClass", nullptr);
-        }
-    }
-    
-    if (!g_hWnd) return;
+    if (!AppHost::GetMainWindow()) return;
 
     // Build JS call: window.addBattleData('type', 'data')
     // 使用 EscapeJsonString 转义字符串，防止特殊字符导致 JavaScript 语法错误
@@ -1299,15 +1355,7 @@ void PacketParser::SendBossListToUI() {
 
     if (bossSnapshot.empty()) return;
     
-    // 如果 g_hWnd 为空，尝试查找窗口
-    if (!g_hWnd) {
-        g_hWnd = FindWindowW(L"WebView2DemoWindowClass", WpeHook::APP_WINDOW_TITLE_W);
-        if (!g_hWnd) {
-            g_hWnd = FindWindowW(L"WebView2DemoWindowClass", nullptr);
-        }
-    }
-    
-    if (!g_hWnd) return;
+    if (!AppHost::GetMainWindow()) return;
     
     std::wstring json = L"[";
     for (size_t i = 0; i < bossSnapshot.size(); i++) {
@@ -1406,141 +1454,160 @@ int GetSkillPower(int skillId, int fallbackPower) {
     return it != g_skillPowers.end() ? it->second : fallbackPower;
 }
 
+int GetSkillRange(int skillId, int fallbackRange) {
+    std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+    const auto it = g_skillRanges.find(skillId);
+    return it != g_skillRanges.end() ? it->second : fallbackRange;
+}
+
+std::wstring GetPetName(int petId) {
+    std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+    const auto it = g_petNames.find(petId);
+    return it != g_petNames.end() ? it->second : std::wstring();
+}
+
+std::wstring GetSkillName(int skillId) {
+    std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+    const auto it = g_skillNames.find(skillId);
+    return it != g_skillNames.end() ? it->second : std::wstring();
+}
+
+std::wstring GetElemName(int elemId) {
+    std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+    const auto it = g_elemNames.find(elemId);
+    return it != g_elemNames.end() ? it->second : std::wstring();
+}
+
+std::wstring GetGeniusName(int geniusId) {
+    std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+    const auto it = g_geniusNames.find(geniusId);
+    return it != g_geniusNames.end() ? it->second : std::wstring();
+}
+
+int GetPetElem(int petId) {
+    std::lock_guard<std::mutex> lock(g_dataMapsMutex);
+    const auto it = g_petElems.find(petId);
+    return it != g_petElems.end() ? it->second : 0;
+}
+
+namespace {
+
+void AppendJsonString(std::wstring& out, const std::wstring& value) {
+    out += L"\"" + UIBridge::EscapeJsonString(value) + L"\"";
+}
+
+void AppendBattleSkillJson(std::wstring& out, const BattleSkill& skill) {
+    out += L"{\"id\":" + std::to_wstring(skill.id);
+    out += L",\"name\":";
+    AppendJsonString(out, skill.name);
+    out += L",\"pp\":" + std::to_wstring(skill.pp);
+    out += L",\"maxPp\":" + std::to_wstring(skill.maxPp) + L"}";
+}
+
+void AppendBattleBufJson(std::wstring& out, const BufData& buf) {
+    out += L"{\"bufId\":" + std::to_wstring(buf.bufId);
+    out += L",\"name\":";
+    AppendJsonString(out, buf.name);
+    out += L",\"tipString\":";
+    AppendJsonString(out, buf.tipString);
+    out += L",\"round\":" + std::to_wstring(buf.round);
+    out += L",\"param1\":" + std::to_wstring(buf.param1);
+    out += L",\"param2\":" + std::to_wstring(buf.param2);
+    out += L",\"param3\":" + std::to_wstring(buf.param3);
+    out += L",\"param4\":" + std::to_wstring(buf.param4);
+    out += L",\"leftOrRight\":" + std::to_wstring(buf.leftOrRight);
+    out += L",\"addOrRemove\":" + std::to_wstring(buf.addOrRemove) + L"}";
+}
+
+void AppendBattleEntityJson(std::wstring& out, const BattleEntity& pet) {
+    out += L"{\"spiritId\":" + std::to_wstring(pet.spiritId);
+    out += L",\"name\":";
+    AppendJsonString(out, pet.name);
+    out += L",\"sid\":" + std::to_wstring(pet.sid);
+    out += L",\"uniqueId\":" + std::to_wstring(pet.uniqueId);
+    out += L",\"userId\":" + std::to_wstring(pet.userId);
+    out += L",\"groupType\":" + std::to_wstring(pet.groupType);
+    out += L",\"state\":" + std::to_wstring(pet.state);
+    out += L",\"rawState\":" + std::to_wstring(pet.rawState);
+    out += L",\"mNum\":" + std::to_wstring(pet.mNum);
+    out += L",\"hasMNum\":" + std::wstring(pet.hasMNum ? L"true" : L"false");
+    out += L",\"placeholder\":" + std::wstring(pet.placeholder ? L"true" : L"false");
+    out += L",\"hp\":" + std::to_wstring(pet.hp);
+    out += L",\"maxHp\":" + std::to_wstring(pet.maxHp);
+    out += L",\"level\":" + std::to_wstring(pet.level);
+    out += L",\"elem\":" + std::to_wstring(pet.elem);
+    out += L",\"skills\":[";
+    for (size_t i = 0; i < pet.skills.size(); ++i) {
+        if (i) out += L",";
+        AppendBattleSkillJson(out, pet.skills[i]);
+    }
+    out += L"],\"bufArr\":[";
+    for (size_t i = 0; i < pet.bufArr.size(); ++i) {
+        if (i) out += L",";
+        AppendBattleBufJson(out, pet.bufArr[i]);
+    }
+    out += L"]}";
+}
+
+void AppendBattleTeamJson(std::wstring& out, const std::vector<BattleEntity>& team) {
+    out += L"[";
+    for (size_t i = 0; i < team.size(); ++i) {
+        if (i) out += L",";
+        AppendBattleEntityJson(out, team[i]);
+    }
+    out += L"]";
+}
+
+/**
+ * @brief 把"出战索引"归一成合法值。
+ * @details BattleData::myActiveIndex/otherActiveIndex 用 -1 表示"还没确定"。
+ *          必须区分"未设置"和"=0"：两者都当作 0 的话，BATTLE_START 里
+ *          `state == 1` 的兜底永远失效，UI 就会一直画第 0 只。
+ */
+int32_t ResolveBattleActiveIndex(const std::vector<BattleEntity>& team, int32_t index) {
+    if (index >= 0 && index < static_cast<int32_t>(team.size())) return index;
+    for (size_t i = 0; i < team.size(); ++i) {
+        if (!team[i].placeholder && team[i].state == 1) return static_cast<int32_t>(i);
+    }
+    for (size_t i = 0; i < team.size(); ++i) {
+        if (!team[i].placeholder) return static_cast<int32_t>(i);
+    }
+    return -1;  // 空队伍：明确给出"没有出战妖怪"，别退化成 0
+}
+
+}  // namespace
+
 void PacketParser::UpdateUIBattleData() {
-    std::lock_guard<std::mutex> battleLock(g_battleMutex);
-    if (!g_hWnd) {
-        // 使用正确的窗口类名
-        g_hWnd = FindWindowW(L"WebView2DemoWindowClass", nullptr);
-        if (!g_hWnd) {
-            // 备用方案：通过窗口标题查找
-        g_hWnd = FindWindowW(nullptr, WpeHook::APP_WINDOW_TITLE_W);
-            if (!g_hWnd) {
-                return;
-            }
-        }
+    if (!AppHost::Instance().GetMainWindow()) {
+        return;
     }
 
-    // Convert BattleData to JSON string
+    uint64_t sessionId = 0;
+    const BattleData battle = BattleSession::Instance().Snapshot(&sessionId);
+
+    // 非战斗态只发一条清空指令，不序列化任何实体。
+    if (!battle.active) {
+        UIBridge::Instance().ExecuteJS(
+            L"if(window.clearBattleUI) { window.clearBattleUI(" +
+            std::to_wstring(sessionId) + L"); }");
+        return;
+    }
+
     std::wstring jsData = L"{";
-    const bool showBattleEntities = g_currentBattle.active;
-    
-    // My Pets
-    jsData += L"\"myPets\":[";
-    for (size_t i = 0; showBattleEntities && i < g_currentBattle.myPets.size(); ++i) {
-        const auto& p = g_currentBattle.myPets[i];
-        jsData += L"{\"spiritId\":" + std::to_wstring(p.spiritId) + 
-                  L",\"name\":\"" + UIBridge::EscapeJsonString(p.name.empty() ? L"" : p.name) + L"\"" +
-                  L",\"sid\":" + std::to_wstring(p.sid) +
-                  L",\"uniqueId\":" + std::to_wstring(p.uniqueId) +
-                  L",\"userId\":" + std::to_wstring(p.userId) +
-                  L",\"groupType\":" + std::to_wstring(p.groupType) +
-                  L",\"state\":" + std::to_wstring(p.state) +
-                  L",\"rawState\":" + std::to_wstring(p.rawState) +
-                  L",\"mNum\":" + std::to_wstring(p.mNum) +
-                  L",\"hasMNum\":" + std::wstring(p.hasMNum ? L"true" : L"false") +
-                  L",\"placeholder\":" + std::wstring(p.placeholder ? L"true" : L"false") +
-                  L",\"hp\":" + std::to_wstring(p.hp) + 
-                  L",\"maxHp\":" + std::to_wstring(p.maxHp) + 
-                  L",\"level\":" + std::to_wstring(p.level) + 
-                  L",\"skills\":[";
-        for (size_t j = 0; j < p.skills.size(); ++j) {
-            jsData += L"{\"id\":" + std::to_wstring(p.skills[j].id) + 
-                      L",\"name\":\"" + UIBridge::EscapeJsonString(p.skills[j].name.empty() ? L"" : p.skills[j].name) + L"\"" +
-                      L",\"pp\":" + std::to_wstring(p.skills[j].pp) + 
-                      L",\"maxPp\":" + std::to_wstring(p.skills[j].maxPp) + L"}";
-            if (j < p.skills.size() - 1) jsData += L",";
-        }
-        // 添加 Buff 列表
-        jsData += L"],\"bufArr\":[";
-        for (size_t j = 0; j < p.bufArr.size(); ++j) {
-            const auto& buf = p.bufArr[j];
-            jsData += L"{\"bufId\":" + std::to_wstring(buf.bufId) +
-                      L",\"name\":\"" + UIBridge::EscapeJsonString(buf.name.empty() ? L"" : buf.name) + L"\"" +
-                      L",\"tipString\":\"" + UIBridge::EscapeJsonString(buf.tipString) + L"\"" +
-                      L",\"round\":" + std::to_wstring(buf.round) +
-                      L",\"param1\":" + std::to_wstring(buf.param1) +
-                      L",\"param2\":" + std::to_wstring(buf.param2) +
-                      L",\"param3\":" + std::to_wstring(buf.param3) +
-                      L",\"param4\":" + std::to_wstring(buf.param4) +
-                      L",\"leftOrRight\":" + std::to_wstring(buf.leftOrRight) +
-                      L",\"addOrRemove\":" + std::to_wstring(buf.addOrRemove) + L"}";
-            if (j < p.bufArr.size() - 1) jsData += L",";
-        }
-        jsData += L"]}";
-        if (i < g_currentBattle.myPets.size() - 1) jsData += L",";
-    }
-    jsData += L"],";
-
-    // Other Pets
-    jsData += L"\"otherPets\":[";
-    for (size_t i = 0; showBattleEntities && i < g_currentBattle.otherPets.size(); ++i) {
-        const auto& p = g_currentBattle.otherPets[i];
-        jsData += L"{\"spiritId\":" + std::to_wstring(p.spiritId) + 
-                  L",\"name\":\"" + UIBridge::EscapeJsonString(p.name.empty() ? L"" : p.name) + L"\"" +
-                  L",\"sid\":" + std::to_wstring(p.sid) +
-                  L",\"uniqueId\":" + std::to_wstring(p.uniqueId) +
-                  L",\"userId\":" + std::to_wstring(p.userId) +
-                  L",\"groupType\":" + std::to_wstring(p.groupType) +
-                  L",\"state\":" + std::to_wstring(p.state) +
-                  L",\"rawState\":" + std::to_wstring(p.rawState) +
-                  L",\"mNum\":" + std::to_wstring(p.mNum) +
-                  L",\"hasMNum\":" + std::wstring(p.hasMNum ? L"true" : L"false") +
-                  L",\"placeholder\":" + std::wstring(p.placeholder ? L"true" : L"false") +
-                  L",\"hp\":" + std::to_wstring(p.hp) + 
-                  L",\"maxHp\":" + std::to_wstring(p.maxHp) + 
-                  L",\"level\":" + std::to_wstring(p.level) + 
-                  L",\"skills\":[";
-        for (size_t j = 0; j < p.skills.size(); ++j) {
-            jsData += L"{\"id\":" + std::to_wstring(p.skills[j].id) + 
-                      L",\"name\":\"" + UIBridge::EscapeJsonString(p.skills[j].name.empty() ? L"" : p.skills[j].name) + L"\"" +
-                      L",\"pp\":" + std::to_wstring(p.skills[j].pp) + 
-                      L",\"maxPp\":" + std::to_wstring(p.skills[j].maxPp) + L"}";
-            if (j < p.skills.size() - 1) jsData += L",";
-        }
-        // 添加 Buff 列表
-        jsData += L"],\"bufArr\":[";
-        for (size_t j = 0; j < p.bufArr.size(); ++j) {
-            const auto& buf = p.bufArr[j];
-            jsData += L"{\"bufId\":" + std::to_wstring(buf.bufId) +
-                      L",\"name\":\"" + UIBridge::EscapeJsonString(buf.name.empty() ? L"" : buf.name) + L"\"" +
-                      L",\"tipString\":\"" + UIBridge::EscapeJsonString(buf.tipString) + L"\"" +
-                      L",\"round\":" + std::to_wstring(buf.round) +
-                      L",\"param1\":" + std::to_wstring(buf.param1) +
-                      L",\"param2\":" + std::to_wstring(buf.param2) +
-                      L",\"param3\":" + std::to_wstring(buf.param3) +
-                      L",\"param4\":" + std::to_wstring(buf.param4) +
-                      L",\"leftOrRight\":" + std::to_wstring(buf.leftOrRight) +
-                      L",\"addOrRemove\":" + std::to_wstring(buf.addOrRemove) + L"}";
-            if (j < p.bufArr.size() - 1) jsData += L",";
-        }
-        jsData += L"]}";
-        if (i < g_currentBattle.otherPets.size() - 1) jsData += L",";
-    }
-    jsData += L"],";
-    
-    // 出战序号兜底：解析失败时序号可能是 -1，前端会一直显示队首那只，
-    // 于是"切换宠物后 UI 不跟着换"。这里保证发给前端的永远是合法下标。
-    auto resolveActiveIndex = [](const std::vector<BattleEntity>& team, int32_t index) -> int32_t {
-        if (index >= 0 && index < static_cast<int32_t>(team.size())) return index;
-        for (size_t i = 0; i < team.size(); ++i) {
-            if (!team[i].placeholder && team[i].state == 1) return static_cast<int32_t>(i);
-        }
-        for (size_t i = 0; i < team.size(); ++i) {
-            if (!team[i].placeholder) return static_cast<int32_t>(i);
-        }
-        return 0;
-    };
-    jsData += L"\"myActiveIndex\":" + std::to_wstring(resolveActiveIndex(g_currentBattle.myPets, g_currentBattle.myActiveIndex)) + L",";
-    jsData += L"\"otherActiveIndex\":" + std::to_wstring(resolveActiveIndex(g_currentBattle.otherPets, g_currentBattle.otherActiveIndex)) + L",";
-    jsData += L"\"battleType\":" + std::to_wstring(g_currentBattle.battleType) + L",";
-    jsData += L"\"escape\":" + std::to_wstring(g_currentBattle.escape) + L",";
-    jsData += L"\"round\":" + std::to_wstring(g_currentBattle.round) + L",";
-    // 原实现的 lastItemName 从未被赋值，键保留为空串以兼容前端。
-    jsData += L"\"lastItemName\":\"\"";
+    jsData += L"\"active\":true";
+    jsData += L",\"sessionId\":" + std::to_wstring(sessionId);
+    jsData += L",\"myPets\":";
+    AppendBattleTeamJson(jsData, battle.myPets);
+    jsData += L",\"otherPets\":";
+    AppendBattleTeamJson(jsData, battle.otherPets);
+    jsData += L",\"myActiveIndex\":" + std::to_wstring(ResolveBattleActiveIndex(battle.myPets, battle.myActiveIndex));
+    jsData += L",\"otherActiveIndex\":" + std::to_wstring(ResolveBattleActiveIndex(battle.otherPets, battle.otherActiveIndex));
+    jsData += L",\"battleType\":" + std::to_wstring(battle.battleType);
+    jsData += L",\"escape\":" + std::to_wstring(battle.escape);
+    jsData += L",\"round\":" + std::to_wstring(battle.round);
     jsData += L"}";
 
-    std::wstring jsCode = L"if(window.updateBattleUI) { window.updateBattleUI(" + jsData + L"); }";
-    UIBridge::Instance().ExecuteJS(jsCode);
+    UIBridge::Instance().ExecuteJS(L"if(window.updateBattleUI) { window.updateBattleUI(" + jsData + L"); }");
 }
 
 void PacketParser::ProcessLingyuPacket(const GamePacket& packet) {
@@ -1639,12 +1706,21 @@ void PacketParser::ProcessLingyuPacket(const GamePacket& packet) {
 }
 
 void PacketParser::ReplaceCurrentBattle(BattleData battle) {
-    std::lock_guard<std::mutex> lock(g_battleMutex);
-    g_currentBattle = std::move(battle);
+    BattleSession::Instance().Replace(std::move(battle));
+}
+
+void PacketParser::ClearBattleState(bool releaseEntities) {
+    // recursive_mutex：ProcessBattlePacketSafe 内部会调本函数，同线程可重入。
+    std::lock_guard<std::recursive_mutex> parseLock(g_battleParseMutex);
+    BattleSession::Instance().End(releaseEntities);
+    UpdateUIBattleData();
 }
 
 void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
-    if (packet.bSend || !packet.bodyDecoded) return;
+    if (packet.bSend) return;
+    // 整包串行化：所有分支都是"取快照 → 改 → 写回"，必须原子完成，
+    // 否则两条线程交错会把对方刚算出的血量/状态覆盖掉。
+    std::lock_guard<std::recursive_mutex> parseLock(g_battleParseMutex);
 
     const int32_t params = static_cast<int32_t>(packet.params);
     const uint8_t* data = packet.body.data();
@@ -1671,12 +1747,25 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
     auto sendPrompt = [](const wchar_t* type, const std::wstring& prompt) {
         if (!prompt.empty()) PacketParser::SendToUI(type, prompt);
     };
-    auto setHpBySid = [](BattleData& battle, int32_t sid, int32_t hp) {
-        if (BattleEntity* pet = FindBattleEntityBySid(battle, sid)) {
-            pet->hp = hp;
-        }
+    // side: 1=我方, -1=敌方, 0=未知。sid 重号时必须带阵营，否则会把伤害
+    // 写到对面同号妖怪身上（面板表现为一方永远满血、另一方双倍掉血）。
+    auto setHpBySid = [](BattleData& battle, int32_t sid, int32_t hp, int side) {
+        BattleEntity* my = FindBattleEntityBySidInTeam(battle.myPets, sid);
+        BattleEntity* other = FindBattleEntityBySidInTeam(battle.otherPets, sid);
+        BattleEntity* pet = nullptr;
+        if (side > 0) pet = my ? my : other;
+        else if (side < 0) pet = other ? other : my;
+        else pet = my ? my : other;
+        if (!pet) return;
+        // 服务端给的是"结算后的血量"，理论上已经合法；这里仍夹到 [0, maxHp]，
+        // 避免异常包把 hp 写成负数/超过上限后 UI 进度条算出怪比例。
+        if (pet->maxHp > 0 && hp > pet->maxHp) hp = pet->maxHp;
+        if (hp < 0) hp = 0;
+        pet->hp = hp;
     };
     if (packet.opcode == Opcode::BATTLE_START) {
+        // AS3 的 onBattleStartParse 只在 mParams >= 0 时解析并派发；负值是观战/重放
+        // 控制包，不能当成“开场失败”清掉正在进行的战斗。
         if (params < 0) return;
 
         const int32_t localUserId = static_cast<int32_t>(g_userId.load());
@@ -1720,11 +1809,17 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
             auto appendMNumPlaceholders = [](BattleData candidate, const BattleEntity& entity) {
                 if (!entity.hasMNum || entity.mNum <= 1) return candidate;
                 std::vector<BattleEntity>& team = entity.mySpirit ? candidate.myPets : candidate.otherPets;
-                const int32_t placeholderCount = entity.mNum - 1;
-                if (placeholderCount > 1024 || team.size() + static_cast<size_t>(placeholderCount) > 256) {
-                    return BattleData{};
+                // mNum 来自封包，属不可信输入。旧实现越界时直接返回空的 BattleData{}，
+                // 调用方又用 `myPets.empty() && otherPets.empty()` 判失败 —— 但返回空
+                // 值的语义是"整场名册丢弃"，等于一个异常 mNum 就把整场战斗抹掉了。
+                // 这里改为**截断**：只补到容量上限为止，已解析的名册保持不变。
+                const size_t remaining = team.size() < 256 ? 256 - team.size() : 0;
+                int64_t placeholderCount = entity.mNum - 1;
+                if (placeholderCount > 1024) placeholderCount = 1024;
+                if (placeholderCount > static_cast<int64_t>(remaining)) {
+                    placeholderCount = static_cast<int64_t>(remaining);
                 }
-                for (int32_t i = 0; i < placeholderCount; ++i) {
+                for (int64_t i = 0; i < placeholderCount; ++i) {
                     BattleEntity placeholder;
                     placeholder.placeholder = true;
                     placeholder.mySpirit = entity.mySpirit;
@@ -1772,19 +1867,32 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
 
         BoundedReader reader(data, size);
         int32_t firstState = 0;
-        if (!reader.ReadI32(firstState)) return;
+        if (!reader.ReadI32(firstState)) {
+            ClearBattleState(true);
+            return;
+        }
         BattleData initial;
         initial.battleType = params;
         initial.active = true;
         parsed = parseEntities(reader, firstState, std::move(initial));
-        if (!parsed) return;
+        if (!parsed) {
+            // 新一场开场解析失败时，旧战斗快照不能继续挂在面板上。
+            ClearBattleState(true);
+            return;
+        }
 
-        ReplaceCurrentBattle(std::move(parsedBattle));
-        g_battleStarted = true;
+        // 开场包里带 state==1 的才是出战那只；一只都没标（某些活动战斗）时按
+        // "首个非占位"归一，保证下游永远拿到合法索引而不是 -1。
+        parsedBattle.myActiveIndex =
+            ResolveBattleActiveIndex(parsedBattle.myPets, parsedBattle.myActiveIndex);
+        parsedBattle.otherActiveIndex =
+            ResolveBattleActiveIndex(parsedBattle.otherPets, parsedBattle.otherActiveIndex);
+
+        BattleSession::Instance().Begin(std::move(parsedBattle));
         UpdateUIBattleData();
 
         const BattleData battle = GetCurrentBattleSnapshot();
-        SyncBattleSixAutoBattleState(battle, true);
+        BattleActivity::SyncAutoBattle(battle, true);
         std::wstring myName;
         std::wstring otherName;
         if (battle.myActiveIndex >= 0 &&
@@ -1811,10 +1919,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         next.roundChangeSids.clear();
         ReplaceCurrentBattle(std::move(next));
         UpdateUIBattleData();
-        if (g_battleSixAuto.IsInBattle() && g_battleSixAuto.IsAutoBattleEnabled()) {
-            g_battleSixRoundToken.fetch_add(1);
-            g_battleSixAuto.OnBattleRoundStart();
-        }
+        BattleActivity::NotifyRoundStart();
         sendJson(L"回合开始", L"{\"round\":" + std::to_wstring(roundNumber) +
                  L",\"params\":" + std::to_wstring(params) + L"}");
         sendPrompt(L"回合开始", L"第" + std::to_wstring(roundNumber) + L"回合开始");
@@ -1841,10 +1946,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         const int32_t roundNumber = next.round;
         ReplaceCurrentBattle(std::move(next));
         UpdateUIBattleData();
-        if (g_battleSixAuto.IsInBattle() && g_battleSixAuto.IsAutoBattleEnabled()) {
-            g_battleSixRoundToken.fetch_add(1);
-            g_battleSixAuto.OnBattleRoundStart();
-        }
+        BattleActivity::NotifyRoundStart();
         sendJson(L"回合开始", L"{\"changeCount\":" + std::to_wstring(params) +
                  L",\"round\":" + std::to_wstring(roundNumber) +
                  L",\"waitTime\":" + std::to_wstring(waitTime) + L"}");
@@ -1860,7 +1962,12 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
             !reader.ReadI32(buf.param2)) {
             return;
         }
-        if (buf.addOrRemove == BufDataType::BUF_TYPE_7) {
+        // BUF_TYPE_7 的两个附加字段只存在于部分客户端版本（MainGame_remote 的
+        // onBattleBuf 有 `case BUF_TYPE_7: param3/param4`，主线 MainGame 那版
+        // 没有这一支，只读 5 个 int）。旧的固定读法在主线包上必然读空 → 整个
+        // 状态包被 return 丢掉，表现就是“加了状态但面板不显示/不褪色”。
+        // 这里改成按剩余字节判定：够就解析，不够就当作没有这两个字段。
+        if (buf.addOrRemove == BufDataType::BUF_TYPE_7 && reader.Remaining() >= sizeof(int32_t) * 2) {
             if (!reader.ReadI32(buf.param3) || !reader.ReadI32(buf.param4)) return;
         }
         buf.name = GetBufName(buf.bufId, buf.param1, buf.param2);
@@ -1877,15 +1984,15 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
             ApplyBattleBufToBattle(next, buf.defId, buf);
             ApplyBattleBuffBloodEffect(next, buf);
         } else if (buf.addOrRemove == BufDataType::BUF_TYPE_4) {
-            AdjustBattleEntityHp(next, buf.defId, -buf.param1);
+            AdjustBattleEntityHp(ResolveBattleEffectTarget(next, buf.defId, buf.atkId, false), -buf.param1);
         } else if (buf.addOrRemove == BufDataType::BUF_TYPE_5) {
-            AdjustBattleEntityHp(next, buf.defId, buf.param1);
+            AdjustBattleEntityHp(ResolveBattleEffectTarget(next, buf.defId, buf.atkId, true), buf.param1);
         } else if (buf.addOrRemove == BufDataType::BUF_TYPE_3) {
-            ApplyBattlePpDelta(next, buf.defId, -buf.param1);
+            ApplyBattlePpDelta(next, buf.defId, buf.atkId, -buf.param1, false);
         } else if (buf.addOrRemove == BufDataType::BUF_TYPE_6) {
-            ApplyBattlePpDelta(next, buf.defId, buf.param1);
+            ApplyBattlePpDelta(next, buf.defId, buf.atkId, buf.param1, true);
         }
-        SyncBattleSixAutoBattleState(next, false);
+        BattleActivity::SyncAutoBattle(next, false);
         ReplaceCurrentBattle(std::move(next));
         UpdateUIBattleData();
 
@@ -1972,16 +2079,58 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
             if (round.haveBattle == 1) {
                 if (!reader.ReadI32(round.atkId) || !reader.ReadI32(round.skillId) ||
                     !reader.ReadI32(round.defId) || !reader.ReadI32(round.miss)) return;
+                bool atkIsMySide = false;
+                bool atkSideKnown = false;
+                // 先用 sid 判阵营：sid 是服务端按妖怪配置编码出的战斗编号，
+                // 正常一场里不会重号，比技能表可靠。技能表只作为最后兜底——
+                // 双方可能都带同一个低级技能，先看技能会把敌方出手误判成我方，
+                // 表现就是“敌方攻击扣我方血、我方攻击扣敌方血”。
+                if (ResolveBattleSideByActiveSid(next, round.atkId, atkIsMySide)) {
+                    atkSideKnown = true;
+                }
+                if (!atkSideKnown) {
+                    const bool myHasSid = BattleTeamHasSid(next.myPets, round.atkId);
+                    const bool otherHasSid = BattleTeamHasSid(next.otherPets, round.atkId);
+                    if (myHasSid != otherHasSid) {
+                        atkIsMySide = myHasSid;
+                        atkSideKnown = true;
+                    }
+                }
+                if (!atkSideKnown) {
+                    // 只有 sid 在双方都出现（重号）时，才用技能归属消歧。
+                    const bool myActiveHasSkill =
+                        next.myActiveIndex >= 0 &&
+                        next.myActiveIndex < static_cast<int32_t>(next.myPets.size()) &&
+                        BattlePetHasSkill(next.myPets[static_cast<size_t>(next.myActiveIndex)], round.skillId);
+                    const bool otherActiveHasSkill =
+                        next.otherActiveIndex >= 0 &&
+                        next.otherActiveIndex < static_cast<int32_t>(next.otherPets.size()) &&
+                        BattlePetHasSkill(next.otherPets[static_cast<size_t>(next.otherActiveIndex)], round.skillId);
+                    if (myActiveHasSkill != otherActiveHasSkill) {
+                        atkIsMySide = myActiveHasSkill;
+                        atkSideKnown = true;
+                    }
+                }
+                if (!atkSideKnown) {
+                    const bool myTeamHasSkill = BattleTeamHasSkill(next.myPets, round.skillId);
+                    const bool otherTeamHasSkill = BattleTeamHasSkill(next.otherPets, round.skillId);
+                    if (myTeamHasSkill != otherTeamHasSkill) {
+                        atkIsMySide = myTeamHasSkill;
+                        atkSideKnown = true;
+                    }
+                }
+                if (!atkSideKnown) {
+                    atkIsMySide = next.myActiveIndex >= 0 &&
+                        next.myActiveIndex < static_cast<int32_t>(next.myPets.size()) &&
+                        next.myPets[static_cast<size_t>(next.myActiveIndex)].sid == round.atkId;
+                }
                 if (round.miss == 0) {
                     if (!reader.ReadI32(round.brust) || !reader.ReadI32(round.atkHp) ||
                         !reader.ReadI32(round.defHp) || !reader.ReadI32(round.reboundHp)) return;
-                    setHpBySid(next, round.atkId, round.atkHp);
-                    setHpBySid(next, round.defId, round.defHp);
+                    setHpBySid(next, round.atkId, round.atkHp, atkIsMySide ? 1 : -1);
+                    setHpBySid(next, round.defId, round.defHp,
+                                round.defId == round.atkId ? (atkIsMySide ? 1 : -1) : (atkIsMySide ? -1 : 1));
                 }
-                const bool atkIsMySide =
-                    next.myActiveIndex >= 0 &&
-                    next.myActiveIndex < static_cast<int32_t>(next.myPets.size()) &&
-                    next.myPets[static_cast<size_t>(next.myActiveIndex)].sid == round.atkId;
                 ppApplied = DecreaseBattleSkillPp(next, round.atkId, round.skillId, atkIsMySide);
             }
 
@@ -2026,7 +2175,9 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
                         append.type = buf.addOrRemove;
                         append.paramKey = static_cast<int32_t>(buf.bufId);
                         append.paramValue = value;
-                        ApplyBattlePpDelta(next, round.defId, buf.addOrRemove == BufDataType::BUF_TYPE_3 ? -value : value);
+                        ApplyBattlePpDelta(next, round.defId, round.atkId,
+                                           buf.addOrRemove == BufDataType::BUF_TYPE_3 ? -value : value,
+                                           buf.addOrRemove == BufDataType::BUF_TYPE_6);
                         // AS3 does not carry a target SID for append entries.
                         round.appends.push_back(append);
                         break;
@@ -2039,7 +2190,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
                         buf.param1 = append.paramValue;
                         buf.name = GetBufName(buf.bufId);
                         if (append.paramKey == 1) {
-                            ApplyBattleSkillPpDelta(next, round.defId, append.skillId, -append.paramValue);
+                            ApplyBattleSkillPpDelta(next, round.defId, round.atkId, append.skillId, -append.paramValue);
                         }
                         round.appends.push_back(append);
                         round.bufs.push_back(buf);
@@ -2051,8 +2202,14 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
                         round.bufs.push_back(buf);
                         break;
                     default:
-                        // No payload length is known for an unconfirmed round Buff type.
-                        return;
+                        // AS3 的回合解析 switch 里只有 0/1/2/3/4/6 六种，未知类型
+                        // **一个字段都不读**然后继续循环（BattleModel.as:313-349）。
+                        // 旧实现直接 return，等于把整个回合包丢掉：连后面的
+                        // haveBuf 列表和 bufArr 都不生效，表现就是“这一回合的攻击/
+                        // 状态全都没更新”。这里对齐 AS3：不收 body、只记录，继续读。
+                        buf.name = GetBufName(buf.bufId);
+                        round.bufs.push_back(buf);
+                        break;
                 }
                 if (!reader.ReadI32(haveBuf)) return;
             }
@@ -2060,80 +2217,47 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
             if (!reader.ReadI32(round.sid) || !reader.ReadI32(round.uniqueId) ||
                 !reader.ReadI32(round.sta)) return;
 
-            BattleEntity* oldEntity = FindBattleEntityBySid(next, round.sid);
-            bool isMySide = oldEntity ? oldEntity->mySpirit : false;
+            // ---- BATTLE_ROUND params==1 的权威语义（BattleModel.as:357-385）----
+            //   round.sid      = 离场（= 当前出战）那只的 sid
+            //   round.uniqueId = 进场那只的 uniqueId
+            //   sta == 1 时后面再跟一整只实体（state,sid,groupType,hp,...,skills[]）
+            // 旧实现把 uniqueId 当成“旧实体”，又拿 round.sid 去找进场槽位 —— 而 sid
+            // 正好指向离场那只，于是 found 落到离场槽位、activeIndex 不变，面板一直显示
+            // 离场宠的血量/PP/状态。这里整段按 AS3 重写，名册副作用交给
+            // BattleRoster::ApplySwitch（有单测覆盖）。
+            const int32_t localUserId = static_cast<int32_t>(g_userId.load());
             if (round.sta == 1) {
                 int32_t rawState = 0;
                 if (!reader.ReadI32(rawState)) return;
                 if (!ReadBattleEntityAfterState(reader, rawState, round.switchEntity)) return;
-                round.switchEntity.mySpirit = isMySide ||
-                    (g_userId.load() > 0 && round.switchEntity.userId == static_cast<int32_t>(g_userId.load()));
                 round.hasSwitchEntity = true;
+            }
 
-                std::vector<BattleEntity>& team = round.switchEntity.mySpirit ? next.myPets : next.otherPets;
-                int32_t& activeIndex = round.switchEntity.mySpirit ? next.myActiveIndex : next.otherActiveIndex;
-                const int32_t previousActive = activeIndex;
-                int found = -1;
-                for (size_t i = 0; i < team.size(); ++i) {
-                    if (round.switchEntity.uniqueId != 0 && team[i].uniqueId == round.switchEntity.uniqueId) {
-                        found = static_cast<int>(i);
-                        break;
-                    }
-                }
-                if (found < 0) {
-                    for (size_t i = 0; i < team.size(); ++i) {
-                        if (team[i].sid == round.sid || team[i].placeholder) {
-                            found = static_cast<int>(i);
-                            break;
-                        }
-                    }
-                }
-                // 只清"离场"那只的状态：离场再上场不该带着旧的增益/减益回来。
-                // 进场实体本身不能清——这个封包里并没有 haveBuf 列表
-                // （ReadBattleEntityAfterState 读不到状态栏），直接覆盖 + clear 会把
-                // 身上已经生效的特殊状态（例如武甲这类技能状态）一起抹掉，
-                // 表现就是"技能丢出去了，战斗面板的状态栏却什么都不显示"。
-                // 同一只宠的状态刷新包（found == previousActive）更不能清。
-                if (previousActive >= 0 && previousActive < static_cast<int32_t>(team.size()) &&
-                    previousActive != found) {
-                    team[static_cast<size_t>(previousActive)].bufArr.clear();
-                    team[static_cast<size_t>(previousActive)].state = 0;
-                }
-                if (found < 0) {
-                    team.push_back(round.switchEntity);
-                    found = static_cast<int>(team.size() - 1);
-                } else {
-                    round.switchEntity.bufArr = team[static_cast<size_t>(found)].bufArr;
-                    team[found] = round.switchEntity;
-                }
-                team[static_cast<size_t>(found)].state = 1;
-                activeIndex = found;
-            } else {
-                // sta != 1：封包只带了 sid/uniqueId，没有完整实体（常见于"宠物已上场"的同步包）。
-                // 原代码这里写成 `else if (round.sta == 1)`，与上面的 if 同条件，永远进不来，
-                // 于是换宠后出战序号一直是旧值，UI 也就不会跟着切。
-                auto applySwitchIndex = [&](std::vector<BattleEntity>& team, int32_t& index) -> bool {
-                    if (round.uniqueId == 0) return false;
-                    int found = -1;
-                    for (size_t i = 0; i < team.size(); ++i) {
-                        if (team[i].uniqueId == round.uniqueId) { found = static_cast<int>(i); break; }
-                    }
-                    if (found < 0) return false;
-                    if (found != index) {
-                        // 同上：只清离场那只，进场这只的状态由 BATTLE_BUF / haveBuf 维护，
-                        // 在这里清会把"刚打上的状态"直接抹掉。
-                        if (index >= 0 && index < static_cast<int32_t>(team.size())) {
-                            team[static_cast<size_t>(index)].bufArr.clear();
-                            team[static_cast<size_t>(index)].state = 0;
-                        }
-                        team[static_cast<size_t>(found)].state = 1;
-                        index = found;
-                    }
-                    return true;
-                };
-                if (!applySwitchIndex(next.myPets, next.myActiveIndex)) {
-                    applySwitchIndex(next.otherPets, next.otherActiveIndex);
-                }
+            // 进场键只认三元组里的 uniqueid（packet_parser.cpp:2203 读的第二个字段）。
+            // AS3 dealChangeSpirit 拿 this.boobj.uniqueid 去 playerRoleArr 里比对，
+            // boobj 就是这份 "sid, uniqueid, sta" 三元组；实体里的 uniqueId 不参与
+            // 匹配。反过来优先用实体值时，一旦两者不同就会匹配不到名册里那只，
+            // 于是被当成新妖怪追加到队尾 —— 面板上确实换成了新妖怪，但回合结算
+            // 仍按 sid 找到那份已经离场的旧副本，PP 与血量就永远不动了。
+            int32_t enteringUniqueId = round.uniqueId;
+            if (enteringUniqueId == 0 && round.hasSwitchEntity) {
+                enteringUniqueId = round.switchEntity.uniqueId;
+            }
+            const int32_t enteringUserId = round.hasSwitchEntity ? round.switchEntity.userId : 0;
+            const int32_t enteringGroupType = round.hasSwitchEntity ? round.switchEntity.groupType : 0;
+
+            const BattleRoster::Side side = BattleRoster::ResolveSwitchSide(
+                next, round.sid, enteringUniqueId, enteringUserId, localUserId, enteringGroupType);
+            if (side == BattleRoster::Side::Unknown) {
+                // 一条线索都对不上（例如还没收到 BATTLE_START 就来了换宠包）：
+                // 宁可什么都不改，也不要把这只妖怪写进对面名册。
+                return;
+            }
+
+            BattleRoster::ApplySwitch(next, side, round.sid, enteringUniqueId,
+                                      round.hasSwitchEntity ? &round.switchEntity : nullptr);
+            if (round.hasSwitchEntity) {
+                round.switchEntity.mySpirit = (side == BattleRoster::Side::My);
             }
         } else if (params == 2) {
             if (!reader.ReadI32(round.atkId) || !reader.ReadI32(round.itemId) ||
@@ -2196,11 +2320,17 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
                 roundPrompt += L"战斗附加数据已由服务端更新";
             }
         } else if (params == 1) {
-            if (round.hasSwitchEntity) {
-                roundPrompt = std::wstring(round.switchEntity.mySpirit ? L"我方" : L"敌方") +
-                              L"上场" + entityLabel(round.switchEntity);
+            // AS3 BattleModel.as:357-360：sid 是离场那只，uniqueid 才是进场那只。
+            // 提示里写“谁上场”，不能再拿离场 sid 当上场妖怪的名字。
+            const std::wstring leavingName = entityLabelBySid(next, round.sid);
+            const BattleEntity* entering = round.hasSwitchEntity
+                ? &round.switchEntity
+                : FindBattleEntityByUniqueId(next, round.uniqueId);
+            if (entering) {
+                roundPrompt = std::wstring(entering->mySpirit ? L"我方" : L"敌方") +
+                              L"换上" + entityLabel(*entering) + L"，" + leavingName + L"下场";
             } else {
-                roundPrompt = L"切换宠物：" + entityLabelBySid(next, round.sid);
+                roundPrompt = leavingName + L"下场";
             }
         } else if (params == 2) {
             std::wstring itemName;
@@ -2223,7 +2353,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
 
         next.lastCmdType = params;
         next.lastRound = round;
-        SyncBattleSixAutoBattleState(next, false);
+        BattleActivity::SyncAutoBattle(next, false);
         ReplaceCurrentBattle(std::move(next));
         UpdateUIBattleData();
 
@@ -2320,15 +2450,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         // 先把战场标志清掉并推给 UI，再去解析结算明细：
         // 退出战斗时 body 可能一条结算都没有（逃跑、被中断、body 解码失败），
         // 旧代码在明细解析失败时直接 return，战斗面板就永远挂着上一场的数据。
-        {
-            BattleData ended = GetCurrentBattleSnapshot();
-            ended.active = false;
-            ended.endParam = params;
-            ended.endResults.clear();
-            ReplaceCurrentBattle(std::move(ended));
-            g_battleStarted = false;
-            UpdateUIBattleData();
-        }
+        ClearBattleState(false);
 
         BoundedReader reader(data, size);
         std::vector<BattleEndResult> results;
@@ -2428,7 +2550,7 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
         BattleData next = GetCurrentBattleSnapshot();
         const std::wstring targetName = entityLabelBySid(next, buf.defId != 0 ? buf.defId : buf.atkId);
         ApplyBattleBuffBloodEffect(next, buf);
-        SyncBattleSixAutoBattleState(next, false);
+        BattleActivity::SyncAutoBattle(next, false);
         // Site effects are transient BATTLE_BUF events in AS3; do not persist
         // the recovery marker as a normal Buff row.
         next.hasSite = true;
@@ -2477,17 +2599,20 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
             if (!reader.ReadI32(value)) return;
             values.push_back(value);
         }
-        std::vector<std::pair<int32_t, int32_t>> skills;
+        // AS3 onSpiritLevelUp（BattleModel.as:488-495）升级后的技能列表**只读
+        // skillid**，逐个读到 0 为止，没有 time 字段；旧实现每个技能多读一个
+        // time，从第二个技能起整体错位，后面的 key/count/mod/attr 全读歪。
+        std::vector<int32_t> newSkills;
         int32_t skillId = 0;
         if (!reader.ReadI32(skillId)) return;
-        while (skillId > 0) {
-            if (skills.size() >= 128) return;
-            int32_t time = 0;
-            if (!reader.ReadI32(time)) return;
-            skills.emplace_back(skillId, time);
+        while (skillId != 0) {
+            if (newSkills.size() >= 128) return;
+            newSkills.push_back(skillId);
             if (!reader.ReadI32(skillId)) return;
         }
-        if (!skills.empty()) {
+        // key/count/(skillid,time)*count/mod/attr 只在技能列表非空时才存在。
+        const size_t skillCount = newSkills.size();
+        if (!newSkills.empty()) {
             int32_t key = 0, count = 0;
             if (!reader.ReadI32(key) || !reader.ReadI32(count) || count < 0 || count > 128) return;
             for (int32_t i = 0; i < count; ++i) {
@@ -2497,22 +2622,53 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
             int32_t mod = 0, attr = 0;
             if (!reader.ReadI32(mod) || !reader.ReadI32(attr)) return;
         }
+        // 升级会改变等级/血量上限：同一只妖怪若在名册里，顺手把上限对齐，
+        // 否则战斗面板上的“当前生命/上限”会一直停在旧值。
+        {
+            BattleData next = GetCurrentBattleSnapshot();
+            const int32_t uniqueId = values[0];
+            const int32_t maxHp = values[11];
+            bool touched = false;
+            auto applyLevel = [&](std::vector<BattleEntity>& team) {
+                for (auto& pet : team) {
+                    if (pet.uniqueId == 0 || pet.uniqueId != uniqueId) continue;
+                    pet.level = values[10];
+                    if (maxHp > 0) {
+                        // 上限变大时当前血量也加上同样的差值，避免刚升级就掉血。
+                        if (pet.maxHp > 0 && maxHp > pet.maxHp) pet.hp += maxHp - pet.maxHp;
+                        pet.maxHp = maxHp;
+                        if (pet.hp > pet.maxHp) pet.hp = pet.maxHp;
+                    }
+                    touched = true;
+                }
+            };
+            if (next.active && uniqueId != 0) {
+                applyLevel(next.myPets);
+                applyLevel(next.otherPets);
+            }
+            if (touched) {
+                ReplaceCurrentBattle(std::move(next));
+                UpdateUIBattleData();
+            }
+        }
         sendJson(L"战斗升级", L"{\"uniqueId\":" + std::to_wstring(values[0]) +
                  L",\"spiritId\":" + std::to_wstring(values[1]) +
                  L",\"level\":" + std::to_wstring(values[10]) +
                  L",\"maxHp\":" + std::to_wstring(values[11]) +
-                 L",\"skillCount\":" + std::to_wstring(skills.size()) + L"}");
+                 L",\"skillCount\":" + std::to_wstring(skillCount) + L"}");
         return;
     }
 
     if (packet.opcode == Opcode::BATTLE_NEWEXP) {
+        // NEWEXP 是服务端确认战斗收尾的最后一个必经包；有些退出路径（客户端直接
+        // 关战斗界面、END 丢包）没有 BATTLE_END_SEND，这里兜底清一次，避免残留。
+        if (BattleSession::Instance().IsActive()) {
+            ClearBattleState(true);
+        }
         BoundedReader reader(data, size);
         uint32_t win = 0;
         if (!reader.ReadU32(win)) return;
-        if (g_battleSixAuto.IsInBattle()) {
-            g_battleSixSettlementKnown = true;
-            g_battleSixSettlementFlags = win;
-        }
+        BattleActivity::MarkSettlement(win);
         int goodsCount = 0;
         int learnCount = 0;
         int expCount = 0;
@@ -2550,13 +2706,16 @@ void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
                     int32_t value = 0;
                     if (!reader.ReadI32(value)) return;
                 }
+                // AS3 receiveNewBattleExp（BattleModel.as:666-673）：升级技能列表
+                // 同样只读 skillid、读到 0 为止，不含 time。旧实现每个技能多读一个
+                // time，一旦这只妖怪升级带多个新技能，后续 key/count/mod/attr 就
+                // 全部错位，把后面的 saveExp 与下一条 expType 一起读歪。
                 int32_t skillFlag = 0;
                 if (!reader.ReadI32(skillFlag)) return;
                 int skillCount = 0;
-                while (skillFlag > 0) {
+                while (skillFlag != 0) {
                     if (++skillCount > 128) return;
-                    int32_t time = 0;
-                    if (!reader.ReadI32(time) || !reader.ReadI32(skillFlag)) return;
+                    if (!reader.ReadI32(skillFlag)) return;
                 }
                 if (skillCount > 0) {
                     int32_t key = 0, count = 0;
@@ -2831,12 +2990,7 @@ void PacketParser::ProcessMonsterPacket(const GamePacket& packet) {
     }
 
     // 通知副本跳层模块妖怪数据已收到（写线程=收包线程，读线程=跳层线程）
-    g_dungeonJumpState.monsterDataReceived.store(true, std::memory_order_release);
-
-    // 处理双台谷异步查询
-    if (g_shuangtaiWaitingForMonsterData.exchange(false, std::memory_order_acq_rel)) {
-        UpdateShuangTaiUIFromMonsterData();
-    }
+    BattleActivity::NotifyMonsterDataReceived();
 
     // 构建JSON并发送到UI
     std::wstring jsData = L"{\"sn\":" + std::to_wstring(sn) + L",\"count\":" + std::to_wstring(mcount) + L",\"monsters\":[";

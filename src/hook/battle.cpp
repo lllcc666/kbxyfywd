@@ -13,7 +13,7 @@
 #include "activity_minigames.h"
 #include "activity_states_internal.h"
 #include "app_host.h"
-#include "battle_six.h"
+#include "battle_packets.h"
 #include "dungeon_jump.h"
 #include "hook_shared.h"
 #include "latest_activities.h"
@@ -61,5 +61,31 @@ BOOL SendBattlePacket(uint32_t spiritId, uint32_t useId, uint8_t extraParam, uin
     if (packet.empty()) {
         return FALSE;
     }
+    return SendPacketBytes(packet);
+}
+
+BOOL SendNormalBattleEndPacket() {
+    auto packet = PacketBuilder()
+        .SetOpcode(Opcode::BATTLE_END_SEND)
+        .SetParams(0)
+        .Build();
+    return SendPacketBytes(packet);
+}
+
+BOOL SendBattleReadyPacket() {
+    auto packet = PacketBuilder()
+        .SetOpcode(Opcode::BATTLE_READY)
+        .SetParams(0)
+        .Build();
+    return SendPacketBytes(packet);
+}
+
+BOOL SendBattlePlayOverPacket() {
+    // token 统一由 HookedSend 在真正发出 BATTLE_PLAY_OVER 时自增；
+    // 这里不要再加一次，否则同一个包会让 token 跳 2。
+    auto packet = PacketBuilder()
+        .SetOpcode(Opcode::BATTLE_PLAY_OVER)
+        .SetParams(0)
+        .Build();
     return SendPacketBytes(packet);
 }

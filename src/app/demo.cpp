@@ -50,7 +50,7 @@ CComPtr<IWebBrowser2> g_pWebBrowser;
 HWND g_hwnd_webbrowser = nullptr;
 
 // 主窗口句柄
-HWND g_hWnd = nullptr;
+std::atomic<HWND> g_hWnd{nullptr};
 
 // 加载遮罩窗口句柄
 HWND g_hwnd_loading = nullptr;

@@ -7,11 +7,11 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "battle_session.h"
 #include "packet_protocol.h"
 #include "packet_types.h"
 #include "packet_zlib_api.h"
@@ -29,20 +29,22 @@ public:
     static void ProcessLingyuPacket(const GamePacket& packet);
     static void ProcessMonsterPacket(const GamePacket& packet);
 
+    // 退出战斗的唯一收口：服务端 BATTLE_END、客户端 BATTLE_END_SEND、
+    // 以及 BATTLE_START 解析失败都会走这里，保证 UI 不会停留在上一场。
+    // releaseEntities=true 时连实体快照一起释放（客户端已关战斗界面）。
+    static void ClearBattleState(bool releaseEntities = false);
+
     static void SendToUI(const std::wstring& type, const std::wstring& data);
     static void SendBossListToUI();
 
     // Battle state is exposed as a snapshot so callers cannot retain an
     // unlocked reference while the parser replaces the current battle.
     static BattleData GetCurrentBattleSnapshot() {
-        std::lock_guard<std::mutex> lock(g_battleMutex);
-        return g_currentBattle;
+        return BattleSession::Instance().Snapshot();
     }
 
 private:
     static std::vector<uint8_t> g_recvBuffer;
-    static BattleData g_currentBattle;
-    static std::mutex g_battleMutex;
 
     static void ProcessBattlePacketSafe(const GamePacket& packet);
     static void ReplaceCurrentBattle(BattleData battle);
@@ -55,10 +57,10 @@ private:
 std::wstring GetMapName(int mapId);
 int GetSkillPower(int skillId, int fallbackPower);
 
-extern std::unordered_map<int, std::wstring> g_petNames;
-extern std::unordered_map<int, std::wstring> g_skillNames;
-extern std::unordered_map<int, std::wstring> g_elemNames;
-extern std::unordered_map<int, std::wstring> g_geniusNames;
-extern std::unordered_map<int, int> g_skillPowers;
-extern std::unordered_map<int, int> g_skillRanges;
-extern std::unordered_map<int, int> g_petElems;
+// 只读查询：数据表在启动期加载完成后不再写入，读侧统一走带锁函数。
+std::wstring GetPetName(int petId);
+std::wstring GetSkillName(int skillId);
+std::wstring GetElemName(int elemId);
+std::wstring GetGeniusName(int geniusId);
+int GetPetElem(int petId);
+int GetSkillRange(int skillId, int fallbackRange = 0);

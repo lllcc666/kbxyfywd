@@ -1,3 +1,6 @@
+#include "battle_session.h"
+#include "battle_packets.h"
+#include "packet_parser.h"
 #include "web_message_handler.h"
 
 #include <windows.h>
@@ -322,6 +325,10 @@ bool RunThenRefreshPackageData(ActionFunc action) {
 
 void HandleSetAutoHealEnabledCommand(const std::wstring& msg) {
     HandleSetBoolFlagCommand(msg, L"enabled", g_autoHeal);
+}
+
+void HandleClearBattleUICommand() {
+    PacketParser::ClearBattleState(true);
 }
 
 void HandleSetBlockBattleEnabledCommand(const std::wstring& msg) {
@@ -689,7 +696,7 @@ void HandleBuyItemCommand(const std::wstring& msg) {
 void HandleUseItemCommand(const std::wstring& msg) {
     const uint32_t itemId = GetJsonUInt32Value(msg, L"itemId");
     if (itemId > 0) {
-        if (!g_battleStarted) {
+        if (!BattleSession::Instance().IsActive()) {
             SetHelperText(L"使用道具需要在战斗中进行");
         } else {
             HandleBoolResultCommand(
@@ -1101,6 +1108,8 @@ public:
             HandleSetSpeedCommand(msg);
         } else if (msg.find(L"toggle_auto_heal") != std::wstring::npos) {
             HandleSetAutoHealEnabledCommand(msg);
+        } else if (msg.find(L"clear_battle_ui") != std::wstring::npos) {
+            HandleClearBattleUICommand();
         } else if (msg.find(L"set_block_battle") != std::wstring::npos) {
             HandleSetBlockBattleEnabledCommand(msg);
         } else if (msg.find(L"set_auto_go_home") != std::wstring::npos) {

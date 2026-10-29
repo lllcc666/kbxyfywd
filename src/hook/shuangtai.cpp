@@ -24,9 +24,6 @@
 // 全局状态机实例
 ShuangTaiAutoBattle g_shuangtaiAuto;
 
-// 引用妖怪数据和技能威力映射
-extern std::unordered_map<int, int> g_skillPowers;
-
 // ========== 工具函数 ==========
 
 uint32_t GetHighestPowerSkillId(uint32_t spiritId) {
@@ -48,8 +45,7 @@ uint32_t GetHighestPowerSkillId(uint32_t spiritId) {
     uint32_t bestSkillId = 0;
     
     for (const auto& skill : monster->skills) {
-        auto powerIt = g_skillPowers.find(skill.id);
-        int power = (powerIt != g_skillPowers.end()) ? powerIt->second : 0;
+        int power = GetSkillPower(skill.id, 0);
         
         if (power > maxPower && power > 0) {
             maxPower = power;
@@ -189,8 +185,7 @@ bool ShuangTaiAutoBattle::InitializePetData() {
     
     for (size_t i = 0; i < monster->skills.size(); i++) {
         const auto& skill = monster->skills[i];
-        auto powerIt = g_skillPowers.find(skill.id);
-        int power = (powerIt != g_skillPowers.end()) ? powerIt->second : 0;
+        int power = GetSkillPower(skill.id, 0);
         
         if (power > maxPower && power > 0) {
             maxPower = power;

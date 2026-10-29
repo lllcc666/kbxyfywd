@@ -6,6 +6,9 @@
 
 namespace AppHost {
 
+/// 主窗口句柄唯一访问点（替代各模块手写 `extern HWND g_hWnd`）。
+HWND GetMainWindow();
+
 void BeginWindowDrag();
 void MinimizeMainWindow();
 void CloseMainWindow();

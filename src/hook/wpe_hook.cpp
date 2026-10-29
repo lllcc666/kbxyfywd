@@ -293,7 +293,6 @@ std::atomic<bool> g_autoHeal{false};  ///< 自动回血
 std::atomic<bool> g_blockBattle{false};  ///< 屏蔽战斗
 std::atomic<bool> g_autoGoHome{false};   ///< 自动回家（玄塔）
 std::atomic<int32_t> g_battleCounter{0};  ///< 战斗counter（用于战斗校验）
-std::atomic<bool> g_battleStarted{false};  ///< 是否已进入战斗
 
 // 一键采集 owner：完成标志、自动模式和流程状态统一由这一组维护。
 std::atomic<bool> g_collectFinished{false};  ///< 采集完成标志
@@ -335,11 +334,36 @@ namespace {
 static std::mutex g_receiveDispatchMutex;
 static std::condition_variable g_receiveDispatchCv;
 static std::deque<std::vector<GamePacket>> g_receiveDispatchQueue;
+static std::deque<std::vector<GamePacket>> g_receiveDispatchPriorityQueue;
 static std::atomic<bool> g_receiveDispatchAccepting{false};
 static std::thread g_receiveDispatchWorker;
 static bool g_receiveDispatchStarted = false;
 static bool g_receiveDispatchStop = false;
 static constexpr size_t kMaxReceiveDispatchQueue = 64;
+static constexpr size_t kMaxReceivePriorityQueue = 256;
+
+// 控制类封包不能被普通业务包挤掉：战斗开始/结束、切场景、断线重连
+// 都决定状态机能否推进。队列满时普通包丢最旧，优先队列只限上限、不丢弃。
+inline bool IsReceiveDispatchPriorityPacket(const GamePacket& packet) {
+    switch (packet.opcode) {
+        case Opcode::BATTLE_START:
+        case Opcode::BATTLE_END:
+        case Opcode::BATTLE_ROUND_START:
+        case Opcode::BATTLE_ROUND:
+        case Opcode::BATTLE_CHANGE_SPIRIT_ROUND:
+        case Opcode::ENTER_SCENE_BACK:
+            return true;
+        default:
+            return false;
+    }
+}
+
+inline bool BatchHasPriorityPacket(const std::vector<GamePacket>& batch) {
+    for (const auto& packet : batch) {
+        if (IsReceiveDispatchPriorityPacket(packet)) return true;
+    }
+    return false;
+}
 // -------------------------
 // 辅助函数
 // -------------------------
@@ -728,6 +752,21 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
             g_LastGameSocket = s;
         }
     }
+
+    // AS3 BattleControl.clearBattleView() 最后一定会发 BATTLE_END_SEND(1186323)，
+    // 这是"客户端已经关掉战斗界面"的权威信号；服务端 BATTLE_END 可能因逃跑/中断/
+    // 丢包/顺序问题缺失，不能只靠它清 UI。
+    bool clientClosedBattle = false;
+    if (g_bInitialized && len >= static_cast<int>(PacketProtocol::HEADER_SIZE)) {
+        const BYTE* pData = reinterpret_cast<const BYTE*>(buf);
+        clientClosedBattle = IsGamePacket(pData, static_cast<DWORD>(len)) &&
+                             ReadOpcode(pData) == Opcode::BATTLE_END_SEND;
+    }
+    // 只要客户端已经决定关闭战斗界面，就先清本地快照；不能等 send 成功，
+    // 更不能被 hijack/block 分支提前 return 跳过。
+    if (clientClosedBattle) {
+        PacketParser::ClearBattleState(true);
+    }
     
     // 劫持检测和修改
     if (g_bHijackEnabled && len > 0) {
@@ -804,9 +843,10 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
         }
     }
     
-    return g_sendPacketRequiresComplete
+    const int sendResult = g_sendPacketRequiresComplete
         ? SendAllOriginal(s, buf, len, flags)
         : OriginalSend(s, buf, len, flags);
+    return sendResult;
 }
 
 // ============================================================================
@@ -909,15 +949,24 @@ static void ReceiveDispatchWorkerProc() {
         {
             std::unique_lock<std::mutex> lock(g_receiveDispatchMutex);
             g_receiveDispatchCv.wait(lock, [] {
-                return g_receiveDispatchStop || !g_receiveDispatchQueue.empty();
+                return g_receiveDispatchStop ||
+                       !g_receiveDispatchPriorityQueue.empty() ||
+                       !g_receiveDispatchQueue.empty();
             });
 
-            if (g_receiveDispatchStop && g_receiveDispatchQueue.empty()) {
+            if (g_receiveDispatchStop &&
+                g_receiveDispatchPriorityQueue.empty() &&
+                g_receiveDispatchQueue.empty()) {
                 return;
             }
 
-            packets = std::move(g_receiveDispatchQueue.front());
-            g_receiveDispatchQueue.pop_front();
+            if (!g_receiveDispatchPriorityQueue.empty()) {
+                packets = std::move(g_receiveDispatchPriorityQueue.front());
+                g_receiveDispatchPriorityQueue.pop_front();
+            } else {
+                packets = std::move(g_receiveDispatchQueue.front());
+                g_receiveDispatchQueue.pop_front();
+            }
         }
 
         ProcessReceivedGamePackets(nullptr, 0, packets);
@@ -955,6 +1004,7 @@ static void StopReceiveDispatchWorker() {
 
     std::lock_guard<std::mutex> lock(g_receiveDispatchMutex);
     g_receiveDispatchQueue.clear();
+    g_receiveDispatchPriorityQueue.clear();
     g_receiveDispatchStarted = false;
     g_receiveDispatchStop = false;
 }
@@ -977,12 +1027,18 @@ void DispatchReceivedGamePacketsAsync(const std::vector<GamePacket>& gamePackets
             return;
         }
 
-        // Bound memory even if a handler is slower than the network.  The
-        // newest packets are more useful for current state than stale ones.
-        if (g_receiveDispatchQueue.size() >= kMaxReceiveDispatchQueue) {
-            g_receiveDispatchQueue.pop_front();
+        // 控制包单独入优先队列，普通包才允许在队列满时淘汰最旧批次。
+        if (BatchHasPriorityPacket(gamePackets)) {
+            if (g_receiveDispatchPriorityQueue.size() >= kMaxReceivePriorityQueue) {
+                g_receiveDispatchPriorityQueue.pop_front();
+            }
+            g_receiveDispatchPriorityQueue.emplace_back(gamePackets);
+        } else {
+            if (g_receiveDispatchQueue.size() >= kMaxReceiveDispatchQueue) {
+                g_receiveDispatchQueue.pop_front();
+            }
+            g_receiveDispatchQueue.emplace_back(gamePackets);
         }
-        g_receiveDispatchQueue.emplace_back(gamePackets);
     }
     g_receiveDispatchCv.notify_one();
 }
@@ -1494,9 +1550,7 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
         if (gp.opcode == Opcode::BATTLE_ROUND) {
             if (g_battleSixAuto.IsInBattle()) {
                 ProcessBattleSixBattleRoundResultResponse(gp);
-            }
-
-            if (g_shuangtaiAuto.IsRunning()) {
+            } else if (g_shuangtaiAuto.IsRunning()) {
                 ProcessShuangTaiBattleRoundResultResponse(gp);
             }
             return;
@@ -1505,9 +1559,7 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
         if (gp.opcode == Opcode::BATTLE_END) {
             if (g_battleSixAuto.IsInBattle()) {
                 ProcessBattleSixBattleEndResponse(gp);
-            }
-
-            if (g_shuangtaiAuto.IsRunning()) {
+            } else if (g_shuangtaiAuto.IsRunning()) {
                 ProcessShuangTaiBattleEndResponse(gp);
             }
         }

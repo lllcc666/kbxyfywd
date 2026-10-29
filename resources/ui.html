@@ -2554,6 +2554,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                         <div class="flat-head">
                             <span class="flat-dot ally"></span>
                             <span class="flat-title">我方</span>
+                            <button class="flat-link" onclick="window.requestClearBattleUI()" title="清空我方/敌方战斗面板">清空</button>
                             <select id="my-pet-select" class="bp-select">
                                 <option value="0">妖怪1</option>
                             </select>
@@ -3548,6 +3549,15 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 if (typeof updateHelperInfo === 'function') {
                     updateHelperInfo(data);
                 }
+                return;
+            }
+            // 其余类型统一进辅助提示，不要再让后面的同名定义覆盖掉 debug_alert。
+            var helperText = document.getElementById('helper-text');
+            if (helperText) {
+                helperText.textContent = '[' + type + '] ' + data;
+                helperText.classList.remove('slide-in');
+                void helperText.offsetWidth;
+                helperText.classList.add('slide-in');
             }
         };
 
@@ -5957,418 +5967,474 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             return text;
         }
 
+        // 战斗面板渲染模块：清空/规整/渲染与下拉切换。
+        // 由 scripts/embed_html.py 在构建时注入 ui.html，保持单文件发布。
+
         /**
-         * 渲染 Buff 标签列表
-         * @param {Array} bufArr - Buff 数组
-         * @param {HTMLElement} container - 容器元素
-         */
+        * 渲染 Buff 标签列表
+        * @param {Array} bufArr - Buff 数组
+        * @param {HTMLElement} container - 容器元素
+        */
         function renderBufList(bufArr, container) {
-            container.innerHTML = '';
-            if (!bufArr || bufArr.length === 0) {
-                container.classList.remove('has-bufs');
-                return;
-            }
+        container.innerHTML = '';
+        if (!bufArr || bufArr.length === 0) {
+        container.classList.remove('has-bufs');
+        return;
+        }
 
-            // 用于去重的 Map：key = bufId, value = buf 对象
-            const bufMap = new Map();
-            
-            // 首先处理去重：同类型 Buff 只保留最新的
-            bufArr.forEach(buf => {
-                // 跳过瞬时/PP 事件 (3, 4, 5, 6)，这些不显示为状态标签
-                if (buf.addOrRemove === 3 || buf.addOrRemove === 4 ||
-                    buf.addOrRemove === 5 || buf.addOrRemove === 6) {
-                    return;
-                }
+        // 用于去重的 Map：key = bufId, value = buf 对象
+        const bufMap = new Map();
 
-                // 移除类型 (0)：从 Map 中删除
-                if (buf.addOrRemove === 0) {
-                    if (buf.bufId) {
-                        bufMap.delete(buf.bufId);
-                    }
-                    return;
-                }
+        // 首先处理去重：同类型 Buff 只保留最新的
+        bufArr.forEach(buf => {
+        // 跳过瞬时/PP 事件 (3, 4, 5, 6)，这些不显示为状态标签
+        if (buf.addOrRemove === 3 || buf.addOrRemove === 4 ||
+        buf.addOrRemove === 5 || buf.addOrRemove === 6) {
+        return;
+        }
 
-                // 添加/更新类型（addOrRemove 为 1 或 2）：放入 Map
-                // 注意：回合开始时 addOrRemove 可能保持为 1，这表示已存在的 buf
-                if (buf.addOrRemove === 1 || buf.addOrRemove === 2) {
-                    if (buf.bufId) {
-                        bufMap.set(buf.bufId, buf);
-                    }
-                    return;
-                }
+        // 移除类型 (0)：从 Map 中删除
+        if (buf.addOrRemove === 0) {
+        if (buf.bufId) {
+        bufMap.delete(buf.bufId);
+        }
+        return;
+        }
 
-                // 如果 addOrRemove 未设置或为其他值（回合开始更新的 buf），根据 bufId 处理
-                if (buf.bufId) {
-                    // 更新 Map 中已有的 buf
-                    bufMap.set(buf.bufId, buf);
-                }
-            });
+        // 添加/更新类型（addOrRemove 为 1 或 2）：放入 Map
+        // 注意：回合开始时 addOrRemove 可能保持为 1，这表示已存在的 buf
+        if (buf.addOrRemove === 1 || buf.addOrRemove === 2) {
+        if (buf.bufId) {
+        bufMap.set(buf.bufId, buf);
+        }
+        return;
+        }
 
-            // 有状态才展开这一行（CSS 里高度 0 -> 17px），避免空白挤占技能区
-            container.classList.toggle('has-bufs', bufMap.size > 0);
+        // 如果 addOrRemove 未设置或为其他值（回合开始更新的 buf），根据 bufId 处理
+        if (buf.bufId) {
+        // 更新 Map 中已有的 buf
+        bufMap.set(buf.bufId, buf);
+        }
+        });
 
-            // 渲染去重后的 Buff
-            bufMap.forEach(buf => {
-                const tag = document.createElement('span');
-                tag.className = 'buf-tag';
-                
-                // 根据 bufId 判断是增益还是减益
-                const buffIds = [2, 9, 17, 24, 29, 33, 34, 59, 95, 36, 37, 46, 45, 62, 9999];
-                const isBuff = buffIds.includes(buf.bufId) || 
-                               (buf.name && (
-                                   buf.name.includes('攻击') && !buf.name.includes('降') && !buf.name.includes('减') ||
-                                   buf.name.includes('防御') && !buf.name.includes('降') && !buf.name.includes('减') ||
-                                   buf.name.includes('速度') && !buf.name.includes('降') && !buf.name.includes('减') ||
-                                   buf.name.includes('命中') ||
-                                   buf.name.includes('暴击') ||
-                                   buf.name.includes('回血') ||
-                                   buf.name.includes('护盾') ||
-                                   buf.name.includes('提升')
-                               ));
-                
-                // 减益关键词
-                const debuffKeywords = ['灼烧', '中毒', '流血', '麻痹', '冰冻', '睡眠', '混乱', '恐惧', '诅咒', '虚弱', '减速', '降低'];
-                const isDebuff = debuffKeywords.some(kw => buf.name && buf.name.includes(kw));
+        // 有状态才展开这一行（CSS 里高度 0 -> 17px），避免空白挤占技能区
+        container.classList.toggle('has-bufs', bufMap.size > 0);
 
-                // 设置样式
-                if (isDebuff) {
-                    tag.style.background = 'rgba(244, 67, 54, 0.15)';
-                    tag.style.color = '#d32f2f';
-                    tag.style.border = '1px solid rgba(244, 67, 54, 0.3)';
-                } else if (isBuff) {
-                    tag.style.background = 'rgba(76, 175, 80, 0.15)';
-                    tag.style.color = '#388e3c';
-                    tag.style.border = '1px solid rgba(76, 175, 80, 0.3)';
-                } else {
-                    tag.style.background = 'rgba(158, 158, 158, 0.15)';
-                    tag.style.color = '#616161';
-                    tag.style.border = '1px solid rgba(158, 158, 158, 0.3)';
-                }
+        // 渲染去重后的 Buff
+        bufMap.forEach(buf => {
+        const tag = document.createElement('span');
+        tag.className = 'buf-tag';
 
-                tag.style.fontSize = '8.5px';
-                tag.style.padding = '1px 4px';
-                tag.style.borderRadius = '2px';
-                tag.style.cursor = 'pointer';
-                tag.style.whiteSpace = 'nowrap';
-                tag.style.flexShrink = '0';  // 防止标签被压缩
+        // 根据 bufId 判断是增益还是减益
+        const buffIds = [2, 9, 17, 24, 29, 33, 34, 59, 95, 36, 37, 46, 45, 62, 9999];
+        const isBuff = buffIds.includes(buf.bufId) || 
+        (buf.name && (
+        buf.name.includes('攻击') && !buf.name.includes('降') && !buf.name.includes('减') ||
+        buf.name.includes('防御') && !buf.name.includes('降') && !buf.name.includes('减') ||
+        buf.name.includes('速度') && !buf.name.includes('降') && !buf.name.includes('减') ||
+        buf.name.includes('命中') ||
+        buf.name.includes('暴击') ||
+        buf.name.includes('回血') ||
+        buf.name.includes('护盾') ||
+        buf.name.includes('提升')
+        ));
 
-                // 简化显示名称
-                const displayText = simplifyBufName(buf.name, buf.round);
-                tag.textContent = displayText;
+        // 减益关键词
+        const debuffKeywords = ['灼烧', '中毒', '流血', '麻痹', '冰冻', '睡眠', '混乱', '恐惧', '诅咒', '虚弱', '减速', '降低'];
+        const isDebuff = debuffKeywords.some(kw => buf.name && buf.name.includes(kw));
 
-                // 构建 tooltip 内容（显示完整信息）
-                let tooltipContent = '';
-                if (buf.name) {
-                    tooltipContent += '<b>' + buf.name + '</b>';
-                }
-                if (buf.round > 0) {
-                    tooltipContent += '<br>剩余: ' + buf.round + ' 回合';
-                }
-                // tipString 与名称常常是同一句话（属性增减状态尤其如此），
-                // 只有内容不同才追加，避免悬停提示出现两行重复文字。
-                const tipText = buf.tipString ? String(buf.tipString).trim() : '';
-                const nameText = buf.name ? String(buf.name).trim() : '';
-                if (tipText && tipText !== nameText) {
-                    tooltipContent += '<br>' + tipText;
-                }
-                // 原始数值（如 10000006）是内部定点编码，给用户看只会像乱码，这里不再展示。
-                if (buf.bufId) {
-                    tooltipContent += '<br><span style="color:#888;font-size:8px;">ID: ' + buf.bufId + '</span>';
-                }
+        // 设置样式
+        if (isDebuff) {
+        tag.style.background = 'rgba(244, 67, 54, 0.15)';
+        tag.style.color = '#d32f2f';
+        tag.style.border = '1px solid rgba(244, 67, 54, 0.3)';
+        } else if (isBuff) {
+        tag.style.background = 'rgba(76, 175, 80, 0.15)';
+        tag.style.color = '#388e3c';
+        tag.style.border = '1px solid rgba(76, 175, 80, 0.3)';
+        } else {
+        tag.style.background = 'rgba(158, 158, 158, 0.15)';
+        tag.style.color = '#616161';
+        tag.style.border = '1px solid rgba(158, 158, 158, 0.3)';
+        }
 
-                if (tooltipContent) {
-                    tag.title = tooltipContent.replace(/<br>/g, '\n').replace(/<[^>]*>/g, '');
-                    tag.setAttribute('data-tooltip', tooltipContent);
-                    
-                    // 添加悬停事件显示详细 tooltip
-                    tag.addEventListener('mouseenter', function(e) {
-                        showBufTooltip(e, this);
-                    });
-                    tag.addEventListener('mouseleave', function() {
-                        hideBufTooltip();
-                    });
-                }
+        tag.style.fontSize = '8.5px';
+        tag.style.padding = '1px 4px';
+        tag.style.borderRadius = '2px';
+        tag.style.cursor = 'pointer';
+        tag.style.whiteSpace = 'nowrap';
+        tag.style.flexShrink = '0';  // 防止标签被压缩
 
-                container.appendChild(tag);
-            });
-            
-            // 延迟计算宽度，确保标签已完全渲染
-            setTimeout(() => {
-                // 计算所有标签的总宽度
-                let totalWidth = 0;
-                const tags = container.querySelectorAll('.buf-tag');
-                tags.forEach(tag => {
-                    totalWidth += tag.offsetWidth;
-                });
-                const gapWidth = 2; // gap: 2px
-                const gapCount = Math.max(0, tags.length - 1);
-                totalWidth += gapCount * gapWidth;
-                
-                const containerWidth = container.clientWidth;
-                console.log('buf宽度计算 - 总宽度:', totalWidth, '容器宽度:', containerWidth, '标签数量:', tags.length);
-                
-                // 只有当总宽度超过容器宽度时才显示滚动条
-                if (totalWidth > containerWidth) {
-                    container.style.overflowX = 'auto';
-                    container.classList.add('overflow-auto');
-                    console.log('✓ 显示滚动条');
-                } else {
-                    container.style.overflowX = 'hidden';
-                    container.classList.remove('overflow-auto');
-                    console.log('✓ 隐藏滚动条');
-                }
-            }, 10);  // 延迟10ms确保DOM渲染完成
+        // 简化显示名称
+        const displayText = simplifyBufName(buf.name, buf.round);
+        tag.textContent = displayText;
+
+        // 构建 tooltip 内容（显示完整信息）
+        // 构建 tooltip 纯文本：不再拼 HTML，避免 buf.name 里的标记被注入 DOM。
+        const tipLines = [];
+        if (buf.name) tipLines.push(String(buf.name));
+        if (buf.round > 0) tipLines.push('剩余: ' + buf.round + ' 回合');
+        // tipString 与名称常常是同一句话（属性增减状态尤其如此），
+        // 只有内容不同才追加，避免悬停提示出现两行重复文字。
+        const tipText = buf.tipString ? String(buf.tipString).trim() : '';
+        const nameText = buf.name ? String(buf.name).trim() : '';
+        if (tipText && tipText !== nameText) {
+        tipLines.push(tipText);
+        }
+        // 原始数值（如 10000006）是内部定点编码，给用户看只会像乱码，这里不再展示。
+        if (buf.bufId) tipLines.push('ID: ' + String(buf.bufId));
+
+        if (tipLines.length > 0) {
+        const tooltipContent = tipLines.join('\n');
+        tag.title = tooltipContent;
+        tag.setAttribute('data-tooltip', tooltipContent);
+
+        // 添加悬停事件显示详细 tooltip
+        tag.addEventListener('mouseenter', function(e) {
+        showBufTooltip(e, this);
+        });
+        tag.addEventListener('mouseleave', function() {
+        hideBufTooltip();
+        });
+        }
+
+        container.appendChild(tag);
+        });
+
+        // 延迟计算宽度，确保标签已完全渲染
+        setTimeout(() => {
+        // 计算所有标签的总宽度
+        let totalWidth = 0;
+        const tags = container.querySelectorAll('.buf-tag');
+        tags.forEach(tag => {
+        totalWidth += tag.offsetWidth;
+        });
+        const gapWidth = 2; // gap: 2px
+        const gapCount = Math.max(0, tags.length - 1);
+        totalWidth += gapCount * gapWidth;
+
+        const containerWidth = container.clientWidth;
+        console.log('buf宽度计算 - 总宽度:', totalWidth, '容器宽度:', containerWidth, '标签数量:', tags.length);
+
+        // 只有当总宽度超过容器宽度时才显示滚动条
+        if (totalWidth > containerWidth) {
+        container.style.overflowX = 'auto';
+        container.classList.add('overflow-auto');
+        console.log('✓ 显示滚动条');
+        } else {
+        container.style.overflowX = 'hidden';
+        container.classList.remove('overflow-auto');
+        console.log('✓ 隐藏滚动条');
+        }
+        }, 10);  // 延迟10ms确保DOM渲染完成
         }
 
         /**
-         * 显示 Buff 详细 Tooltip
-         */
+        * 显示 Buff 详细 Tooltip
+        */
         function showBufTooltip(event, element) {
-            hideBufTooltip(); // 先移除已有的
+        hideBufTooltip(); // 先移除已有的
 
-            const tooltip = document.createElement('div');
-            tooltip.id = 'buf-tooltip';
-            tooltip.style.cssText = `
-                position: fixed;
-                background: rgba(40, 40, 40, 0.95);
-                color: #fff;
-                padding: 8px 10px;
-                border-radius: 4px;
-                font-size: 10px;
-                line-height: 1.5;
-                max-width: 200px;
-                z-index: 10000;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-                pointer-events: none;
-            `;
+        const tooltip = document.createElement('div');
+        tooltip.id = 'buf-tooltip';
+        tooltip.style.cssText = `
+        position: fixed;
+        background: rgba(40, 40, 40, 0.95);
+        color: #fff;
+        padding: 8px 10px;
+        border-radius: 4px;
+        font-size: 10px;
+        line-height: 1.5;
+        white-space: pre-line;
+        max-width: 200px;
+        z-index: 10000;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        pointer-events: none;
+        `;
 
-            const content = element.getAttribute('data-tooltip');
-            if (content) {
-                tooltip.innerHTML = content;
-            }
+        const content = element.getAttribute('data-tooltip');
+        if (content) {
+        tooltip.textContent = content;
+        }
 
-            document.body.appendChild(tooltip);
+        document.body.appendChild(tooltip);
 
-            // 定位
-            const rect = element.getBoundingClientRect();
-            let left = rect.left;
-            let top = rect.bottom + 4;
+        // 定位
+        const rect = element.getBoundingClientRect();
+        let left = rect.left;
+        let top = rect.bottom + 4;
 
-            // 防止超出屏幕
-            if (left + tooltip.offsetWidth > window.innerWidth) {
-                left = window.innerWidth - tooltip.offsetWidth - 8;
-            }
-            if (top + tooltip.offsetHeight > window.innerHeight) {
-                top = rect.top - tooltip.offsetHeight - 4;
-            }
+        // 防止超出屏幕
+        if (left + tooltip.offsetWidth > window.innerWidth) {
+        left = window.innerWidth - tooltip.offsetWidth - 8;
+        }
+        if (top + tooltip.offsetHeight > window.innerHeight) {
+        top = rect.top - tooltip.offsetHeight - 4;
+        }
 
-            tooltip.style.left = left + 'px';
-            tooltip.style.top = top + 'px';
+        tooltip.style.left = left + 'px';
+        tooltip.style.top = top + 'px';
         }
 
         /**
-         * 隐藏 Buff Tooltip
-         */
+        * 隐藏 Buff Tooltip
+        */
         function hideBufTooltip() {
-            const existing = document.getElementById('buf-tooltip');
-            if (existing) {
-                existing.remove();
-            }
+        const existing = document.getElementById('buf-tooltip');
+        if (existing) {
+        existing.remove();
+        }
         }
 
         /**
-         * 解析出战序号
-         * C++ 侧解析失败时可能给出 -1（无出战宠物），直接拿它去索引会退化成队首，
-         * 表现就是"切换宠物后 UI 不跟着换"。这里补一层兜底：
-         * 先看序号是否合法，再退回 state===1（在场）的宠物，最后才用第 0 只。
-         */
+        * 解析出战序号
+        * C++ 侧解析失败时可能给出 -1（无出战宠物），直接拿它去索引会退化成队首，
+        * 表现就是"切换宠物后 UI 不跟着换"。这里补一层兜底：
+        * 先看序号是否合法，再退回 state===1（在场）的宠物，最后才用第 0 只。
+        */
         function resolveActiveIndex(pets, index) {
-            if (!Array.isArray(pets) || pets.length === 0) return -1;
-            if (typeof index === 'number' && index >= 0 && index < pets.length) return index;
-            for (let i = 0; i < pets.length; i++) {
-                const pet = pets[i];
-                if (pet && !pet.placeholder && pet.state === 1) return i;
-            }
-            for (let i = 0; i < pets.length; i++) {
-                if (pets[i] && !pets[i].placeholder) return i;
-            }
-            return 0;
+        if (!Array.isArray(pets) || pets.length === 0) return -1;
+        if (typeof index === 'number' && index >= 0 && index < pets.length) return index;
+        for (let i = 0; i < pets.length; i++) {
+        const pet = pets[i];
+        if (pet && !pet.placeholder && pet.state === 1) return i;
+        }
+        for (let i = 0; i < pets.length; i++) {
+        if (pets[i] && !pets[i].placeholder) return i;
+        }
+        return 0;
         }
 
         /**
-         * 更新战斗UI数据
-         * @param {Object} data - 战斗数据对象
-         */
-        window.updateBattleUI = function(data) {
-            if (!data) data = window._battleData;
-            if (!data) return;
-            window._battleData = data;
-            
-            // 调试输出：确认函数被调用
-            console.log('[Battle] updateBattleUI called with data:', data);
+        * 清空一侧战斗面板（不发任何数据，纯 DOM 复位）。
+        * C++ 退出战斗时直接调 window.clearBattleUI()，不再依赖 updateBattleUI
+        * 的空数组分支，避免结算 body 异常时旧数据留在面板上。
+        */
+        function clearBattleSide(prefix, defaultOptionText) {
+        const sid = document.getElementById(prefix + '-spirit-id');
+        if (sid) sid.textContent = '0';
+        const hp = document.getElementById(prefix + '-hp');
+        if (hp) hp.textContent = '0/0';
+        const name = document.getElementById(prefix + '-name');
+        if (name) name.textContent = '未知';
+        const skillList = document.getElementById(prefix + '-skill-list');
+        if (skillList) skillList.innerHTML = '<div class="flat-empty">暂无技能数据</div>';
+        const select = document.getElementById(prefix + '-pet-select');
+        if (select) select.innerHTML = '<option value="0">' + defaultOptionText + '</option>';
+        const bufList = document.getElementById(prefix + '-buf-list');
+        if (bufList) {
+        bufList.innerHTML = '';
+        bufList.classList.remove('has-bufs');
+        }
+        }
 
-            // 更新我方数据
-            if (data.myPets && data.myPets.length > 0) {
-                const myIdx = resolveActiveIndex(data.myPets, data.myActiveIndex);
-                const myActive = data.myPets[myIdx] || data.myPets[0];
-                document.getElementById('my-spirit-id').textContent = myActive.spiritId;
-                document.getElementById('my-hp').textContent = myActive.hp + '/' + myActive.maxHp;
-                document.getElementById('my-name').textContent = myActive.name ? myActive.name : ('妖怪' + myActive.spiritId);
+        window._battleSessionId = 0;
 
-                // 更新技能列表
-                const mySkillList = document.getElementById('my-skill-list');
-                mySkillList.innerHTML = '';
-                if (!(Array.isArray(myActive.skills) && myActive.skills.length > 0)) {
-                    mySkillList.innerHTML = '<div class="flat-empty">暂无技能数据</div>';
-                }
-                (Array.isArray(myActive.skills) ? myActive.skills : []).forEach(skill => {
-                    const row = document.createElement('div');
-                    row.className = 'skill-row';
-                    row.innerHTML = `
-                        <div>${skill.name ? skill.name : ('技能' + skill.id)}</div>
-                        <div>${skill.pp}/${skill.maxPp}</div>
-                    `;
-                    mySkillList.appendChild(row);
-                });
+        function battleInt(value, fallback) {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : fallback;
+        }
 
-                // 更新我方 Buff 标签
-                const myBufList = document.getElementById('my-buf-list');
-                if (myBufList) {
-                    renderBufList(myActive.bufArr, myBufList);
-                }
+        function battleText(value) {
+        return value === null || value === undefined ? '' : String(value);
+        }
 
-                // 更新我方组合框
-                const mySelect = document.getElementById('my-pet-select');
-                mySelect.innerHTML = '';
-                data.myPets.forEach((pet, index) => {
-                    const option = document.createElement('option');
-                    option.value = index;
-                    option.textContent = pet.name ? pet.name : ('妖怪' + pet.spiritId);
-                    if (index === myIdx) option.selected = true;
-                    mySelect.appendChild(option);
-                });
-                mySelect.value = String(myIdx);
-            } else {
-                // Clear UI
-                document.getElementById('my-spirit-id').textContent = '0';
-                document.getElementById('my-hp').textContent = '0/0';
-                document.getElementById('my-name').textContent = '未知';
-                document.getElementById('my-skill-list').innerHTML = '<div class="flat-empty">暂无技能数据</div>';
-                document.getElementById('my-pet-select').innerHTML = '<option value="0">妖怪1</option>';
-                const myBufList = document.getElementById('my-buf-list');
-                if (myBufList) {
-                    myBufList.innerHTML = '';
-                    myBufList.classList.remove('has-bufs');
-                }
-            }
+        function normalizeBattlePets(list) {
+        if (!Array.isArray(list)) return [];
+        return list.filter(p => p && typeof p === 'object').map(p => ({
+        spiritId: battleInt(p.spiritId, 0),
+        name: battleText(p.name),
+        hp: battleInt(p.hp, 0),
+        maxHp: battleInt(p.maxHp, 0),
+        state: battleInt(p.state, 0),
+        placeholder: !!p.placeholder,
+        skills: (Array.isArray(p.skills) ? p.skills : [])
+        .filter(s => s && typeof s === 'object')
+        .map(s => ({
+        id: battleInt(s.id, 0),
+        name: battleText(s.name),
+        pp: battleInt(s.pp, 0),
+        maxPp: battleInt(s.maxPp, 0)
+        })),
+        bufArr: (Array.isArray(p.bufArr) ? p.bufArr : [])
+        .filter(b => b && typeof b === 'object')
+        .map(b => ({
+        bufId: battleInt(b.bufId, 0),
+        name: battleText(b.name),
+        round: battleInt(b.round, 0),
+        tipString: battleText(b.tipString),
+        addOrRemove: battleInt(b.addOrRemove, 0)
+        }))
+        }));
+        }
 
-            // 更新敌方数据
-            if (data.otherPets && data.otherPets.length > 0) {
-                const otherIdx = resolveActiveIndex(data.otherPets, data.otherActiveIndex);
-                const otherActive = data.otherPets[otherIdx] || data.otherPets[0];
-                document.getElementById('other-spirit-id').textContent = otherActive.spiritId;
-                document.getElementById('other-hp').textContent = otherActive.hp + '/' + otherActive.maxHp;
-                document.getElementById('other-name').textContent = otherActive.name ? otherActive.name : ('妖怪' + otherActive.spiritId);
+        // 前端唯一的数据规整入口：C++ 只负责发原始字段，DOM 只吃规整后的模型。
+        // 这样旧包、字段缺失、类型错误都不会把渲染逻辑打成半截。
+        const BattleUiModel = {
+        normalize(raw) {
+        const data = (raw && typeof raw === 'object') ? raw : {};
+        return {
+        active: data.active !== false,
+        sessionId: battleInt(data.sessionId, 0),
+        myPets: normalizeBattlePets(data.myPets),
+        otherPets: normalizeBattlePets(data.otherPets),
+        myActiveIndex: battleInt(data.myActiveIndex, -1),
+        otherActiveIndex: battleInt(data.otherActiveIndex, -1),
+        battleType: battleInt(data.battleType, 0),
+        escape: !!data.escape,
+        round: battleInt(data.round, 0)
+        };
+        }
+        };
+        window.BattleUiModel = BattleUiModel;
 
-                // 更新技能列表
-                const otherSkillList = document.getElementById('other-skill-list');
-                otherSkillList.innerHTML = '';
-                if (!(Array.isArray(otherActive.skills) && otherActive.skills.length > 0)) {
-                    otherSkillList.innerHTML = '<div class="flat-empty">暂无技能数据</div>';
-                }
-                (Array.isArray(otherActive.skills) ? otherActive.skills : []).forEach(skill => {
-                    const row = document.createElement('div');
-                    row.className = 'skill-row';
-                    row.innerHTML = `
-                        <div>${skill.name ? skill.name : ('技能' + skill.id)}</div>
-                        <div>${skill.pp}/${skill.maxPp}</div>
-                    `;
-                    otherSkillList.appendChild(row);
-                });
+        function renderBattleSkillList(container, pets, activeIndex) {
+        if (!container) return;
+        container.textContent = '';
+        const active = pets[activeIndex] || pets[0];
+        const skills = active && Array.isArray(active.skills) ? active.skills : [];
+        if (skills.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'flat-empty';
+        empty.textContent = '暂无技能数据';
+        container.appendChild(empty);
+        return;
+        }
+        skills.forEach(skill => {
+        const row = document.createElement('div');
+        row.className = 'skill-row';
+        const name = document.createElement('div');
+        name.textContent = skill.name || ('技能' + skill.id);
+        const pp = document.createElement('div');
+        pp.textContent = skill.pp + '/' + skill.maxPp;
+        row.appendChild(name);
+        row.appendChild(pp);
+        container.appendChild(row);
+        });
+        }
 
-                // 更新敌方 Buff 标签
-                const otherBufList = document.getElementById('other-buf-list');
-                if (otherBufList) {
-                    renderBufList(otherActive.bufArr, otherBufList);
-                }
+        function renderBattlePetSelect(select, pets, index, defaultText) {
+        if (!select) return;
+        select.textContent = '';
+        if (pets.length === 0) {
+        const option = document.createElement('option');
+        option.value = '0';
+        option.textContent = defaultText;
+        select.appendChild(option);
+        return;
+        }
+        pets.forEach((pet, i) => {
+        const option = document.createElement('option');
+        option.value = String(i);
+        option.textContent = pet.name || ('妖怪' + pet.spiritId);
+        if (i === index) option.selected = true;
+        select.appendChild(option);
+        });
+        select.value = String(index);
+        }
 
-                // 更新敌方组合框
-                const otherSelect = document.getElementById('other-pet-select');
-                otherSelect.innerHTML = '';
-                data.otherPets.forEach((pet, index) => {
-                    const option = document.createElement('option');
-                    option.value = index;
-                    option.textContent = pet.name ? pet.name : ('妖怪' + pet.spiritId);
-                    if (index === otherIdx) option.selected = true;
-                    otherSelect.appendChild(option);
-                });
-                otherSelect.value = String(otherIdx);
-            } else {
-                // Clear UI
-                document.getElementById('other-spirit-id').textContent = '0';
-                document.getElementById('other-hp').textContent = '0/0';
-                document.getElementById('other-name').textContent = '未知';
-                document.getElementById('other-skill-list').innerHTML = '<div class="flat-empty">暂无技能数据</div>';
-                document.getElementById('other-pet-select').innerHTML = '<option value="0">敌方妖怪1</option>';
-                const otherBufList = document.getElementById('other-buf-list');
-                if (otherBufList) {
-                    otherBufList.innerHTML = '';
-                    otherBufList.classList.remove('has-bufs');
-                }
-            }
+        function renderBattleSide(prefix, pets, activeIndex, defaultText) {
+        if (!Array.isArray(pets) || pets.length === 0) {
+        clearBattleSide(prefix, defaultText);
+        return;
+        }
+        const idx = resolveActiveIndex(pets, activeIndex);
+        const active = pets[idx] || pets[0];
+        const sid = document.getElementById(prefix + '-spirit-id');
+        if (sid) sid.textContent = String(active.spiritId);
+        const hp = document.getElementById(prefix + '-hp');
+        if (hp) hp.textContent = active.hp + '/' + active.maxHp;
+        const name = document.getElementById(prefix + '-name');
+        if (name) name.textContent = active.name || ('妖怪' + active.spiritId);
+        renderBattleSkillList(document.getElementById(prefix + '-skill-list'), pets, idx);
+        const bufList = document.getElementById(prefix + '-buf-list');
+        if (bufList) renderBufList(active.bufArr, bufList);
+        renderBattlePetSelect(document.getElementById(prefix + '-pet-select'), pets, idx, defaultText);
+        }
+
+        // 手动清空必须同时清 C++ 侧状态，否则下一包会把旧数据重新画回来。
+        window.requestClearBattleUI = function() {
+        try {
+        if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+        window.chrome.webview.postMessage({ type: 'clear_battle_ui' });
+        return;
+        }
+        } catch (e) {
+        console.warn('[Battle] clear_battle_ui postMessage failed', e);
+        }
+        window.clearBattleUI();
+        };
+
+        window.clearBattleUI = function(sessionId) {
+        const sid = battleInt(sessionId, 0);
+        // 迟到的旧会话清空包不能把新一场已经画好的面板擦掉。
+        // sessionId=0 是本地兜底清空，没有会话信息，按调用方意图直接清。
+        if (sid > 0 && sid < window._battleSessionId) {
+        console.warn('[Battle] 忽略旧会话清空', sid, window._battleSessionId);
+        return;
+        }
+        if (sid > 0) window._battleSessionId = Math.max(window._battleSessionId, sid);
+        window._battleData = null;
+        clearBattleSide('my', '妖怪1');
+        clearBattleSide('other', '敌方妖怪1');
+        };
+
+        /**
+        * 更新战斗UI数据
+        * @param {Object} raw - C++ 侧战斗快照
+        */
+        window.updateBattleUI = function(raw) {
+        if (!raw) raw = window._battleData;
+        if (!raw) return;
+
+        const data = BattleUiModel.normalize(raw);
+        // 旧会话的迟到包不能把新一场/已清空的面板重新点亮。
+        if (data.sessionId > 0 && data.sessionId < window._battleSessionId) {
+        console.warn('[Battle] 忽略旧会话数据', data.sessionId, window._battleSessionId);
+        return;
+        }
+        if (data.sessionId > 0) window._battleSessionId = data.sessionId;
+
+        if (!data.active) {
+        window.clearBattleUI(data.sessionId);
+        return;
+        }
+
+        window._battleData = data;
+        renderBattleSide('my', data.myPets, data.myActiveIndex, '妖怪1');
+        renderBattleSide('other', data.otherPets, data.otherActiveIndex, '敌方妖怪1');
         };
 
         (function() {
-            var mySelectEl = document.getElementById('my-pet-select');
-            if (mySelectEl) {
-                mySelectEl.addEventListener('change', function() {
-                    var d = window._battleData;
-                    if (!d || !Array.isArray(d.myPets) || d.myPets.length === 0) return;
-                    var idx = parseInt(this.value, 10);
-                    if (isNaN(idx)) idx = 0;
-                    if (idx < 0) idx = 0;
-                    if (idx >= d.myPets.length) idx = d.myPets.length - 1;
-                    d.myActiveIndex = idx;
-                    window.updateBattleUI(d);
-                });
-            }
-            var otherSelectEl = document.getElementById('other-pet-select');
-            if (otherSelectEl) {
-                otherSelectEl.addEventListener('change', function() {
-                    var d = window._battleData;
-                    if (!d || !Array.isArray(d.otherPets) || d.otherPets.length === 0) return;
-                    var idx = parseInt(this.value, 10);
-                    if (isNaN(idx)) idx = 0;
-                    if (idx < 0) idx = 0;
-                    if (idx >= d.otherPets.length) idx = d.otherPets.length - 1;
-                    d.otherActiveIndex = idx;
-                    window.updateBattleUI(d);
-                });
-            }
+        var mySelectEl = document.getElementById('my-pet-select');
+        if (mySelectEl) {
+        mySelectEl.addEventListener('change', function() {
+        var d = window._battleData;
+        if (!d || !Array.isArray(d.myPets) || d.myPets.length === 0) return;
+        var idx = parseInt(this.value, 10);
+        if (isNaN(idx)) idx = 0;
+        if (idx < 0) idx = 0;
+        if (idx >= d.myPets.length) idx = d.myPets.length - 1;
+        d.myActiveIndex = idx;
+        window.updateBattleUI(d);
+        });
+        }
+        var otherSelectEl = document.getElementById('other-pet-select');
+        if (otherSelectEl) {
+        otherSelectEl.addEventListener('change', function() {
+        var d = window._battleData;
+        if (!d || !Array.isArray(d.otherPets) || d.otherPets.length === 0) return;
+        var idx = parseInt(this.value, 10);
+        if (isNaN(idx)) idx = 0;
+        if (idx < 0) idx = 0;
+        if (idx >= d.otherPets.length) idx = d.otherPets.length - 1;
+        d.otherActiveIndex = idx;
+        window.updateBattleUI(d);
+        });
+        }
         })();
 
-        /**
-         * 添加战斗数据到UI列表
-         * @param {string} type - 消息类型 (如: '战斗开始', '回合结算')
-         * @param {string} data - 数据内容描述
-         */
-        window.addBattleData = function(type, data) {
-            // 获取我方和敌方的技能列表容器 (这里以我方为例进行演示，实际应根据 type 解析)
-            // 假设我们将所有解析到的战斗事件添加到一个通用的记录列表，或者更新现有的属性
-            
-            // 查找战斗数据标签页中的列表容器
-            var battleTab = document.getElementById('battle');
-            if (!battleTab) return;
 
-            // 示例：更新辅助提示区域
-            var helperText = document.getElementById('helper-text');
-            if (helperText) {
-                helperText.textContent = "[" + type + "] " + data;
-                helperText.classList.remove('slide-in');
-                void helperText.offsetWidth; // 触发重绘
-                helperText.classList.add('slide-in');
-            }
-        };
 
         // ============== 妖怪背包功能 ==============
         window.currentMonsterData = { monsters: [] };

@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  battle-core:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+      - name: Check embedded UI JavaScript syntax
+        shell: pwsh
+        run: |
+          $html = Get-Content resources/ui.html -Raw
+          $start = $html.LastIndexOf('<script>') + 8
+          $end = $html.LastIndexOf('</script>')
+          $html.Substring($start, $end - $start) | Set-Content build/ui_check.js -Encoding utf8
+          node --check build/ui_check.js
+

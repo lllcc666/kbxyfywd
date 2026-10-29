@@ -116,36 +116,31 @@ void ProcessSpiritPresuresResponse(const GamePacket& packet) {
             spirit.skillList.push_back(static_cast<uint32_t>(ReadInt32LE(body, offset)));
         }
 
-        auto nameIt = g_petNames.find(static_cast<int>(spirit.eggIid));
-        spirit.name = (nameIt != g_petNames.end())
-            ? nameIt->second
-            : (L"妖怪ID " + std::to_wstring(spirit.eggIid));
+        spirit.name = GetPetName(static_cast<int>(spirit.eggIid));
+        if (spirit.name.empty()) spirit.name = L"妖怪ID " + std::to_wstring(spirit.eggIid);
 
         spirit.elem = 0;
-        auto elemIt = g_petElems.find(static_cast<int>(spirit.eggIid));
-        if (elemIt != g_petElems.end()) {
-            spirit.elem = static_cast<uint32_t>(elemIt->second);
-            auto elemNameIt = g_elemNames.find(elemIt->second);
-            spirit.elemName = (elemNameIt != g_elemNames.end()) ? elemNameIt->second : L"未知系别";
+        const int elemId = GetPetElem(static_cast<int>(spirit.eggIid));
+        if (elemId != 0) {
+            spirit.elem = static_cast<uint32_t>(elemId);
+            spirit.elemName = GetElemName(elemId);
+            if (spirit.elemName.empty()) spirit.elemName = L"未知系别";
         } else {
             spirit.elemName = L"未知系别";
         }
 
         if (spirit.character > 0) {
-            auto characterIt = g_geniusNames.find(static_cast<int>(spirit.character));
-            spirit.characterName = (characterIt != g_geniusNames.end()) ? characterIt->second : L"未知性格";
+            spirit.characterName = GetGeniusName(static_cast<int>(spirit.character));
+            if (spirit.characterName.empty()) spirit.characterName = L"未知性格";
         } else {
             spirit.characterName = L"未知性格";
         }
 
         spirit.skillNames.reserve(spirit.skillList.size());
         for (uint32_t skillId : spirit.skillList) {
-            auto skillIt = g_skillNames.find(static_cast<int>(skillId));
-            spirit.skillNames.push_back(
-                skillIt != g_skillNames.end()
-                    ? skillIt->second
-                    : (L"技能" + std::to_wstring(skillId))
-            );
+            std::wstring skillName = GetSkillName(static_cast<int>(skillId));
+            if (skillName.empty()) skillName = L"技能" + std::to_wstring(skillId);
+            spirit.skillNames.push_back(std::move(skillName));
         }
 
         g_spiritCollectState.spiritList.push_back(spirit);

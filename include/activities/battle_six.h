@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include "packet_types.h"
+#include "battle_packets.h"
 
 namespace BattleSix {
     constexpr int ACTIVITY_ID = 999;
@@ -65,31 +66,42 @@ private:
     unsigned long long m_lastActionRoundToken;
     mutable std::recursive_mutex m_stateMutex;
     std::atomic<bool> m_isInBattle;
-    bool m_autoBattleEnabled;
-    bool m_autoMatching;
-    int m_matchCount;
-    int m_totalMatchCount;
-    int m_winCount;
-    int m_loseCount;
+    // 这些开关/计数会被 UI 线程写、包处理线程和延迟线程读；普通 bool/int
+    // 在跨线程读写时是数据竞争，可能让自动战斗误判“已停止/还在战斗”。
+    std::atomic<bool> m_autoBattleEnabled;
+    std::atomic<bool> m_autoMatching;
+    std::atomic<int> m_matchCount;
+    std::atomic<int> m_totalMatchCount;
+    std::atomic<int> m_winCount;
+    std::atomic<int> m_loseCount;
 public:
     BattleSixAutoBattle();
 
     void StartBattle();
     void EndBattle();
     bool IsInBattle() const { return m_isInBattle.load(); }
-    void SetAutoBattle(bool enabled) { m_autoBattleEnabled = enabled; }
-    bool IsAutoBattleEnabled() const { return m_autoBattleEnabled; }
-    void SetAutoMatching(bool enabled) { m_autoMatching = enabled; }
-    bool IsAutoMatching() const { return m_autoMatching; }
+    void SetAutoBattle(bool enabled) { m_autoBattleEnabled.store(enabled); }
+    bool IsAutoBattleEnabled() const { return m_autoBattleEnabled.load(); }
+    void SetAutoMatching(bool enabled) { m_autoMatching.store(enabled); }
+    bool IsAutoMatching() const { return m_autoMatching.load(); }
 
-    void SetMatchCount(int count) { m_matchCount = count; m_totalMatchCount = count; m_winCount = 0; m_loseCount = 0; }
-    int GetMatchCount() const { return m_matchCount; }
-    int GetTotalMatchCount() const { return m_totalMatchCount; }
-    void DecrementMatchCount() { if (m_matchCount > 0) m_matchCount--; }
-    void IncrementWinCount() { m_winCount++; }
-    void IncrementLoseCount() { m_loseCount++; }
-    int GetWinCount() const { return m_winCount; }
-    int GetLoseCount() const { return m_loseCount; }
+    void SetMatchCount(int count) {
+        m_matchCount.store(count);
+        m_totalMatchCount.store(count);
+        m_winCount.store(0);
+        m_loseCount.store(0);
+    }
+    int GetMatchCount() const { return m_matchCount.load(); }
+    int GetTotalMatchCount() const { return m_totalMatchCount.load(); }
+    void DecrementMatchCount() {
+        int current = m_matchCount.load();
+        while (current > 0 && !m_matchCount.compare_exchange_weak(current, current - 1)) {
+        }
+    }
+    void IncrementWinCount() { m_winCount.fetch_add(1); }
+    void IncrementLoseCount() { m_loseCount.fetch_add(1); }
+    int GetWinCount() const { return m_winCount.load(); }
+    int GetLoseCount() const { return m_loseCount.load(); }
 
     void UpdateMySpiritHP(int spiritSid, int hp);
     void UpdateEnemySpiritHP(int spiritSid, int hp);
@@ -155,6 +167,13 @@ void ProcessBattleSixFinishFirstSpiritResponse(const GamePacket& packet);
 BOOL StartOneKeyBattleSixPacket(int matchCount = 1);
 BOOL CancelBattleSixMatch();
 
+// 协议层战斗事件入口：由 battle_activity_hooks.cpp 调用，packet_parser 不直接
+// 依赖 BattleSixAutoBattle 的内部状态。
+void BattleSixSyncFromBattle(const BattleData& battle, bool initialize);
+void BattleSixNotifyRoundStart();
+void BattleSixMarkSettlement(uint32_t winFlags);
+bool BattleSixIsAutoBattleActive();
+
 // ---------------------------------------------------------------------------
 // 万妖盛会流程机制（实现在 src/hook/battle_six.cpp）
 //
@@ -184,6 +203,3 @@ void ArmBattleSixFlowWatchdog(DWORD timeoutMs, int stage, unsigned long long tok
                               bool cancelBeforeRecovery, const wchar_t* timeoutText);
 
 // 通用战斗封包（万妖盛会与主线任务共用）。
-BOOL SendBattleReadyPacket();
-BOOL SendBattlePlayOverPacket();
-BOOL SendNormalBattleEndPacket();

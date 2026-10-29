@@ -297,7 +297,7 @@ int BattleSixAutoBattle::FindNextAliveSpirit(int currentIndex) {
 
 BOOL BattleSixAutoBattle::OnBattleRoundStart() {
     std::lock_guard<std::recursive_mutex> stateLock(m_stateMutex);
-    if (!m_autoBattleEnabled) {
+    if (!m_autoBattleEnabled.load()) {
         return FALSE;
     }
 
@@ -330,10 +330,7 @@ BOOL BattleSixAutoBattle::OnBattleRoundStart() {
     const auto& skill = m_mySpirits[m_currentSpiritIndex].skills[skillIndex];
     int targetId = 0;
     int skillRange = 0;
-    const auto rangeIt = g_skillRanges.find(skill.skillId);
-    if (rangeIt != g_skillRanges.end()) {
-        skillRange = rangeIt->second;
-    }
+    skillRange = GetSkillRange(skill.skillId, 0);
     if (skillRange == 2) {
         targetId = m_mySpirits[m_currentSpiritIndex].sid;
     } else {
@@ -448,10 +445,8 @@ void BattleSixAutoBattle::OnBattleRoundResult(const GamePacket& packet) {
                     skill.currentPP = ReadInt32LE(packet.body.data(), offset);
                     skill.maxPP = ReadInt32LE(packet.body.data(), offset);
                     skill.available = skill.currentPP > 0;
-                    const auto nameIt = g_skillNames.find(skill.skillId);
-                    if (nameIt != g_skillNames.end()) skill.name = nameIt->second;
-                    const auto powerIt = g_skillPowers.find(skill.skillId);
-                    if (powerIt != g_skillPowers.end()) skill.power = powerIt->second;
+                    skill.name = GetSkillName(skill.skillId);
+                    skill.power = GetSkillPower(skill.skillId, 0);
                     spirit.skills.push_back(std::move(skill));
                 }
                 if (mySide) {
@@ -820,38 +815,6 @@ BOOL SendBattleSixEndPacket() {
     // BattleSix uses the common battle lifecycle; AS3 sends 1186323 here.
     return SendNormalBattleEndPacket();
 }
-// 普通战斗的结束确认，等价于 AS3 BattleControl.clearBattleView() 中的
-// OP_GATEWAY_BATTLE_END.send；不能用万妖盛会的 USER_OP(params=4) 代替。
-// 主线任务的战斗收尾也要用它，故为外部链接（声明在 battle_six.h）。
-BOOL SendNormalBattleEndPacket() {
-    auto packet = PacketBuilder()
-        .SetOpcode(Opcode::BATTLE_END_SEND)
-        .SetParams(0)
-        .Build();
-
-    return SendPacketBytes(packet);
-}
-
-BOOL SendBattleReadyPacket() {
-    auto packet = PacketBuilder()
-        .SetOpcode(Opcode::BATTLE_READY)
-        .SetParams(0)
-        .Build();
-
-    return SendPacketBytes(packet);
-}
-
-BOOL SendBattlePlayOverPacket() {
-    g_battleSixPlayOverToken.fetch_add(1);
-
-    auto packet = PacketBuilder()
-        .SetOpcode(Opcode::BATTLE_PLAY_OVER)
-        .SetParams(0)
-        .Build();
-
-    return SendPacketBytes(packet);
-}
-
 // 万妖盛会响应处理函数实现
 void ProcessBattleSixMatchResponse(const GamePacket& packet) {
     if (packet.params != 0) {
@@ -1211,4 +1174,101 @@ BOOL StartOneKeyBattleSixPacket(int matchCount) {
 BOOL CancelBattleSixMatch() {
     // 取消匹配
     return SendBattleSixCancelMatchPacket();
+}
+
+// ============================================================================
+// 协议层战斗事件适配
+// ============================================================================
+
+static void CopyBattleSixSpiritFromBattle(const BattleEntity& source, BattleSixSpiritInfo& target) {
+    target.sid = source.sid;
+    target.spiritId = source.spiritId;
+    target.uniqueId = source.uniqueId;
+    target.userId = source.userId;
+    target.hp = source.hp;
+    target.maxHp = source.maxHp;
+    target.level = source.level;
+    target.element = source.elem;
+    target.isDead = source.hp <= 0;
+    target.name = source.name;
+    target.skills.clear();
+    target.skills.reserve(source.skills.size());
+    for (const auto& sourceSkill : source.skills) {
+        BattleSixSkillInfo skill;
+        skill.skillId = static_cast<int>(sourceSkill.id);
+        skill.currentPP = sourceSkill.pp;
+        skill.maxPP = sourceSkill.maxPp;
+        skill.available = sourceSkill.pp > 0;
+        skill.name = sourceSkill.name;
+        skill.power = GetSkillPower(skill.skillId, 0);
+        target.skills.push_back(std::move(skill));
+    }
+}
+
+void BattleSixSyncFromBattle(const BattleData& battle, bool initialize) {
+    std::lock_guard<std::recursive_mutex> stateLock(g_battleSixAuto.GetStateMutex());
+    if (!g_battleSixAuto.IsAutoBattleEnabled()) return;
+    if (initialize) {
+        g_battleSixAuto.StartBattle();
+        g_battleSixAuto.GetMySpirits().clear();
+        g_battleSixAuto.GetEnemySpirits().clear();
+    }
+    if (!g_battleSixAuto.IsInBattle()) return;
+
+    auto syncTeam = [](const std::vector<BattleEntity>& source,
+                       std::vector<BattleSixSpiritInfo>& target,
+                       int32_t activeIndex) {
+        int activeTargetIndex = -1;
+        for (size_t sourceIndex = 0; sourceIndex < source.size(); ++sourceIndex) {
+            const BattleEntity& sourceSpirit = source[sourceIndex];
+            if (sourceSpirit.placeholder || sourceSpirit.spiritId == 0) continue;
+            int targetIndex = -1;
+            for (size_t i = 0; i < target.size(); ++i) {
+                if (sourceSpirit.uniqueId != 0 && target[i].uniqueId == sourceSpirit.uniqueId) {
+                    targetIndex = static_cast<int>(i);
+                    break;
+                }
+                if (targetIndex < 0 && sourceSpirit.sid != 0 && target[i].sid == sourceSpirit.sid) {
+                    targetIndex = static_cast<int>(i);
+                }
+            }
+            if (targetIndex < 0) {
+                target.emplace_back();
+                targetIndex = static_cast<int>(target.size() - 1);
+            }
+            CopyBattleSixSpiritFromBattle(sourceSpirit, target[targetIndex]);
+            target[targetIndex].position = targetIndex;
+            if (static_cast<int32_t>(sourceIndex) == activeIndex || sourceSpirit.state == 1) {
+                activeTargetIndex = targetIndex;
+            }
+        }
+        return activeTargetIndex;
+    };
+
+    const int myActiveIndex = syncTeam(battle.myPets, g_battleSixAuto.GetMySpirits(), battle.myActiveIndex);
+    const int enemyActiveIndex = syncTeam(battle.otherPets, g_battleSixAuto.GetEnemySpirits(), battle.otherActiveIndex);
+    if (myActiveIndex >= 0) {
+        g_battleSixAuto.SetCurrentSpiritIndex(myActiveIndex);
+        g_battleSixAuto.SetMyUniqueId(g_battleSixAuto.GetMySpirits()[myActiveIndex].uniqueId);
+    }
+    if (enemyActiveIndex >= 0) g_battleSixAuto.SetEnemyActiveIndex(enemyActiveIndex);
+    g_battleSixAuto.RefreshEnemyTarget();
+}
+
+void BattleSixNotifyRoundStart() {
+    if (g_battleSixAuto.IsInBattle() && g_battleSixAuto.IsAutoBattleEnabled()) {
+        g_battleSixRoundToken.fetch_add(1);
+        g_battleSixAuto.OnBattleRoundStart();
+    }
+}
+
+void BattleSixMarkSettlement(uint32_t winFlags) {
+    if (g_battleSixAuto.IsInBattle()) {
+        g_battleSixSettlementKnown = true;
+        g_battleSixSettlementFlags = winFlags;
+    }
+}
+
+bool BattleSixIsAutoBattleActive() {
+    return g_battleSixAuto.IsInBattle() && g_battleSixAuto.IsAutoBattleEnabled();
 }

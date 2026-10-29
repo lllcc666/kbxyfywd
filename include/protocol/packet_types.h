@@ -173,8 +173,10 @@ struct BattleSiteData {
 struct BattleData {
     std::vector<BattleEntity> myPets;
     std::vector<BattleEntity> otherPets;
-    int32_t myActiveIndex = 0;
-    int32_t otherActiveIndex = 0;
+    // -1 = "尚未确定"。用 0 当哨兵会和"确实第 0 只出战"混在一起，
+    // 导致 ResolveBattleActiveIndex 的 state==1 兜底永远不生效。
+    int32_t myActiveIndex = -1;
+    int32_t otherActiveIndex = -1;
     int32_t battleType = 0;
     int32_t escape = 0;
     int32_t round = 0;
@@ -198,7 +200,6 @@ struct GamePacket {
     uint32_t params = 0;
     std::vector<uint8_t> body;
     std::vector<uint8_t> rawBody;
-    bool bodyDecoded = true;
     BOOL bSend = FALSE;
 };
 
