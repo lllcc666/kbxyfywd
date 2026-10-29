@@ -285,7 +285,11 @@ std::atomic<SOCKET> g_LastGameSocket{0};
 // 注意：g_hWnd 在 demo.cpp 中定义，这里通过 wpe_hook.h 的 extern 声明使用
 
 // 基础战斗开关 owner：回血、屏蔽战斗、自动回家和战斗校验标记统一由这一组维护。
-std::atomic<bool> g_autoHeal{false};  ///< 自动回血
+std::atomic<bool> g_autoHeal{true};   ///< 自动回血（默认开启，与设置页复选框的 checked 保持一致）
+// 本场战斗是否还没触发过自动回血：收到 BATTLE_START 时置 true，回血后置 false。
+// 逃跑时服务端不一定回 BATTLE_END，只靠收包会漏；而客户端关闭战斗界面时一定会发
+// BATTLE_END_SEND，所以两个信号都要认，用这个标志保证每场只回一次血。
+std::atomic<bool> g_autoHealArmed{true};
 std::atomic<bool> g_blockBattle{false};  ///< 屏蔽战斗
 std::atomic<bool> g_autoGoHome{false};   ///< 自动回家（玄塔）
 std::atomic<int32_t> g_battleCounter{0};  ///< 战斗counter（用于战斗校验）
@@ -563,10 +567,6 @@ VOID UnloadMinHookFromMemory() {
 }  // namespace
 
 // ============================================================================
-// 十六进制转换工具
-// ============================================================================
-
-// ============================================================================
 // UI 同步函数
 // ============================================================================
 
@@ -733,6 +733,27 @@ struct SendPacketCompleteGuard {
     ~SendPacketCompleteGuard() { g_sendPacketRequiresComplete = previous; }
 };
 
+// 每场战斗只回一次血。两个信号谁先到就由谁触发：
+//   - 服务端 BATTLE_END(1317125)：正常结算；
+//   - 客户端 BATTLE_END_SEND(1186323)：关战斗界面，逃跑/中断时只有这个。
+// 用 g_autoHealArmed 的 exchange 做去重，避免同一场战斗发两次治疗包。
+void TriggerAutoHealOnce() {
+    if (!g_autoHeal.load()) {
+        return;
+    }
+    if (!g_autoHealArmed.exchange(false)) {
+        return;
+    }
+    StartManagedThreadOnce(L"delay_auto_heal", [](LPVOID lpParam) -> DWORD {
+        (void)lpParam;
+        if (!ManagedThread::SleepCancellable(100)) {
+            return 0;
+        }
+        SendBeibeiHealPacket();
+        return 0;
+    }, nullptr);
+}
+
 }  // namespace
 
 int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
@@ -757,6 +778,8 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
     // 更不能被 hijack/block 分支提前 return 跳过。
     if (clientClosedBattle) {
         PacketParser::ClearBattleState(true);
+        // 逃跑时服务端通常不回 BATTLE_END，这里补一次自动回血。
+        TriggerAutoHealOnce();
     }
     
     // 劫持检测和修改
@@ -922,10 +945,7 @@ void HandleDecomposeResponse() {
 /**
  * @brief 处理接收到的游戏封包
  */
-void ProcessReceivedGamePackets(const BYTE* pData, DWORD dwSize,
-                                const std::vector<GamePacket>& gamePackets) {
-    (void)pData;
-    (void)dwSize;
+void ProcessReceivedGamePackets(const std::vector<GamePacket>& gamePackets) {
     auto& dispatcher = ResponseDispatcher::Instance();
 
     for (const auto& gp : gamePackets) {
@@ -960,7 +980,7 @@ static void ReceiveDispatchWorkerProc() {
             }
         }
 
-        ProcessReceivedGamePackets(nullptr, 0, packets);
+        ProcessReceivedGamePackets(packets);
     }
 }
 
@@ -1112,6 +1132,9 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
         // 1. 战斗开始响应 - 始终计算并存储 counter
         if (gp.opcode == Opcode::BATTLE_START) {
             
+            // 新的一场战斗：重新武装自动回血，允许本场再回一次。
+            g_autoHealArmed = true;
+
             // 读取战斗类型
             // AS3 stores battleType in the packet params; body[0] is the first entity state.
             int32_t battleType = static_cast<int32_t>(gp.params);
@@ -1168,15 +1191,12 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
         }
 
         // 3. 自动回血功能
-        if (g_autoHeal && gp.opcode == Opcode::BATTLE_END && gp.params == 1) {
-            StartManagedThreadOnce(L"delay_auto_heal", [](LPVOID lpParam) -> DWORD {
-                (void)lpParam;
-                if (!ManagedThread::SleepCancellable(100)) {
-                    return 0;
-                }
-                SendBeibeiHealPacket();
-                return 0;
-            }, nullptr);
+        // 不限定 params：AS3 BattleModel.onBattleEnd 只有 params==1 才带结算明细，
+        // 逃跑 / 战败 / 被中断时 params 是别的值，但这时角色一样需要治疗。
+        // 每场只回一次，由 g_autoHealArmed 去重（逃跑走 HookedSend 的
+        // BATTLE_END_SEND 那条路径触发，两个信号谁先到算谁的）。
+        if (gp.opcode == Opcode::BATTLE_END) {
+            TriggerAutoHealOnce();
         }
     }
 
@@ -1429,11 +1449,6 @@ BOOL ResponseDispatcher::Dispatch(const GamePacket& packet) {
 void ResponseDispatcher::ClearUnlocked() {
     m_handlers.clear();
     m_opcodeOnlyHandlers.clear();
-}
-
-void ResponseDispatcher::Clear() {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    ClearUnlocked();
 }
 
 void ResponseDispatcher::InitializeDefaultHandlers() {
