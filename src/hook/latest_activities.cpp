@@ -47,13 +47,15 @@ struct LatestActDesc {
     /// 本地是否有可自动化的游戏循环。全部收录活动都必须是 true：
     /// 只有「完整打完一局」和「扫荡」两条路径，没有第三条。
     bool playable;
-    /// open_ui / game_info 回包里是否带「历史最好成绩」字段。
-    /// 742 守护葫芦藤（KBHuluModel.as:71-85）的进入包只有次数与冷却，没有成绩字段；
-    /// 882 南瓜VS南瓜王（ActModel.as:72-94）的 bestFlag 虽然读了出来，但整个 SWF
-    /// 没有任何读取点，等于也没有可用成绩。
-    /// 这两个活动「有没有成绩」只能问服务端：发一次 sweep_info 看放不放行，
-    /// 与旧周活动判 sweepAvailable 是同一套判法。false 时流程不会凭 bestScore=0
-    /// 就断定「没成绩」，否则每次都要白打一局。
+    /// open_ui / game_info 回包里是否自带「能不能扫荡」的本地判据，用来在开局决定
+    /// 要不要先打一局。不能靠发 sweep_info 去问——那是「预览本次扫荡奖励」的包，
+    /// 不是「有没有历史成绩」的查询，拿它当门槛会在开局先扣掉一次真实扫荡。
+    ///
+    ///   true  + passScore > 0 ：回包带历史最好成绩，门槛 ShouldAutoSweep(成绩, 满分)。
+    ///   true  + passScore == 0：回包带「今天成功打完过一局」标志位（bestFlag），
+    ///                           门槛 bestFlag > 0。882 南瓜VS南瓜王属于这一档。
+    ///   false                 ：进入包只有次数与冷却（742 守护葫芦藤
+    ///                           KBHuluModel.as:71-85），本地无从判断，只能问服务端。
     bool scoreInOpenUi;
 };
 
@@ -71,7 +73,8 @@ struct LatestActDesc {
 //                    （GameUI.as:106 gameTime = 90）、每捡一枚金币 +1，200 根本打不出来。）
 //   882 南瓜VS南瓜王 无上限常量 = 0（grep 全 SWF 无 maxScore/MAX_SCORE/max_medal；
 //                    EType.as 的 AWARD_MAX_CHANGE 是奖励索引上限，不是勋章上限。
-//                    勋章数上限只在服务端，客户端不显示，因此按「无成绩字段」处理。）
+//                    勋章上限只在服务端、客户端不显示，所以不判「成绩是否满分」；
+//                    但 open_ui 的 bestFlag 明确是「今天成功打完过一局」，用它当门槛。）
 //
 // 扫荡次数：全部活动的 AS3 扫荡窗口一律把次数一次交上去——
 //   647 NewSweepUI.as:78        [GET_SWEEP, _curCnt]
@@ -89,7 +92,7 @@ const LatestActDesc kActivities[] = {
     {LatestAct::ACT_FIND_CORNEL, L"寻找七色茱萸", "open_ui", 10, 10, false, true, true},
     {LatestAct::ACT_FIGHT_EVILS, L"智斗恶灵", "game_info", 160, 160, true, true, true},
     {LatestAct::ACT_TREASURE, L"夺宝行动", "open_ui", 55, 55, false, true, true},
-    {LatestAct::ACT_PUMPKINS_PK, L"南瓜VS南瓜王", "open_ui", 0, 0, false, true, false},
+    {LatestAct::ACT_PUMPKINS_PK, L"南瓜VS南瓜王", "open_ui", 0, 0, false, true, true},
 };
 
 constexpr int kActivityNum = static_cast<int>(sizeof(kActivities) / sizeof(kActivities[0]));
@@ -329,7 +332,8 @@ bool ShouldAutoSweep(int bestScore, int flowScore) {
     return bestScore >= flowScore;
 }
 
-// 发一次 sweep_info，等回包里的 sweepReady（下面 CanSweepDirectly 要用）。
+// 发一次 sweep_info，等回包里的 sweepReady。它是「这次扫荡给什么奖」的预览包，
+// 不扣次数；只有 742 那种进入包里没有判据的活动才把它当门槛（CanSweepDirectly ③）。
 bool ProbeSweepReady(const LatestActDesc& desc, LatestActState& state);
 
 // 重查一次活动信息（次数/冷却/成绩），定义在后面；扫荡重试要用它防重复扫荡。
@@ -341,21 +345,32 @@ bool RefreshOneActivity(const LatestActDesc& desc, LatestActState& state);
 // 唯一的分叉是「成绩从哪读」：
 //   ① open_ui / game_info 回包里带成绩字段的活动（647/721/877/730/880）：
 //      直接读 state.bestScore，不走网络。
-//   ② 回包里没有可用成绩字段的活动（742 守护葫芦藤、882 南瓜VS南瓜王）：本地永远
-//      读到 0，只能问服务端——发一次 sweep_info，服务端说放行就说明它有历史成绩可扫。
-//      这就是旧周活动的 sweepAvailable 判法，不是另立一套。
+//   ② 回包里只有「今天成功打完过一局」标志位的活动（882）：没有上限最高分可比，
+//      门槛退化为「标志位 > 0」，同样直接读 state.bestScore，不走网络。
+//   ③ 进入包只有次数与冷却的活动（742 守护葫芦藤）：本地无从判断，才问服务端。
+//
+// ②③ 的区别是这次修掉的 bug：882 的 open_ui 第 7 个 int 就是 bestFlag
+// （ActModel.as:80/84），本来就在手里；此前把它当成「SWF 里没人读的死字段」，
+// 于是 882 掉进 ③，开局先发一包 sweep_info。sweep_info 是「预览这次扫荡给什么奖」
+// 的包，不是「有没有历史成绩」的查询，服务端在没有成绩时也会按 type 正常回包，
+// 探针据此放行，紧接着就发真实 sweep，白扣一次次数——这正是「开局先扫荡一次、
+// 发现没成绩、再正常打一局」的成因。
 //
 // 注意这里不看「本进程内刚打完一局」这种旁证：那是执行历史，与「服务端上有没有
 // 满分成绩」是两件事。混用会让成绩没到上限的活动也直接扫，按低分发奖还白扣次数。
 bool CanSweepDirectly(const LatestActDesc& desc, LatestActState& state) {
-    if (desc.passScore > 0 && desc.scoreInOpenUi) {
-        return ShouldAutoSweep(state.bestScore.load(), desc.passScore);
+    if (desc.scoreInOpenUi) {
+        if (desc.passScore > 0) {
+            return ShouldAutoSweep(state.bestScore.load(), desc.passScore);
+        }
+        // 无上限最高分，但回包带了「今天成功打完过一局」标志（bestFlag）。
+        // 语义与 730 ActivityData.bestFlag 一致：ActEnterView.as:153 用它决定
+        // 放不放行扫荡，否则弹「需要成功进行一局游戏才可以扫荡哦！」。
+        return state.bestScore.load() > 0;
     }
-    // 无成绩字段的活动（742 守护葫芦藤、882 南瓜VS南瓜王）：sweep_info 免费探一次
-    // ——放行就说明服务端有可扫的历史成绩（742 KBHuluModel.as:178-217 result==0、
-    // 882 ActModel.as:195-227 type==0||4）。这两个活动都没有「上限最高分」常量
-    // （882 的勋章数上限只在服务端），也就无从判定「成绩是否满分」，只能以服务端
-    // 放不放行为准——这是 AS3 自己的判法，不是另立一套。
+    // 进入包只有次数与冷却的活动（742 守护葫芦藤）：只能问服务端放不放行
+    // （KBHuluModel.as:178-217 result==0）。这类活动没有成绩概念，探针不是判成绩，
+    // 是判「服务端有没有这个活动的可扫状态」，与 882 的情形不同。
     return ProbeSweepReady(desc, state);
 }
 
@@ -467,9 +482,10 @@ void ParseOpenUI(const LatestActDesc& desc, LatestActState& state,
             offset += 4;                  // payCnt（今日已买次数）
             state.ruleFlag = read();      // wuzi（勋章数，本流程不消费，留档）
             offset += 8;                  // isShow, flag
-            // bestFlag 被 AS3 读进 ActivityData.bestFlag，但整个 SWF 没有一处读取它，
-            // 因此这里也不拿它当扫荡判据（scoreInOpenUi=false，改问 sweep_info）。
-            state.bestScore = read();     // bestFlag
+            // bestFlag：882 自己的 SWF 没读它（门禁压在服务端），但语义由 730 的同名
+            // 字段确证——730 ActEnterView.as:151-165 就是 `if (bestFlag > 0)` 才开扫荡窗，
+            // 否则弹「需要成功进行一局游戏才可以扫荡哦！」。所以这里照收，用作门槛。
+            state.bestScore = read();     // bestFlag（今天成功打完过一局 > 0）
             break;
 
         default:
@@ -1501,16 +1517,18 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
     Notify(activityId, L"剩余 " + std::to_wstring(state.playCount.load()) + L" 次");
 
     if (CanSweepDirectly(desc, state)) {
-        // ③ 已有满分成绩，直接扫荡，扫完即收工。
+        // ③ 本地已确认可以扫荡，直接扫荡，扫完即收工。
         if (desc.passScore > 0) {
             Notify(activityId, L"已有满分成绩（" + std::to_wstring(state.bestScore.load()) + L"/" +
                                    std::to_wstring(desc.passScore) + L"），直接扫荡");
         } else {
-            Notify(activityId, L"服务端确认有可扫荡成绩，直接扫荡");
+            Notify(activityId, L"今天已成功打完过一局，直接扫荡");
         }
-        // 带成绩字段的活动还没发过 sweep_info，这里补一次；
-        // 无成绩字段的活动（742/882）刚在 CanSweepDirectly 里探过，不重复发。
-        const bool probeFirst = desc.scoreInOpenUi && desc.passScore > 0;
+        // 闸门在本地判的（scoreInOpenUi=true）这时还没发过 sweep_info，按 AS3 顺序
+        // 补一包：ActEnterView.onSweep 先发 SWEEP_INFO 拿奖励预览，再开扫荡窗点确认。
+        // 注意这一包只是预览，不扣次数，也不要再拿它的结果当「有没有成绩」的判据；
+        // 742 的闸门本身就是这次探针，才不重复发。
+        const bool probeFirst = desc.scoreInOpenUi;
         const int before = state.playCount.load();
         const bool swept = SweepRemaining(desc, state, probeFirst);
         const bool refreshed = RefreshOneActivity(desc, state);
@@ -1568,6 +1586,14 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
         } else if (desc.passScore > 0) {
             Notify(activityId, L"成绩未达上限最高分（" + std::to_wstring(state.bestScore.load()) + L"/" +
                                    std::to_wstring(desc.passScore) + L"），完整打一局...");
+        } else if (desc.scoreInOpenUi) {
+            // 882：bestFlag 由 open_ui 回包给出，0 = 今天还没成功打完过一局。
+            // 打成一局后 bestFlag 变 1，此时再进循环只能是扫荡没成功。
+            if (state.bestScore.load() > 0) {
+                Notify(activityId, L"扫荡未成功，继续完整打一局...");
+            } else {
+                Notify(activityId, L"今天还没有成功打完过一局（bestFlag=0），完整打一局...");
+            }
         } else {
             Notify(activityId, L"没有可扫荡成绩，完整打一局...");
         }
@@ -1650,7 +1676,9 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
             }
         }
 
-        // 扫荡前必须先问服务端「有没有可扫的成绩」，否则扫了也是白扣次数。
+        // 扫荡前按 AS3 顺序发一包 sweep_info 拿奖励预览（不扣次数）。
+        // 这一包不是成绩查询，别拿它的结果当门槛——882 的「有没有成绩」一律看
+        // open_ui 的 bestFlag（上面 RefreshOneActivity 刚刷成权威值）。
         if (!ProbeSweepReady(desc, state)) {
             Notify(activityId, L"服务端暂无可扫荡成绩，继续打下一局");
             continue;
