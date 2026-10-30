@@ -1605,14 +1605,12 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
 
     // 最新活动（周活动小游戏）：按活动 ID 路由到统一处理器
     registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_MAZE, ProcessLatestActivityResponse);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_TOUCH_STAR, ProcessLatestActivityResponse);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_EXPLORE, ProcessLatestActivityResponse);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_WORD_GAME, ProcessLatestActivityResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_HULU, ProcessLatestActivityResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_STAR_PRINCESS, ProcessLatestActivityResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_FIND_CORNEL, ProcessLatestActivityResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_FIGHT_EVILS, ProcessLatestActivityResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_TREASURE, ProcessLatestActivityResponse);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_PUMPKINS_PK, ProcessLatestActivityResponse);
 
     // 742 守护葫芦藤的结算包走 OP_CLIENT_LUA_ACTIVITY_V3.send(1185432)
     // （KBHuluSendAction.as:61），回包因此可能落在 1316503 而不是 1316501。

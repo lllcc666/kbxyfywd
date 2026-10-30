@@ -3008,21 +3008,6 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                                 <span class="act-item-name">突破迷阵</span>
                                 <span class="act-item-count" id="act-count-647">--</span>
                             </label>
-                            <label class="act-item" id="act-row-869">
-                                <input type="checkbox" id="act-check-869" class="act-pick">
-                                <span class="act-item-name">摘星之旅</span>
-                                <span class="act-item-count" id="act-count-869">--</span>
-                            </label>
-                            <label class="act-item" id="act-row-749">
-                                <input type="checkbox" id="act-check-749" class="act-pick">
-                                <span class="act-item-name">寒冰洞历险记</span>
-                                <span class="act-item-count" id="act-count-749">--</span>
-                            </label>
-                            <label class="act-item" id="act-row-873">
-                                <input type="checkbox" id="act-check-873" class="act-pick">
-                                <span class="act-item-name">填字大作战</span>
-                                <span class="act-item-count" id="act-count-873">--</span>
-                            </label>
                             <label class="act-item" id="act-row-742">
                                 <input type="checkbox" id="act-check-742" class="act-pick">
                                 <span class="act-item-name">守护葫芦藤</span>
@@ -3047,6 +3032,11 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                                 <input type="checkbox" id="act-check-880" class="act-pick">
                                 <span class="act-item-name">夺宝行动</span>
                                 <span class="act-item-count" id="act-count-880">--</span>
+                            </label>
+                            <label class="act-item" id="act-row-882">
+                                <input type="checkbox" id="act-check-882" class="act-pick">
+                                <span class="act-item-name">南瓜VS南瓜王</span>
+                                <span class="act-item-count" id="act-count-882">--</span>
                             </label>
                         </div>
 
@@ -4808,7 +4798,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
         // 剩余次数由 C++ 侧通过 window.updateActivityCounts 回填；次数为 0
         // 时自动禁用该行，避免无效操作。
         // ====================================================================
-        window.actLatestIds = [647, 869, 749, 873, 742, 721, 877, 730, 880];
+        window.actLatestIds = [647, 742, 721, 877, 730, 880, 882];
 
         // C++ 回填各活动剩余次数：{ "717": 3, "822": 0, ... }
         // 值为负数或 null 表示未知，显示“--”且不禁用。

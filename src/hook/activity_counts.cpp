@@ -61,14 +61,12 @@ struct ActivityCountTarget {
 const ActivityCountTarget kActivityCountTargets[] = {
     // 最新活动（周活动小游戏，按日期码筛选出的未过期批次）
     {LatestAct::ACT_MAZE, L"突破迷阵"},
-    {LatestAct::ACT_TOUCH_STAR, L"摘星之旅"},
-    {LatestAct::ACT_EXPLORE, L"寒冰洞历险记"},
-    {LatestAct::ACT_WORD_GAME, L"填字大作战"},
     {LatestAct::ACT_HULU, L"守护葫芦藤"},
     {LatestAct::ACT_STAR_PRINCESS, L"采菊东篱下"},
     {LatestAct::ACT_FIND_CORNEL, L"寻找七色茱萸"},
     {LatestAct::ACT_FIGHT_EVILS, L"智斗恶灵"},
     {LatestAct::ACT_TREASURE, L"夺宝行动"},
+    {LatestAct::ACT_PUMPKINS_PK, L"南瓜VS南瓜王"},
 };
 
 constexpr int kActivityCountTargetNum =

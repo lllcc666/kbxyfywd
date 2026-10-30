@@ -17,14 +17,12 @@
 // 每个活动 ID 均来自对应 SWF 内定义的 ACTIVE_ID 常量（已用 FFDec 反编译核对），
 // 括号内是 weeklyactivity 清单里的日期码：
 //   647 突破迷阵        （Active20140911Maze，26093001）
-//   869 摘星之旅        （TouchStarMain，26092401）
-//   749 寒冰洞历险记    （Active20140306Explore，26092403）
-//   873 填字大作战      （A0926WordGame，26092402）
 //   742 守护葫芦藤      （Activity20131226Hulu，26093002）
 //   721 采菊东篱下      （Active20140306StarPrincess，26101201）
 //   877 寻找七色茱萸    （Active20131010FindCornel，26101202）
 //   730 智斗恶灵        （Active20131107FightEvils，26101901）
 //   880 夺宝行动        （Active20140619Treasure，26101902）
+//   882 南瓜VS南瓜王    （Active20131024PumpkinsPk，26102604）
 //
 // 按 skill 约定，只接主流程：进入活动查次数 -> 扫荡或走一局 -> 回填次数；
 // 不展开兑换、礼包、买宠等入口。
@@ -37,7 +35,7 @@
 //   ④ 不成立 -> 完整打完一局（过程包一条不少，打到上限最高分）-> 再扫荡剩余次数
 //
 // 注意：
-//   - 749/730 的"进入活动"操作串是 "game_info"，其余为 "open_ui"。
+//   - 730 的"进入活动"操作串是 "game_info"，其余为 "open_ui"。
 //   - 721 的 end_game 不带任何参数（body 只有操作串），与其他活动差异最大。
 //   - 742 的 end_game 走 OP_CLIENT_LUA_ACTIVITY_V3 且 body 是 JSON；
 //     它的分数概念是棋盘格，start_game 回包下发 165 格棋盘，结算时按格统计。
@@ -50,21 +48,19 @@
 
 namespace LatestAct {
 constexpr int ACT_MAZE = 647;           ///< 突破迷阵
-constexpr int ACT_TOUCH_STAR = 869;     ///< 摘星之旅
-constexpr int ACT_EXPLORE = 749;        ///< 寒冰洞历险记
-constexpr int ACT_WORD_GAME = 873;      ///< 填字大作战
 constexpr int ACT_HULU = 742;           ///< 守护葫芦藤
 constexpr int ACT_STAR_PRINCESS = 721;  ///< 采菊东篱下
 constexpr int ACT_FIND_CORNEL = 877;    ///< 寻找七色茱萸
 constexpr int ACT_FIGHT_EVILS = 730;    ///< 智斗恶灵
 constexpr int ACT_TREASURE = 880;       ///< 夺宝行动
+constexpr int ACT_PUMPKINS_PK = 882;    ///< 南瓜VS南瓜王
 
 }  // namespace LatestAct
 
 /// 该活动是否由本模块负责（供次数查询/UI 通道判断）。
 bool IsLatestActivity(uint32_t activityId);
 
-/// 该活动"进入活动"操作串：多数为 "open_ui"，749/730 为 "game_info"。
+/// 该活动"进入活动"操作串：多数为 "open_ui"，730 为 "game_info"。
 /// 非本模块活动返回 "open_ui"。
 const char* GetLatestActivityOpenUIOperation(uint32_t activityId);
 
