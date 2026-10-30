@@ -2400,7 +2400,7 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
         <div class="title-bar-left">
             <div class="title-bar-icon">卡</div>
             <span class="title-b)HTML" \
-R"HTML(ar-title">卡布西游浮影微端 V1.17</span>
+R"HTML(ar-title">卡布西游浮影微端 V1.18</span>
         </div>
         <div class="title-bar-controls">
             <button class="title-bar-button" id="btn-minimize" title="最小化">
