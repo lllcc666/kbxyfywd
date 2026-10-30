@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "byte_reader.h"
 #include "hook_shared.h"
 #include "managed_thread.h"
 #include "packet_builder.h"
@@ -13,7 +14,6 @@
 #include "ui_bridge.h"
 #include "utils.h"
 #include "wpe_hook.h"
-#include "wpe_hook_internal.h"
 
 // ============================================================================
 // 精魄赠送系统功能实现 (SpiritCollect)
@@ -83,26 +83,26 @@ BOOL SendSpiritHistoryPacket(int type) {
  * @param packet 响应封包
  */
 void ProcessSpiritPresuresResponse(const GamePacket& packet) {
-    const BYTE* body = packet.body.data();
     size_t offset = 0;
+    ByteReader reader(packet.body, offset);
     const int32_t spiritCount = static_cast<int32_t>(packet.params);
 
     g_spiritCollectState.spiritList.clear();
 
     for (int i = 0; i < spiritCount && offset + 24 <= packet.body.size(); i++) {
         SpiritInfo spirit;
-        spirit.eggId = ReadInt32LE(body, offset);
-        spirit.eggIid = ReadInt32LE(body, offset);
-        spirit.bornTime = ReadInt32LE(body, offset);
-        spirit.needTime = ReadInt32LE(body, offset);
-        spirit.eggType = ReadInt32LE(body, offset);
-        spirit.character = ReadInt32LE(body, offset);
+        spirit.eggId = reader.I32();
+        spirit.eggIid = reader.I32();
+        spirit.bornTime = reader.I32();
+        spirit.needTime = reader.I32();
+        spirit.eggType = reader.I32();
+        spirit.character = reader.I32();
 
         if (offset + 4 > packet.body.size()) {
             break;
         }
 
-        int32_t skillCount = ReadInt32LE(body, offset);
+        int32_t skillCount = reader.I32();
         if (skillCount < 0) {
             break;
         }
@@ -113,7 +113,7 @@ void ProcessSpiritPresuresResponse(const GamePacket& packet) {
 
         spirit.skillList.reserve(static_cast<size_t>(skillCount));
         for (int32_t j = 0; j < skillCount; ++j) {
-            spirit.skillList.push_back(static_cast<uint32_t>(ReadInt32LE(body, offset)));
+            spirit.skillList.push_back(static_cast<uint32_t>(reader.I32()));
         }
 
         spirit.name = GetPetName(static_cast<int>(spirit.eggIid));
@@ -197,6 +197,7 @@ void ProcessSpiritCollectResponse(const GamePacket& packet) {
 
     const BYTE* body = packet.body.data();
     size_t offset = 0;
+    ByteReader reader(packet.body, offset);
     std::string oper;
 
     if (!ReadPacketString(body, packet.body.size(), offset, oper)) return;
@@ -204,12 +205,12 @@ void ProcessSpiritCollectResponse(const GamePacket& packet) {
     if (oper == "open_ui") {
         if (offset + 24 > packet.body.size()) return;
 
-        int32_t love = ReadInt32LE(body, offset);
-        g_spiritCollectState.weeklyOutLimit = ReadInt32LE(body, offset);
-        int32_t monthlyOut = ReadInt32LE(body, offset);
-        int32_t weeklyIn = ReadInt32LE(body, offset);
-        int32_t monthlyIn = ReadInt32LE(body, offset);
-        g_spiritCollectState.dailyOutLimit = ReadInt32LE(body, offset);
+        int32_t love = reader.I32();
+        g_spiritCollectState.weeklyOutLimit = reader.I32();
+        int32_t monthlyOut = reader.I32();
+        int32_t weeklyIn = reader.I32();
+        int32_t monthlyIn = reader.I32();
+        g_spiritCollectState.dailyOutLimit = reader.I32();
 
         std::wstring jsCode = L"if(window.handleSpiritCollectData) { window.handleSpiritCollectData({";
         jsCode += L"type: 'spiritState',";
@@ -226,7 +227,7 @@ void ProcessSpiritCollectResponse(const GamePacket& packet) {
     if (oper == "history") {
         if (offset + 4 > packet.body.size()) return;
 
-        int32_t recordType = ReadInt32LE(body, offset);
+        int32_t recordType = reader.I32();
         std::string jsonText;
         if (!ReadPacketString(body, packet.body.size(), offset, jsonText)) {
             jsonText.clear();
@@ -260,13 +261,14 @@ void ProcessSpiritSendSpiritResponse(const GamePacket& packet) {
 
     const BYTE* body = packet.body.data();
     size_t offset = 0;
+    ByteReader reader(packet.body, offset);
     if (offset + 8 > packet.body.size()) {
         NotifySpiritSuccess(L"精魄赠送成功");
         return;
     }
 
-    ReadInt32LE(body, offset);
-    ReadInt32LE(body, offset);
+    reader.I32();
+    reader.I32();
 
     std::string friendNameUtf8;
     if (ReadPacketString(body, packet.body.size(), offset, friendNameUtf8)) {
@@ -285,8 +287,9 @@ void ProcessSpiritPlayerInfoResponse(const GamePacket& packet) {
 
     const BYTE* body = packet.body.data();
     size_t offset = 0;
+    ByteReader reader(packet.body, offset);
 
-    int32_t result = ReadInt32LE(body, offset);
+    int32_t result = reader.I32();
 
     if (result == 1) {
         std::string nameUtf8;

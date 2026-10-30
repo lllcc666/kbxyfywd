@@ -52,9 +52,6 @@ public:
     // 等待所有受管线程结束；返回仍未结束的线程数（0 表示干净退出）。
     static size_t JoinAll(DWORD timeoutMs = 5000);
 
-    // 仍在运行的受管线程数量（日志定位用）。
-    static size_t ActiveCount();
-
     // 收养一条不是通过 Start() 创建的线程（历史 CreateThread 调用点）。
     // 这里复制一份句柄登记，JoinAll 时等它退出；调用方自己的句柄照旧 CloseHandle，
     // 两边互不影响。rawHandle 无效或复制失败返回 false。

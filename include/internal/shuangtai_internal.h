@@ -26,8 +26,6 @@ public:
 
     bool Start(bool blockBattle);
     void RequestStop();
-    void Stop();
-    void Reset();
 
     void OnBattleStartResponse(const GamePacket& packet);
     void OnBattleRoundStartResponse();

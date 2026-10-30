@@ -515,13 +515,6 @@ void HandleStopHeavenFuruiCommand() {
     HandleActionWithTextCommand(StopHeavenFurui, L"福瑞宝箱：已停止");
 }
 
-void HandleSetHijackEnabledCommand(const std::wstring& msg) {
-    const bool enabled = GetJsonBoolValue(msg, L"enabled");
-    HandleActionCommand([enabled]() {
-        SetHijackEnabled(enabled);
-    });
-}
-
 void HandleClearHijackRulesCommand() {
     HandleActionCommand(ClearHijackRules);
 }
@@ -737,15 +730,17 @@ void HandleStartSendAllPacketsCommand(const std::wstring& msg) {
     LaunchDetachedStdThread(HandleStartSendAllPacketsWorker, sendCount, sendDelay);
 }
 
-// 最新活动（周活动小游戏）：统一按活动 ID 启动主流程。
+// 最新活动（周活动小游戏）：按 activity_ids 数组启动。
 // 扫荡与否由 C++ 侧按历史最好成绩自动判定，前端无需传参。
-// 带 activity_ids 数组时整批串行执行（一个跑完次数再跑下一个）；
-// 只有单个 ID 时退化为单活动执行。
-void HandleStartLatestActivityCommand(const std::wstring& msg, uint32_t activityId) {
+// 整批串行执行（一个跑完次数再跑下一个）。
+void HandleStartLatestActivityCommand(const std::wstring& msg) {
     std::vector<uint32_t> activityIds;
     ParseUInt32Array(msg, L"activity_ids", activityIds);
     if (activityIds.empty()) {
-        activityIds.push_back(activityId);
+        // 以前空数组会退化成 activityId=0 丢给 StartOneKeyLatestActivitiesPacket，
+        // 那里再 FindDesc(0) 失败返回 FALSE——一条什么都看不出来的静默失败。
+        SetHelperText(L"最新活动：没有可执行的活动");
+        return;
     }
     StartOneKeyLatestActivitiesPacket(activityIds);
 }
@@ -792,7 +787,6 @@ void HandleSpiritCollectVerifyPlayerCommand(const std::wstring& msg) {
     const std::wstring friendIdStr = GetTrimmedJsonValue(msg, L"friendId");
     if (!friendIdStr.empty()) {
         uint32_t friendId = static_cast<uint32_t>(_wtol(friendIdStr.c_str()));
-        g_spiritCollectState.selectedFriendId = friendId;
         HandleSpiritCollectSendResultCommand(
             [friendId]() {
                 return SendSpiritPlayerInfoPacket(friendId);
@@ -921,7 +915,7 @@ void HandleOpenUrlCommand(const std::wstring& msg) {
 
 void HandleRefreshGameCommand() {
     HandleActionCommand([]() {
-        AppHost::NavigateBrowser(L"http://news.4399.com/login/kbxy.html");
+        AppHost::NavigateBrowser(AppHost::kLoginUrl);
     });
 }
 
@@ -1160,24 +1154,12 @@ public:
         } else if (msg.find(L"dungeon_jump_stop") != std::wstring::npos) {
             HandleStopDungeonJumpCommand();
         } else if (msg.find(L"one_key_latest_batch") != std::wstring::npos) {
-            // 批量通道：activity_ids 数组，C++ 侧单线程顺序执行到次数耗尽。
-            HandleStartLatestActivityCommand(msg, 0);
+            // 唯一的启动通道：activity_ids 数组，C++ 侧单线程顺序执行到次数耗尽。
+            // 以前还有 7 个 one_key_latest<id> 单活动分支，前端从未发送过，
+            // 已删除——它们和这里走的是同一个函数，只是预置了一个活动 ID。
+            HandleStartLatestActivityCommand(msg);
         } else if (msg.find(L"stop_latest_activities") != std::wstring::npos) {
             HandleStopLatestActivitiesCommand();
-        } else if (msg.find(L"one_key_latest647") != std::wstring::npos) {
-            HandleStartLatestActivityCommand(msg, LatestAct::ACT_MAZE);
-        } else if (msg.find(L"one_key_latest742") != std::wstring::npos) {
-            HandleStartLatestActivityCommand(msg, LatestAct::ACT_HULU);
-        } else if (msg.find(L"one_key_latest721") != std::wstring::npos) {
-            HandleStartLatestActivityCommand(msg, LatestAct::ACT_STAR_PRINCESS);
-        } else if (msg.find(L"one_key_latest877") != std::wstring::npos) {
-            HandleStartLatestActivityCommand(msg, LatestAct::ACT_FIND_CORNEL);
-        } else if (msg.find(L"one_key_latest730") != std::wstring::npos) {
-            HandleStartLatestActivityCommand(msg, LatestAct::ACT_FIGHT_EVILS);
-        } else if (msg.find(L"one_key_latest880") != std::wstring::npos) {
-            HandleStartLatestActivityCommand(msg, LatestAct::ACT_TREASURE);
-        } else if (msg.find(L"one_key_latest882") != std::wstring::npos) {
-            HandleStartLatestActivityCommand(msg, LatestAct::ACT_PUMPKINS_PK);
         } else if (msg.find(L"refresh_activity_counts") != std::wstring::npos) {
             HandleRefreshActivityCountsCommand();
         } else if (msg.find(L"one_key_horse_competition") != std::wstring::npos) {
@@ -1190,8 +1172,6 @@ public:
             HandleStopHeavenFuruiCommand();
         } else if (msg.find(L"decompose_lingyu") != std::wstring::npos) {
             HandleDecomposeLingyuCommand(msg);
-        } else if (msg.find(L"set_hijack_enabled") != std::wstring::npos) {
-            HandleSetHijackEnabledCommand(msg);
         } else if (msg.find(L"add_hijack_rule") != std::wstring::npos) {
             HandleAddHijackRuleCommand(msg);
         } else if (msg.find(L"clear_hijack_rules") != std::wstring::npos) {

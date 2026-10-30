@@ -1,34 +1,12 @@
 #include <windows.h>
 
-#include <algorithm>
-#include <atomic>
 #include <cstdint>
-#include <cstdio>
-#include <mutex>
 #include <string>
-#include <thread>
-#include <utility>
-#include <vector>
 
-#include "activity_minigames.h"
-#include "activity_states_internal.h"
-#include "app_host.h"
-#include "battle_six.h"
-#include "dungeon_jump.h"
 #include "hook_shared.h"
-#include "latest_activities.h"
-#include "managed_thread.h"
 #include "packet_builder.h"
 #include "packet_parser.h"
-#include "packet_protocol.h"
-#include "shuangtai_internal.h"
-#include "story_task.h"
-#include "story_task_internal.h"
-#include "task_zone_internal.h"
 #include "ui_bridge.h"
-#include "utils.h"
-#include "wpe_hook.h"
-#include "wpe_hook_internal.h"
 
 // ============================================================================
 // 一键采集实现
@@ -110,7 +88,7 @@ static BOOL CollectSingleItem(const CollectItemData& item) {
     if (!SendPacket(g_LastGameSocket, mapPacket.data(), static_cast<DWORD>(mapPacket.size()))) {
         return FALSE;
     }
-    Sleep(400);
+    ManagedThread::SleepCancellable(400);
 
     // 2. 第二个封包: Opcode 1184319
     auto packet2 = PacketBuilder()
@@ -121,7 +99,7 @@ static BOOL CollectSingleItem(const CollectItemData& item) {
     if (!SendPacket(g_LastGameSocket, packet2.data(), static_cast<DWORD>(packet2.size()))) {
         return FALSE;
     }
-    Sleep(265);
+    ManagedThread::SleepCancellable(265);
 
     // 3. 第三个封包: Opcode 1184798
     auto packet3 = PacketBuilder()
@@ -132,7 +110,7 @@ static BOOL CollectSingleItem(const CollectItemData& item) {
     if (!SendPacket(g_LastGameSocket, packet3.data(), static_cast<DWORD>(packet3.size()))) {
         return FALSE;
     }
-    Sleep(265);
+    ManagedThread::SleepCancellable(265);
 
     // 循环采集（基于响应包判断完成）
     for (int i = 0; i < item.maxCount; i++) {
@@ -168,7 +146,7 @@ static BOOL CollectSingleItem(const CollectItemData& item) {
         // 超时设置：最多等待 3 秒
         int waitCount = 0;
         while (g_collectStatus != 1 && waitCount < 30) {
-            Sleep(100);
+            ManagedThread::SleepCancellable(100);
             waitCount++;
             // 检查错误状态
             if (g_collectStatus == -1) {
@@ -188,7 +166,7 @@ static BOOL CollectSingleItem(const CollectItemData& item) {
         g_collectFinished = false;
         waitCount = 0;
         while (!g_collectFinished && waitCount < 150) {
-            Sleep(100);
+            ManagedThread::SleepCancellable(100);
             waitCount++;
         }
 
@@ -210,7 +188,7 @@ static BOOL CollectSingleItem(const CollectItemData& item) {
             break;
         }
         
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
     }
 
     return TRUE;
@@ -238,7 +216,7 @@ static BOOL CollectMountEgg() {
     mapPacket[10] = 0x00;
     mapPacket[11] = 0x00;
     SendPacket(g_LastGameSocket, mapPacket, 12);
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
 
     // 2. 发送拾取封包: 44530800001912007952000000000000
     // Opcode 1185792 = 0x00121900，小端序: 00 19 12 00
@@ -266,7 +244,7 @@ static BOOL CollectMountEgg() {
     packet[18] = 0x00;
     packet[19] = 0x00;
     SendPacket(g_LastGameSocket, packet, 20);
-    Sleep(400);
+    ManagedThread::SleepCancellable(400);
 
     // 3. 跳转到地图 10969: 封包 4453000039121200F92A0000
     // mapId 10969 = 0x00002AF9，小端序: F9 2A 00 00
@@ -275,7 +253,7 @@ static BOOL CollectMountEgg() {
     mapPacket[10] = 0x00;
     mapPacket[11] = 0x00;
     SendPacket(g_LastGameSocket, mapPacket, 12);
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
 
     // 4. 发送拾取封包: Params 41220 = 0x0000A104
     packet[8] = 0x04;  // Params: 41220 小端序
@@ -283,7 +261,7 @@ static BOOL CollectMountEgg() {
     packet[10] = 0x00;
     packet[11] = 0x00;
     SendPacket(g_LastGameSocket, packet, 20);
-    Sleep(400);
+    ManagedThread::SleepCancellable(400);
 
     // 5. 跳转到地图 4103: 封包 4453000039121200A20F0000
     // mapId 4103 = 0x00001007，小端序: 07 10 00 00
@@ -294,11 +272,11 @@ static BOOL CollectMountEgg() {
     mapPacket[10] = 0x00;
     mapPacket[11] = 0x00;
     SendPacket(g_LastGameSocket, mapPacket, 12);
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
 
     // 6. 发送拾取封包
     SendPacket(g_LastGameSocket, packet, 20);
-    Sleep(400);
+    ManagedThread::SleepCancellable(400);
 
     // 7. 跳转到地图 10004: 封包 445300003912120014270000
     // mapId 10004 = 0x00002714，小端序: 14 27 00 00
@@ -307,11 +285,11 @@ static BOOL CollectMountEgg() {
     mapPacket[10] = 0x00;
     mapPacket[11] = 0x00;
     SendPacket(g_LastGameSocket, mapPacket, 12);
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
 
     // 8. 发送拾取封包
     SendPacket(g_LastGameSocket, packet, 20);
-    Sleep(400);
+    ManagedThread::SleepCancellable(400);
 
     return TRUE;
 }
@@ -326,6 +304,9 @@ static DWORD WINAPI CollectThreadProc(LPVOID lpParam) {
     
     // 按照标志位采集
     for (int i = 0; i < COLLECT_ITEM_COUNT; i++) {
+        if (ManagedThread::StopRequested()) {
+            break;
+        }
         if (!(flags & (1 << i))) {
             continue;  // 未选中，跳过
         }

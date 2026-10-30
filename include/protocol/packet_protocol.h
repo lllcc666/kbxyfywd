@@ -39,8 +39,6 @@ constexpr uint32_t SPIRIT_EQUIP_ALL_SEND = 1185809;
 constexpr uint32_t SPIRIT_EQUIP_ALL_BACK = 1316881;
 constexpr uint32_t RESOLVE_SPIRIT_SEND = 1185814;
 constexpr uint32_t RESOLVE_SPIRIT_BACK = 1316886;
-constexpr uint32_t BATCH_RESOLVE_SPIRIT_SEND = 1185819;
-constexpr uint32_t BATCH_RESOLVE_BACK = 1316891;
 constexpr uint32_t LINGYU_LIST = SPIRIT_EQUIP_ALL_BACK;
 constexpr uint32_t DECOMPOSE_RESPONSE = RESOLVE_SPIRIT_BACK;
 
@@ -92,10 +90,9 @@ constexpr uint32_t TASK_FINISHED_BACK = 1315847;
 
 constexpr uint32_t TASK_TALK_SEND = 1184788;
 constexpr uint32_t TASK_TALK_BACK = 1315860;
-constexpr uint32_t TASK_DAILY_SEND = 1184791;
 // 活动向每日任务上报进度用的另一个协议（AS3 的 MsgDoc.OP_CLIENT_DAILYTASK）。
 // 各活动 SWF 在结算后用 sendMessage(OP_CLIENT_DAILYTASK.send, 3, [3,4039001,0])
-// 上报，与上面的 TASK_DAILY_SEND(1184791) 不是同一个 opcode，不要混用。
+// 上报。别和 OP_CLIENT_REQ_TASKFINISHED 一系的 1184791 混用，两者不是同一个协议。
 constexpr uint32_t TASK_DAILY_REPORT_SEND = 1184812;
 
 

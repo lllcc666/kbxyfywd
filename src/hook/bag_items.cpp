@@ -1,35 +1,17 @@
 #include <windows.h>
-#include <winhttp.h>
-#include <wincrypt.h>
 
-#include <algorithm>
-#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <mutex>
 #include <string>
-#include <thread>
-#include <utility>
 #include <vector>
 
-#include "activity_minigames.h"
 #include "activity_states_internal.h"
-#include "app_host.h"
 #include "battle_six.h"
-#include "dungeon_jump.h"
+#include "byte_reader.h"
 #include "hook_shared.h"
-#include "latest_activities.h"
-#include "managed_thread.h"
 #include "packet_builder.h"
-#include "packet_parser.h"
-#include "packet_protocol.h"
-#include "shuangtai_internal.h"
-#include "story_task.h"
-#include "story_task_internal.h"
-#include "task_zone_internal.h"
 #include "ui_bridge.h"
-#include "utils.h"
-#include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
 // 背包映射由收包线程在 ProcessPackageDataResponse 里整体重建，
@@ -131,7 +113,7 @@ BOOL SendQueryLingyuPacket() {
     BOOL result1 = SendPacketBytes(packet1);
 
     // 延迟300ms发送第二个封包
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
 
     const auto packet2 = buildQuery(2);
     BOOL result2 = SendPacketBytes(packet2);
@@ -156,7 +138,7 @@ BOOL SendQueryBagPacket() {
     BOOL result1 = SendPacketBytes(packet1);
 
     // 延迟50ms发送第二个封包
-    Sleep(50);
+    ManagedThread::SleepCancellable(50);
 
     BOOL result2 = SendPacketBytes(packet2);
 
@@ -206,6 +188,10 @@ DWORD WINAPI DecomposeThreadProc(LPVOID lpParam) {
 
     // 逐个分解每个灵玉
     for (size_t i = 0; i < indexList.size(); i++) {
+        if (ManagedThread::StopRequested()) {
+            allSuccess = FALSE;
+            break;
+        }
         const auto& indexStr = indexList[i];
 
         // 将字符串索引转换为整数
@@ -240,7 +226,7 @@ DWORD WINAPI DecomposeThreadProc(LPVOID lpParam) {
 
         // 延迟200ms再分解下一个，避免过快发送
         if (i + 1 < indexList.size()) {
-            Sleep(200);
+            ManagedThread::SleepCancellable(200);
         }
 
         // 更新整体成功状态
@@ -274,7 +260,7 @@ BOOL SendDecomposeLingyuPacket(const std::wstring& jsonArray) {
     taskData->indices = indices;
 
     // 创建新线程处理分解任务，避免阻塞主线程
-    HANDLE hThread = CreateManagedThread(NULL, 0, DecomposeThreadProc, taskData, 0, NULL);
+    HANDLE hThread = CreateManagedThread(NULL, 0, DecomposeThreadProc, taskData, 0, NULL, L"decompose");
     if (hThread) {
         CloseHandle(hThread);
         return TRUE;
@@ -314,15 +300,15 @@ void ProcessPackageDataResponse(const GamePacket& packet) {
         return;
     }
     
-    const BYTE* body = packet.body.data();
     size_t offset = 0;
+    ByteReader reader(packet.body, offset);
     size_t bodySize = packet.body.size();
     
     // 读取 isocode（占位字段，仅需推进 offset）
-    (void)ReadInt32LE(body, offset);
+    (void)reader.I32();
     
     // 读取 packcount（包数量）
-    int packcount = ReadInt32LE(body, offset);
+    int packcount = reader.I32();
     
     // 重建整张映射表：先持锁清空再填充，JS 调用留到锁外。
     std::wstring itemCountsJson = L"{";
@@ -337,9 +323,9 @@ void ProcessPackageDataResponse(const GamePacket& packet) {
         // 检查是否有足够的空间读取 packcode, packid, count (共12字节)
         if (offset + 12 > bodySize) break;
         
-        int packcode = ReadInt32LE(body, offset);
-        (void)ReadInt32LE(body, offset);  // packid：占位字段，仅需推进 offset
-        int count = ReadInt32LE(body, offset);
+        int packcode = reader.I32();
+        (void)reader.I32();  // packid：占位字段，仅需推进 offset
+        int count = reader.I32();
         
         // 遍历包内物品
         for (int j = 0; j < count; j++) {
@@ -348,14 +334,14 @@ void ProcessPackageDataResponse(const GamePacket& packet) {
             
             PackItemInfo item;
             item.packcode = packcode;
-            item.position = ReadInt32LE(body, offset);
-            item.id = ReadInt32LE(body, offset);
+            item.position = reader.I32();
+            item.id = reader.I32();
             
             if (item.id > 0) {
                 // 检查是否有足够的空间读取 count (4字节)
                 if (offset + 4 > bodySize) break;
                 
-                item.count = ReadInt32LE(body, offset);
+                item.count = reader.I32();
                 
                 // 保存到列表
                 g_packItems.push_back(item);

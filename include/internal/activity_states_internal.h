@@ -2,24 +2,21 @@
 
 #include "wpe_hook.h"
 
+#include <atomic>
 #include <cstdint>
+#include <string>
 #include <utility>
+#include <vector>
 
 struct ActivityState {
+    // 曾经这里还有 waitingResponse/playCount/restTime/checkCode/sweepAvailable 五个字段，
+    // 但唯一子类 HorseCompetitionState 一个都没用（它自己用 isGaming/isSettling/phase 等
+    // 表达同样的语义），latest_activities 那边是独立 struct。留着只会让人误以为
+    // 「所有活动状态都共享这套字段」，所以收缩到真正被继承使用的那一个。
     std::atomic<bool> isRunning{false};
-    std::atomic<bool> waitingResponse{false};
-    std::atomic<int> playCount{0};
-    std::atomic<int> restTime{0};
-    std::atomic<int> checkCode{0};
-    std::atomic<bool> sweepAvailable{false};
 
     void Reset() {
         isRunning = false;
-        waitingResponse = false;
-        playCount = 0;
-        restTime = 0;
-        checkCode = 0;
-        sweepAvailable = false;
     }
 };
 
@@ -39,14 +36,6 @@ enum HorseCompetitionPhase {
     HORSE_PHASE_GAMING,
     HORSE_PHASE_SETTLING,
     HORSE_PHASE_FINISHED
-};
-
-enum HorseItemType {
-    HORSE_ITEM_MUEN = 1,
-    HORSE_ITEM_JIE = 2,
-    HORSE_ITEM_HEILEI = 3,
-    HORSE_ITEM_LIUJIAN = 4,
-    HORSE_ITEM_HUOLIDOU = 5
 };
 
 struct HorseMemberInfo {

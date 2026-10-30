@@ -1,36 +1,14 @@
 #include <windows.h>
-#include <winhttp.h>
-#include <wincrypt.h>
 
-#include <algorithm>
 #include <atomic>
 #include <cstdint>
-#include <cstdio>
-#include <memory>
-#include <mutex>
 #include <string>
-#include <thread>
-#include <utility>
-#include <vector>
 
-#include "activity_minigames.h"
-#include "activity_states_internal.h"
-#include "app_host.h"
 #include "battle_six.h"
-#include "dungeon_jump.h"
+#include "byte_reader.h"
 #include "hook_shared.h"
-#include "latest_activities.h"
-#include "managed_thread.h"
 #include "packet_builder.h"
-#include "packet_parser.h"
-#include "packet_protocol.h"
-#include "shuangtai_internal.h"
-#include "story_task.h"
-#include "story_task_internal.h"
-#include "task_zone_internal.h"
 #include "ui_bridge.h"
-#include "utils.h"
-#include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
 CRITICAL_SECTION g_towerCS;  // 玄塔临界区
@@ -146,8 +124,7 @@ BOOL SendReenterTowerMapPacket() {
 // 玄塔自动跑塔线程
 // 流程：查一次状态 → 循环投掷普通骰子直到耗尽/到顶 → 退出回家
 DWORD WINAPI TowerAutoThreadProc(LPVOID lpParam) {
-    // pStatus 归线程所有：无论从哪条路径退出都要释放，否则每点一次一键就漏一个 wstring。
-    std::unique_ptr<std::wstring> pStatus(reinterpret_cast<std::wstring*>(lpParam));
+    (void)lpParam;
     bool success = true;
     int successCount = 0;
 
@@ -161,12 +138,7 @@ DWORD WINAPI TowerAutoThreadProc(LPVOID lpParam) {
     } autoModeGuard;
 
     // 辅助函数：更新状态到UI
-    auto updateStatus = [&](const std::wstring& status) {
-        if (!pStatus) {
-            UIBridge::Instance().UpdateHelperText(status);
-            return;
-        }
-        *pStatus = status;
+    auto updateStatus = [](const std::wstring& status) {
         UIBridge::Instance().UpdateHelperText(status);
     };
 
@@ -188,23 +160,22 @@ DWORD WINAPI TowerAutoThreadProc(LPVOID lpParam) {
 
         SendThrowBonesPacket();  // 发没发出去都从这里开始等，回包超时按"未知"处理
 
-        // 回包已到（或已超时），业务解析在分发线程上，补一段自旋等 operation==2 落值。
+        // 回包已到（或已超时），业务解析在分发线程上，补一段等待等 operation==2 落值。
         // 最多等 2 秒：正常情况下 throw 回包紧跟 UPDATE_BONES_NUM 到达，先后不定。
-        for (int i = 0; i < 100; ++i) {
-            bool received = false;
-            bool lastSuccess = false;
-            {
+        bool lastSuccess = false;
+        const WaitOutcome outcome = WaitForCondition(
+            [&lastSuccess]() {
                 CriticalSectionLock lock(g_towerCS);
-                received = g_towerThrowResponseReceived;
+                if (!g_towerThrowResponseReceived) {
+                    return false;
+                }
                 lastSuccess = g_towerLastThrowSuccess;
-            }
-            if (received) {
-                return lastSuccess ? ThrowOutcome::kSuccess : ThrowOutcome::kRejected;
-            }
-            if (ManagedThread::StopRequested()) {
-                break;
-            }
-            ManagedThread::SleepCancellable(20);
+                return true;
+            },
+            2000,
+            20);
+        if (outcome == WaitOutcome::Signalled) {
+            return lastSuccess ? ThrowOutcome::kSuccess : ThrowOutcome::kRejected;
         }
 
         // 放弃这次等待：关掉窗口，别让迟到的 op2 记到下一投头上
@@ -494,20 +465,12 @@ BOOL StartOneKeyTowerPacket() {
     }
     g_towerMapLeft.store(false);
 
-    std::wstring* pStatus = new(std::nothrow) std::wstring(L"一键玄塔初始化...");
-    if (!pStatus) {
-        CriticalSectionLock lock(g_towerCS);
-        g_towerAutoMode = false;
-        return FALSE;
-    }
-
     // 启动玄塔线程
     // 走受管线程：退出时 RequestStopAll/JoinAll 能收住它，不会留下 detach 线程继续发包。
-    if (StartManagedThreadOnce(L"tower_auto", TowerAutoThreadProc, pStatus)) {
+    if (StartManagedThreadOnce(L"tower_auto", TowerAutoThreadProc, nullptr)) {
         return TRUE;
     }
 
-    delete pStatus;
     {
         CriticalSectionLock lock(g_towerCS);
         g_towerAutoMode = false;
@@ -526,18 +489,19 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
     if (packet.opcode == Opcode::TRIAL_BACK && packet.params == 341) {
         if (packet.body.size() >= 4) {
             size_t offset = 0;
-            int32_t operation = ReadInt32LE(packet.body.data(), offset);
+            ByteReader reader(packet.body, offset);
+            int32_t operation = reader.I32();
 
             // CHECK_INFO 响应 (operation = 1)：查询玄塔信息
             // AS3 代码: mbody.nbones = body.readInt(); mbody.sbones = body.readInt(); ...
             // Body 结构：[operation:4][nbones:4][sbones:4][passflag:4][getMonsterTime:4][nowpos:4][buycount:4][noTip:4][nodeList:90*4]
             // 总大小：4 + 7*4 + 90*4 = 392 字节
             if (operation == 1 && packet.body.size() >= 392) {
-                int32_t nbones = ReadInt32LE(packet.body.data(), offset);  // 普通骰子数量
-                int32_t sbones = ReadInt32LE(packet.body.data(), offset);  // 如意骰子数量
-                int32_t passflag = ReadInt32LE(packet.body.data(), offset); // 通关标志（0=未通关，1=已通关）
-                (void)ReadInt32LE(packet.body.data(), offset);              // getMonsterTime：未使用
-                int32_t nowpos = ReadInt32LE(packet.body.data(), offset);   // 当前所在格（0..89）
+                int32_t nbones = reader.I32();  // 普通骰子数量
+                int32_t sbones = reader.I32();  // 如意骰子数量
+                int32_t passflag = reader.I32(); // 通关标志（0=未通关，1=已通关）
+                (void)reader.I32();              // getMonsterTime：未使用
+                int32_t nowpos = reader.I32();   // 当前所在格（0..89）
                 // 其余字段: buycount, noTip, nodeList[90]
 
                 CriticalSectionLock lock(g_towerCS);
@@ -557,8 +521,8 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
             // AS3 代码: mbody.nbones = body.readInt(); mbody.sbones = body.readInt();
             // Body 结构：[operation:4][nbones:4][sbones:4]
             else if (operation == 9 && packet.body.size() >= 12) {
-                int32_t nbones = ReadInt32LE(packet.body.data(), offset);
-                int32_t sbones = ReadInt32LE(packet.body.data(), offset);
+                int32_t nbones = reader.I32();
+                int32_t sbones = reader.I32();
 
                 CriticalSectionLock lock(g_towerCS);
                 if (nbones > 20) nbones = 20;
@@ -575,9 +539,9 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
             // num: 购买后的骰子数量
             // buycount: 今日购买次数
             else if (operation == 6 && packet.body.size() >= 16) {
-                int32_t result = ReadInt32LE(packet.body.data(), offset);    // 结果 (0=成功)
-                int32_t num = ReadInt32LE(packet.body.data(), offset);       // 骰子数量
-                (void)ReadInt32LE(packet.body.data(), offset);               // buycount：占位字段
+                int32_t result = reader.I32();    // 结果 (0=成功)
+                int32_t num = reader.I32();       // 骰子数量
+                (void)reader.I32();               // buycount：占位字段
 
                 {
                     CriticalSectionLock lock(g_towerCS);
@@ -611,12 +575,12 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
             // nodetype: 本次投掷触发的事件类型（8=终点特效, 9=跳层），不是"落点格类型"，不能当通关判据
             // param3: 随机骰子点数
             else if (operation == 2 && packet.body.size() >= 28) {
-                int32_t result = ReadInt32LE(packet.body.data(), offset);    // 结果 (0=成功, -1=失败)
-                int32_t step = ReadInt32LE(packet.body.data(), offset);      // 投掷步数
-                (void)ReadInt32LE(packet.body.data(), offset);               // nodetype：不参与通关判定
-                (void)ReadInt32LE(packet.body.data(), offset);               // param1
-                (void)ReadInt32LE(packet.body.data(), offset);               // param2
-                (void)ReadInt32LE(packet.body.data(), offset);               // param3
+                int32_t result = reader.I32();    // 结果 (0=成功, -1=失败)
+                int32_t step = reader.I32();      // 投掷步数
+                (void)reader.I32();               // nodetype：不参与通关判定
+                (void)reader.I32();               // param1
+                (void)reader.I32();               // param2
+                (void)reader.I32();               // param3
 
                 CriticalSectionLock lock(g_towerCS);
                 // 不在投掷窗口里 = 上一投迟到的回包，认了会把 step/result 错记到这一投上
@@ -652,7 +616,7 @@ void ProcessTowerActivityResponse(const GamePacket& packet) {
             //  → TowerTreasureView:211 dataCache.setNewpos(step)（绝对定位）。
             // 漏掉这条，跳层后本地位置会比真实位置小一截，到不了 89，剩下的骰子全白投。
             else if (operation == 3 && packet.body.size() >= 8) {
-                int32_t newPos = ReadInt32LE(packet.body.data(), offset);
+                int32_t newPos = reader.I32();
 
                 CriticalSectionLock lock(g_towerCS);
                 if (newPos < 0) {
@@ -675,8 +639,8 @@ void InitializeTowerState() {
 
 void CleanupTowerState() {
     // 临界区一律不删，理由同 response_waiter：ManagedThread::Start 是先建线程、
-    // 后登记进注册表，ActiveCount() 兜不住那个窗口——窗口里退出就会把 g_towerCS
-    // 删掉，而刚起来的跑塔线程正拿它当锁。进程马上就退出，泄漏一个 CRITICAL_SECTION
-    // 没有任何代价，换的是不会踩到已删除的锁。
+    // 后登记进注册表，中间那段窗口里没有任何登记信息可查——窗口里退出就会把
+    // g_towerCS 删掉，而刚起来的跑塔线程正拿它当锁。进程马上就退出，泄漏一个
+    // CRITICAL_SECTION 没有任何代价，换的是不会踩到已删除的锁。
     OutputDebugStringW(L"CleanupTowerState: 保留 g_towerCS（进程退出即回收）\n");
 }

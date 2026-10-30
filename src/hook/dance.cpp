@@ -1,35 +1,14 @@
 #include <windows.h>
-#include <winhttp.h>
-#include <wincrypt.h>
 
-#include <algorithm>
-#include <atomic>
 #include <cstdint>
 #include <cstdio>
-#include <mutex>
 #include <string>
-#include <thread>
-#include <utility>
 #include <vector>
 
-#include "activity_minigames.h"
-#include "activity_states_internal.h"
-#include "app_host.h"
-#include "battle_six.h"
-#include "dungeon_jump.h"
+#include "byte_reader.h"
 #include "hook_shared.h"
-#include "latest_activities.h"
-#include "managed_thread.h"
 #include "packet_builder.h"
-#include "packet_parser.h"
-#include "packet_protocol.h"
-#include "shuangtai_internal.h"
-#include "story_task.h"
-#include "story_task_internal.h"
-#include "task_zone_internal.h"
 #include "ui_bridge.h"
-#include "utils.h"
-#include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
 enum DanceFailReason {
@@ -58,14 +37,10 @@ struct DanceGameState {
     int processId = 0;           ///< 当前跳舞进程ID
     int serverTime = 0;          ///< 服务器时间
     int serverDifficulty = 5;    ///< 服务器难度
-    int todayRewardCnt = 0;      ///< 今日已获得奖励次数
-    int drawRewardCnt = 0;       ///< 抽奖次数
     int serverScore = 0;         ///< 服务器分数
-    int remainCnt = 3;           ///< 剩余次数
     int gameState = 0;           ///< 游戏状态：0=未开始，2=游戏中
-    int clothNum = 0;            ///< 跳舞服装加成
     int counter = 0;             ///< 跳舞计数
-    bool waitingResponse = false;///< 等待响应
+    int todayRewardExpCnt = 0;   ///< 今日已领奖励次数（AS3 的 todayRewardExpCnt，判每日上限用）
     bool enteredMap = false;     ///< 是否已进入地图
     bool abnormalRound = false;  ///< 本轮被服务端判为异常（gameState 5/3）
     int lastFailReason = DANCE_FAIL_NONE;  ///< 上一次失败原因（DanceFailReason）
@@ -136,7 +111,6 @@ BOOL SendDanceEnterPacket() {
 
 // 跳舞大赛 - 开始游戏
 BOOL SendDanceStartPacket() {
-    g_danceState.waitingResponse = true;
     g_danceState.gameState = 0;
     g_danceState.counter = 5;
     return SendDanceActivityPacketEx(3, {g_danceState.serverDifficulty});
@@ -189,63 +163,65 @@ void ProcessDanceActivityResponse(const GamePacket& packet) {
     }
     
     uint32_t state = packet.params;
-    const BYTE* body = packet.body.data();
     size_t length = packet.body.size();
     size_t offset = 0;
+    ByteReader reader(packet.body, offset);
     
-    int32_t gameState = ReadInt32LE(body, offset);
-    
+    int32_t gameState = reader.I32();
+
+    // AS3 onDanceActivityHandler 按 gameState 分派：0/2 才是「带 data.state 的正常回包」，
+    // 6 单独走 selectIndex/googType/... 那套（抽奖），5/3 是瞬时失败。
     if (gameState == 0 || gameState == 2 || gameState == 6) {
         switch (state) {
             case 3:  // 开始游戏响应
+                // body: gameState, serverDifficulty, serverTime, processid, clothNum
                 if (offset + 16 <= length) {
-                    g_danceState.serverDifficulty = ReadInt32LE(body, offset);
-                    g_danceState.serverTime = ReadInt32LE(body, offset);
-                    g_danceState.processId = ReadInt32LE(body, offset);
-                    g_danceState.clothNum = ReadInt32LE(body, offset);
-                    
+                    g_danceState.serverDifficulty = reader.I32();
+                    g_danceState.serverTime = reader.I32();
+                    g_danceState.processId = reader.I32();
+                    (void)reader.I32();  // clothNum：服装加成，C++ 侧没有消费者
+
                     g_danceState.gameState = 2;
-                    g_danceState.waitingResponse = false;
                 }
                 break;
                 
             case 4:  // 游戏过程响应
-                if (offset + 16 <= length) {
+                // body: gameState, serverTime, processid, serverCombo, serverScore —— 再读 20 字节
+                if (offset + 20 <= length) {
                     offset += 4;  // serverTime
-                    int32_t respProcessId = ReadInt32LE(body, offset);
+                    int32_t respProcessId = reader.I32();
                     offset += 8;  // processId, serverCombo
-                    g_danceState.serverScore = ReadInt32LE(body, offset);
+                    g_danceState.serverScore = reader.I32();
                     
                     if (respProcessId >= g_danceState.processId) {
                         g_danceState.processId = respProcessId;
                     }
-                    g_danceState.waitingResponse = false;
                 }
                 break;
                 
             case 5:  // 结束游戏响应
-                // AS3: serverTime, processid, serverCombo, serverScore, serverExp, todayRewardExpCnt, todayRewardExp, drawRewardCnt
+                // AS3 ActivityModel.onDanceActivityHandler:case 5 的 body 布局（8 个 int，32 字节）：
+                //   serverTime, processid, serverCombo, serverScore,
+                //   serverExp, todayRewardExpCnt, todayRewardExp, drawRewardCnt
+                // 注意 todayRewardExpCnt 是「今日已领奖励次数」（对应 DanceGameEndUI 里的
+                // dayMaxCnt > 3 判上限），todayRewardExp 是「今天领到的经验值」，两者不是一回事。
+                // 曾经这里写的是 offset += 8 后读 todayRewardCnt —— 既越过了 serverExp 与
+                // todayRewardExpCnt 两个字段的边界，又把 todayRewardExpCnt 当成了「次数」，
+                // 导致 remainCnt 与 UI 上的次数长期错位。
                 if (offset + 32 <= length) {
                     offset += 12;  // serverTime(4), processid(4), serverCombo(4)
-                    g_danceState.serverScore = ReadInt32LE(body, offset);
-                    offset += 8;  // serverScore(4), serverExp(4)
-                    g_danceState.todayRewardCnt = ReadInt32LE(body, offset);
-                    offset += 8;  // todayRewardExpCnt(4), todayRewardExp(4)
-                    g_danceState.drawRewardCnt = ReadInt32LE(body, offset);
-                    
-                    g_danceState.remainCnt = WpeHook::DANCE_MAX_DAILY_COUNT - g_danceState.todayRewardCnt;
-                    if (g_danceState.remainCnt < 0) g_danceState.remainCnt = 0;
-                    
-                    if (g_ExecuteScriptFunc) {
-                        wchar_t script[256];
-                        swprintf(script, 256, 
-                            L"if(window.updateDanceCount) window.updateDanceCount(%d);",
-                            g_danceState.todayRewardCnt);
-                        g_ExecuteScriptFunc(script);
-                    }
+                    g_danceState.serverScore = reader.I32();
+                    offset += 4;   // serverExp
+                    g_danceState.todayRewardExpCnt = reader.I32();
+                    offset += 8;   // todayRewardExp(4), drawRewardCnt(4)：C++ 侧没有消费者
+
+                    wchar_t script[128];
+                    swprintf(script, 128,
+                        L"if(window.updateDanceCount) window.updateDanceCount(%d);",
+                        g_danceState.todayRewardExpCnt);
+                    UIBridge::Instance().ExecuteJS(script);
                 }
                 g_danceState.gameState = 0;
-                g_danceState.waitingResponse = false;
                 break;
         }
     }
@@ -255,7 +231,6 @@ void ProcessDanceActivityResponse(const GamePacket& packet) {
         g_danceState.abnormalRound = true;
         g_danceState.lastFailReason = DANCE_FAIL_POSITION_TAKEN;
         g_danceState.gameState = 0;
-        g_danceState.waitingResponse = false;
     }
     else {
         // 其它异常 gameState（AS3 走 Alert("异常"+gameState)）同样按本轮失败处理。
@@ -264,7 +239,6 @@ void ProcessDanceActivityResponse(const GamePacket& packet) {
             g_danceState.lastFailReason = DANCE_FAIL_START_TIMEOUT;
         }
         g_danceState.gameState = 0;
-        g_danceState.waitingResponse = false;
     }
 }
 
@@ -290,20 +264,19 @@ static BOOL SendDanceContestOnce() {
     // 初始化跳舞计数和状态
     g_danceState.counter = 5;
     g_danceState.gameState = 0;
-    g_danceState.waitingResponse = false;
     g_danceState.enteredMap = false;
     g_danceState.abnormalRound = false;
     g_danceState.lastFailReason = DANCE_FAIL_NONE;
 
     // 1. 循环发送进入地图封包（最多10次）
     int enterCount = 0;
-    while (!g_danceState.enteredMap && enterCount < 10) {
+    while (!g_danceState.enteredMap && enterCount < 10 && !ManagedThread::StopRequested()) {
         if (SendEnterScenePacket(1028)) {
             // 成功发送并等待响应
             if (g_danceState.enteredMap) {
                 break;  // 已进入地图
             }
-            Sleep(800);
+            ManagedThread::SleepCancellable(800);
         }
         // 失败或未进入地图，继续重试
         enterCount++;
@@ -314,18 +287,16 @@ static BOOL SendDanceContestOnce() {
         return FALSE;
     }
 
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
 
     // 2. 发送进入活动封包
     SendDanceEnterPacket();
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
 
     // 3. 发送开始游戏封包（不等待响应）
-    g_danceState.waitingResponse = true;
     g_danceState.gameState = 0;  // 确保状态重置
     if (!SendDanceStartPacket()) {
         // 发送封包失败
-        g_danceState.waitingResponse = false;
         g_danceState.lastFailReason = DANCE_FAIL_START_SEND;
         return FALSE;
     }
@@ -333,13 +304,14 @@ static BOOL SendDanceContestOnce() {
     // 4. 等待gameState被设置为2（游戏中），最多等待15秒。
     //    若响应已把本轮判为异常（位置被占/网络不稳），立即结束等待转入重试，
     //    避免白等满 15 秒。
-    for (int i = 0; i < 150 && g_danceState.gameState != 2 && !g_danceState.abnormalRound; i++) {
-        Sleep(100);
+    for (int i = 0; i < 150 && g_danceState.gameState != 2 && !g_danceState.abnormalRound &&
+         !ManagedThread::StopRequested(); i++) {
+        ManagedThread::SleepCancellable(100);
     }
 
     // 5. 如果状态变为2（游戏中），启动跳舞线程并等待完成
     if (g_danceState.gameState == 2) {
-        HANDLE hThread = CreateManagedThread(NULL, 0, DanceContestThreadProc, NULL, 0, NULL);
+        HANDLE hThread = CreateManagedThread(NULL, 0, DanceContestThreadProc, NULL, 0, NULL, L"dance_contest");
         if (hThread) {
             const DWORD waitResult = WaitForSingleObject(hThread, 30000);
             CloseHandle(hThread);
@@ -387,7 +359,8 @@ BOOL SendDanceContestPacket() {
     updateDanceCountUI(0);
 
     int attempts = 0;
-    while (completedCount < maxRounds && attempts < maxAttempts) {
+    while (completedCount < maxRounds && attempts < maxAttempts &&
+           !ManagedThread::StopRequested()) {
         attempts++;
 
         if (SendDanceContestOnce()) {
@@ -397,7 +370,7 @@ BOOL SendDanceContestPacket() {
             updateDanceCountUI(completedCount);
 
             // 等待一小段时间确保UI更新
-            Sleep(300);
+            ManagedThread::SleepCancellable(300);
             continue;
         }
 
@@ -411,7 +384,7 @@ BOOL SendDanceContestPacket() {
 
         reportFailure(g_danceState.lastFailReason, attempts);
         SendDanceExitPacketEx();
-        Sleep(1200);
+        ManagedThread::SleepCancellable(1200);
     }
 
     // 最终确保UI显示正确
@@ -429,8 +402,8 @@ BOOL SendDanceContestPacket() {
 DWORD WINAPI DanceContestThreadProc(LPVOID lpParam) {
     (void)lpParam;
     // 跳舞计数从5开始，每次+5，直到超过100
-    while (g_danceState.counter <= 100) {
-        Sleep(220);
+    while (g_danceState.counter <= 100 && !ManagedThread::StopRequested()) {
+        ManagedThread::SleepCancellable(220);
         
         int serverTime = static_cast<int>(time(nullptr));
         SendDanceProcessPacketEx(serverTime, g_danceState.counter);
@@ -438,32 +411,29 @@ DWORD WINAPI DanceContestThreadProc(LPVOID lpParam) {
         g_danceState.counter += 5;
     }
     
-    Sleep(220);
+    ManagedThread::SleepCancellable(220);
     
     // 发送结束封包两次
     SendDanceEndPacketEx();
-    Sleep(220);
+    ManagedThread::SleepCancellable(220);
     SendDanceEndPacketEx();
-    Sleep(220);
+    ManagedThread::SleepCancellable(220);
     
     // 发送退出封包两次
     SendDanceExitPacketEx();
-    Sleep(220);
+    ManagedThread::SleepCancellable(220);
     SendDanceExitPacketEx();
-    Sleep(220);
+    ManagedThread::SleepCancellable(220);
     
     // 发送提交分数封包
     SendDanceSubmitScorePacket(g_danceState.serverScore);
     
-    Sleep(500);
+    ManagedThread::SleepCancellable(500);
     
-    if (g_ExecuteScriptFunc) {
-        g_ExecuteScriptFunc(L"if(window.onDanceComplete) window.onDanceComplete();");
-    }
-    
+    UIBridge::Instance().ExecuteJS(L"if(window.onDanceComplete) window.onDanceComplete();");
+
     // 重置状态，为下一次执行做准备
     g_danceState.gameState = 0;
-    g_danceState.waitingResponse = false;
     return 0;
 }
 

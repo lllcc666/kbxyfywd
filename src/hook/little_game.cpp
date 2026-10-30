@@ -122,7 +122,7 @@ void StartKnowledgeGardenAsync(int roundCount, int holdMs) {
         wchar_t buf[256] = {0};
         swprintf_s(buf, 256, L"知识小天地：已发 %d 包，失败 %d 包", sent, failed);
         std::wstring script = L"if (window.updateDailyTaskStatus) { window.updateDailyTaskStatus(\"";
-        script += buf;
+        script += UIBridge::EscapeJsonString(buf);
         script += L"\", false); }";
         PostScriptToUI(script);
     });

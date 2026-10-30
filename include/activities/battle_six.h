@@ -14,13 +14,6 @@ namespace BattleSix {
     constexpr int ACTIVITY_ID = 999;
 }
 
-struct BattleSixLineupEntry {
-    int position = 0;
-    int id = 0;
-    int spiritId = 0;
-    int level = 0;
-};
-
 struct BattleSixSkillInfo {
     int skillId = 0;
     int power = 0;
@@ -51,17 +44,9 @@ class BattleSixAutoBattle {
 private:
     std::vector<BattleSixSpiritInfo> m_mySpirits;
     std::vector<BattleSixSpiritInfo> m_enemySpirits;
-    std::vector<BattleSixLineupEntry> m_lineup;
-    int m_winStreak = 0;
-    int m_teamNum = 0;
-    int m_lineupCurrentCount = 0;
-    int m_firstSpiritId = 0;
     int m_currentSpiritIndex;
-    int m_currentSkillIndex;
     int m_enemySid;
-    int m_enemyUniqueId;
     int m_enemyActiveIndex;
-    int m_myUniqueId;
     unsigned long long m_lastActionRoundToken;
     mutable std::recursive_mutex m_stateMutex;
     std::atomic<bool> m_isInBattle;
@@ -112,24 +97,18 @@ public:
     void OnBattleRoundResult(const GamePacket& packet);
     BOOL AutoSwitchSpirit();
     int GetAliveSpiritCount();
-    int GetEnemyAliveSpiritCount();
 
     int SelectBestSkill();
 
     std::vector<BattleSixSpiritInfo>& GetMySpirits() { return m_mySpirits; }
     std::recursive_mutex& GetStateMutex() { return m_stateMutex; }
     std::vector<BattleSixSpiritInfo>& GetEnemySpirits() { return m_enemySpirits; }
-    void UpdateCombatInfo(int winStreak, int teamNum, int currentCount,
-                          int firstSpiritId, std::vector<BattleSixLineupEntry> lineup);
-    void SetMyUniqueId(int id) { m_myUniqueId = id; }
     void SetEnemyActiveIndex(int index) { m_enemyActiveIndex = index; }
     void SetCurrentSpiritIndex(int index) { m_currentSpiritIndex = index; }
 };
 extern BattleSixAutoBattle g_battleSixAuto;
 extern std::atomic<bool> g_battleSixMatching;
-extern std::atomic<bool> g_battleSixMatchSuccess;
 extern std::atomic<int> g_battleSixSwitchTargetId;
-extern std::atomic<int> g_battleSixSwitchRetryCount;
 extern std::atomic<unsigned long long> g_battleSixBattleSession;
 extern std::atomic<unsigned long long> g_battleSixRoundToken;
 
@@ -180,7 +159,6 @@ enum BattleSixFlowStage {
 
 extern std::atomic<int> g_battleSixFlowStage;
 extern std::atomic<unsigned long long> g_battleSixFlowToken;
-extern std::atomic<bool> g_battleSixPostSettlementEndSent;
 extern std::atomic<bool> g_battleSixReadySupplementSent;
 extern std::atomic<unsigned long long> g_battleSixRoundResultToken;
 extern std::atomic<unsigned long long> g_battleSixPlayOverToken;

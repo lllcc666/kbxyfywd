@@ -51,9 +51,6 @@ constexpr int COMBAT_SITE_DEL = 3;
 
 constexpr int SITE_RECOVER_ID = 9999;
 
-constexpr int ROUND_START_ADD[] = {62};
-constexpr int DEALADD_BLOOD_1[] = {2, 9, 17, 24, 29, 33, 34, 59, 95, 104, 113};
-constexpr int DEALADD_BLOOD_2[] = {36, 37, 46, 45, 62, 103, 9999};
 }  // namespace BufDataType
 
 struct BufData {
@@ -187,12 +184,11 @@ struct BattleData {
 
 struct GamePacket {
     uint16_t magic = 0;
-    uint16_t length = 0;
     uint32_t opcode = 0;
     uint32_t params = 0;
     std::vector<uint8_t> body;
+    // 原始（未解压）body：BuildReceivedPacketBytes 重建时用它，避免把解压后的 body 当原始字节回写。
     std::vector<uint8_t> rawBody;
-    BOOL bSend = FALSE;
 };
 
 struct MonsterGenius {
@@ -252,35 +248,3 @@ struct MonsterData {
     int32_t count;
     std::vector<MonsterItem> monsters;
 };
-
-inline int32_t ReadInt32LE(const uint8_t* data, size_t& offset) {
-    int32_t val = static_cast<int32_t>(data[offset]) |
-                  (static_cast<int32_t>(data[offset + 1]) << 8) |
-                  (static_cast<int32_t>(data[offset + 2]) << 16) |
-                  (static_cast<int32_t>(data[offset + 3]) << 24);
-    offset += 4;
-    return val;
-}
-
-inline uint32_t ReadUInt32LE(const uint8_t* data, size_t& offset) {
-    uint32_t val = static_cast<uint32_t>(data[offset]) |
-                   (static_cast<uint32_t>(data[offset + 1]) << 8) |
-                   (static_cast<uint32_t>(data[offset + 2]) << 16) |
-                   (static_cast<uint32_t>(data[offset + 3]) << 24);
-    offset += 4;
-    return val;
-}
-
-inline int16_t ReadInt16LE(const uint8_t* data, size_t& offset) {
-    int16_t val = static_cast<int16_t>(data[offset]) |
-                  (static_cast<int16_t>(data[offset + 1]) << 8);
-    offset += 2;
-    return val;
-}
-
-inline uint16_t ReadUInt16LE(const uint8_t* data, size_t& offset) {
-    uint16_t val = static_cast<uint16_t>(data[offset]) |
-                   (static_cast<uint16_t>(data[offset + 1]) << 8);
-    offset += 2;
-    return val;
-}

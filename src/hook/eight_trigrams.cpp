@@ -11,6 +11,7 @@
 
 #include "activity_states_internal.h"
 #include "battle_six.h"
+#include "byte_reader.h"
 #include "hook_shared.h"
 #include "managed_thread.h"
 #include "packet_builder.h"
@@ -337,6 +338,7 @@ void ProcessTaskZoneUserTaskListResponse(const GamePacket& packet) {
     }
 
     size_t offset = 0;
+    ByteReader reader(packet.body, offset);
     std::string newestFlag;
     if (!ReadPacketString(packet.body.data(), packet.body.size(), offset, newestFlag)) {
         return;
@@ -349,20 +351,20 @@ void ProcessTaskZoneUserTaskListResponse(const GamePacket& packet) {
         return;
     }
     const uint32_t progressTaskId = g_taskZoneProgressTaskId.load();
-    const int acceptedCount = ReadInt32LE(packet.body.data(), offset);
+    const int acceptedCount = reader.I32();
     for (int i = 0; i < acceptedCount; ++i) {
         if (offset + 8 > packet.body.size()) {
             return;
         }
 
-        const uint32_t subtaskId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
-        const int taskParamCount = ReadInt32LE(packet.body.data(), offset);
+        const uint32_t subtaskId = static_cast<uint32_t>(reader.I32());
+        const int taskParamCount = reader.I32();
         for (int j = 0; j < taskParamCount; ++j) {
             if (offset + 8 > packet.body.size()) {
                 return;
             }
-            ReadInt32LE(packet.body.data(), offset);
-            ReadInt32LE(packet.body.data(), offset);
+            reader.I32();
+            reader.I32();
         }
 
         const uint32_t subtaskTaskId = subtaskId - (subtaskId % 1000);
@@ -374,14 +376,14 @@ void ProcessTaskZoneUserTaskListResponse(const GamePacket& packet) {
     if (offset + 4 > packet.body.size()) {
         return;
     }
-    const int finishedCount = ReadInt32LE(packet.body.data(), offset);
+    const int finishedCount = reader.I32();
     for (int i = 0; i < finishedCount; ++i) {
         if (offset + 8 > packet.body.size()) {
             return;
         }
 
-        const uint32_t subtaskId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
-        ReadInt32LE(packet.body.data(), offset);  // finishTime
+        const uint32_t subtaskId = static_cast<uint32_t>(reader.I32());
+        reader.I32();  // finishTime
 
         const uint32_t subtaskTaskId = subtaskId - (subtaskId % 1000);
         if (subtaskTaskId == progressTaskId) {
@@ -406,6 +408,7 @@ void ProcessTaskZoneUserTaskListResponse(const GamePacket& packet) {
 
 void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet) {
     size_t offset = 0;
+    ByteReader reader(packet.body, offset);
     uint32_t dialogId = 0;
     uint32_t npcId = 0;
     uint32_t currentId = 0;
@@ -419,11 +422,11 @@ void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet) {
     bool hasExp = false;
     bool hasItemId = false;
 
-    auto readUInt32 = [&packet, &offset](uint32_t& value) -> bool {
+    auto readUInt32 = [&packet, &offset, &reader](uint32_t& value) -> bool {
         if (offset + 4 > packet.body.size()) {
             return false;
         }
-        value = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+        value = static_cast<uint32_t>(reader.I32());
         return true;
     };
 
@@ -654,6 +657,21 @@ void ProcessEightTrigramsTaskTalkResponse(const GamePacket& packet) {
     }
 
 }
+// 八卦灵盘自己会等的那几条回包（SendPacket 的 expectedOpcode）。
+// 停止/重启时只取消这几个，绝不无参 CancelWait()——全局取消会把主线任务、
+// 自动战斗、进图等所有正在 WaitForResponse 的流程一起打断，表现为
+// 「停八卦灵盘 → 别的活动也跟着卡住 / 误判超时」。story_task.cpp 已按同样思路改过。
+constexpr uint32_t kTaskZoneCancelOpcodes[] = {
+    Opcode::USER_TASK_LIST_BACK,
+    Opcode::ENTER_SCENE_BACK,
+};
+
+static void CancelTaskZoneWaits() {
+    for (uint32_t opcode : kTaskZoneCancelOpcodes) {
+        ResponseWaiter::CancelWait(opcode);
+    }
+}
+
 void UpdateTaskZoneUi(const std::wstring& text, bool running) {
     UIBridge::Instance().UpdateHelperText(text);
     std::wstring script = L"if(window.updateTaskZoneStatus) { window.updateTaskZoneStatus('" +
@@ -718,7 +736,7 @@ BOOL QueryTaskZoneUserTaskListProgressAsync(uint32_t taskId) {
         return TRUE;
     }
     TaskZoneProgressQueryArgs* args = new TaskZoneProgressQueryArgs{taskId};
-    HANDLE hThread = CreateManagedThread(nullptr, 0, TaskZoneProgressQueryThreadProc, args, 0, nullptr);
+    HANDLE hThread = CreateManagedThread(nullptr, 0, TaskZoneProgressQueryThreadProc, args, 0, nullptr, L"task_zone_probe");
     if (!hThread) {
         delete args;
         g_taskZoneProgressQueryBusy.store(false);
@@ -730,41 +748,28 @@ BOOL QueryTaskZoneUserTaskListProgressAsync(uint32_t taskId) {
 
 // 进图是全局响应事件，这里不用 ResponseWaiter，避免被其他自动流程抢走。
 static bool WaitForEightTrigramsMapEnter(DWORD timeoutMs) {
-    const DWORD startTick = GetTickCount();
-    while (g_taskZoneRunning.load()) {
-        if (g_taskZoneMapEntered.load()) {
-            return true;
-        }
-
-        if (GetTickCount() - startTick >= timeoutMs) {
-            return false;
-        }
-
-        Sleep(50);
-    }
-
-    return false;
+    return WaitForCondition(
+               []() { return g_taskZoneMapEntered.load(); },
+               timeoutMs,
+               50) == WaitOutcome::Signalled &&
+           g_taskZoneMapEntered.load();
 }
 
 // 水魂战斗结束后，AS3 先消费 TASK_TALK_BACK(type=15) 的奖励，再推进到墨艮。
 static bool WaitForEightTrigramsWaterSoulReward(
     unsigned long long sessionId,
     DWORD timeoutMs) {
-    const DWORD startTick = GetTickCount();
-    while (g_taskZoneRunning.load() && g_taskZoneSession.load() == sessionId) {
-        {
-            std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
-            if (g_eightTrigramsProgress.waterSoulRewardReceived) {
-                return true;
-            }
-        }
-
-        if (GetTickCount() - startTick >= timeoutMs) {
-            return false;
-        }
-        Sleep(50);
-    }
-    return false;
+    return WaitForConditionEx(
+               []() {
+                   std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
+                   return g_eightTrigramsProgress.waterSoulRewardReceived;
+               },
+               [sessionId]() {
+                   return !g_taskZoneRunning.load() ||
+                          g_taskZoneSession.load() != sessionId;
+               },
+               timeoutMs,
+               50) == WaitOutcome::Signalled;
 }
 
 // 布防水魂交丹对话采集：点击 61242 之前调用，随后收到的 TASK_TALK_BACK 会写入进度状态。
@@ -836,7 +841,7 @@ BOOL SendTaskZoneTalkPacket(
         if (!SendPacketBytes(trainInfoPacket)) {
             return FALSE;
         }
-        Sleep(EIGHT_TRIGRAMS_TALK_DELAY_MS);
+        ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_TALK_DELAY_MS);
     }
 
     auto packet = PacketBuilder()
@@ -849,7 +854,7 @@ BOOL SendTaskZoneTalkPacket(
         return FALSE;
     }
 
-    Sleep(EIGHT_TRIGRAMS_TALK_DELAY_MS);
+    ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_TALK_DELAY_MS);
     return TRUE;
 }
 
@@ -870,7 +875,7 @@ BOOL SendTaskZoneClickPacket(uint32_t npcId, bool battleMode) {
     }
 
     if (!battleMode) {
-        Sleep(EIGHT_TRIGRAMS_CLICK_DELAY_MS);
+        ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_CLICK_DELAY_MS);
     }
     return TRUE;
 }
@@ -891,27 +896,30 @@ enum class EightTrigramsWaterSoulOutcome {
 static EightTrigramsWaterSoulOutcome WaitForEightTrigramsWaterSoulOutcome(
     unsigned long long sessionId,
     DWORD timeoutMs) {
-    const DWORD startTick = GetTickCount();
-    while (g_taskZoneRunning.load() && g_taskZoneSession.load() == sessionId) {
-        const BattleData battle = PacketParser::GetCurrentBattleSnapshot();
-        if (battle.active && !battle.myPets.empty() && !battle.otherPets.empty()) {
-            return EightTrigramsWaterSoulOutcome::BattleStarted;
-        }
-
-        {
+    // 两个分支各有自己的终态，不是简单的"条件成立"：用轮询把三态带出来，
+    // 轮询原语（超时判定/停止响应/分片睡眠）仍复用 WaitForConditionEx。
+    EightTrigramsWaterSoulOutcome result = EightTrigramsWaterSoulOutcome::Timeout;
+    const WaitOutcome outcome = WaitForConditionEx(
+        [&result]() {
+            const BattleData battle = PacketParser::GetCurrentBattleSnapshot();
+            if (battle.active && !battle.myPets.empty() && !battle.otherPets.empty()) {
+                result = EightTrigramsWaterSoulOutcome::BattleStarted;
+                return true;
+            }
             std::lock_guard<std::mutex> lock(g_eightTrigramsProgress.mutex);
             if (g_eightTrigramsProgress.taskTalkResponseReceived) {
-                return EightTrigramsWaterSoulOutcome::DialogReply;
+                result = EightTrigramsWaterSoulOutcome::DialogReply;
+                return true;
             }
-        }
-
-        if (GetTickCount() - startTick >= timeoutMs) {
-            return EightTrigramsWaterSoulOutcome::Timeout;
-        }
-        Sleep(100);
-    }
-
-    return EightTrigramsWaterSoulOutcome::Timeout;
+            return false;
+        },
+        [sessionId]() {
+            return !g_taskZoneRunning.load() || g_taskZoneSession.load() != sessionId;
+        },
+        timeoutMs,
+        100);
+    (void)outcome;  // Stopped 与 TimedOut 都按 Timeout 处理，调用方只关心"没等到"
+    return result;
 }
 
 // 点击水魂并收口：发送侧抓包显示水魂段同样零战斗包
@@ -958,7 +966,7 @@ static bool RunEightTrigramsWaterSoulInteraction(
             EIGHT_TRIGRAMS_WATER_SOUL_DIALOG_WAIT_MS);
         ClearEightTrigramsWaterSoulRewardWait();
     }
-    Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+    ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
 
     // 回显实际使用的 dialogId，便于运行时抓包核对服务端下发的对话编号。
     UpdateTaskZoneUi(rewardAlreadyReceived
@@ -978,7 +986,7 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
     bool flowCompleted = false;
     bool flowFailed = false;
 
-    while (g_taskZoneRunning.load()) {
+    while (g_taskZoneRunning.load() && !ManagedThread::StopRequested()) {
         const size_t stepCount = sizeof(EIGHT_TRIGRAMS_STEPS) / sizeof(EIGHT_TRIGRAMS_STEPS[0]);
         size_t startIndex = 0;
         uint32_t currentSceneId = 0;
@@ -1015,7 +1023,7 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
 
         startText = (startIndex == 0) ? L"任务区：开始执行八卦灵盘..." : L"任务区：继续执行八卦灵盘...";
         UpdateTaskZoneUi(startText, true);
-        Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+        ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
 
         for (size_t i = startIndex; i < stepCount && g_taskZoneRunning.load(); ++i) {
             if (g_taskZoneSession.load() != sessionId) {
@@ -1041,7 +1049,7 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
                     break;
                 }
                 currentSceneId = step.sceneId;
-                Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+                ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
             }
 
             if (step.kind == TaskZoneStepKind::Flash) {
@@ -1084,7 +1092,7 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
                         flowFailed = true;
                         break;
                     }
-                    Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+                    ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
                 }
 
                 UpdateEightTrigramsResumeHint(i + 1);
@@ -1163,6 +1171,7 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
                     UpdateTaskZoneUi(L"任务区：等待残留战斗完全结束后再恢复...", true);
                     const DWORD drainStart = GetTickCount();
                     while (g_taskZoneRunning.load() &&
+                           !ManagedThread::StopRequested() &&
                            g_taskZoneSession.load() == sessionId) {
                         activeBattle = PacketParser::GetCurrentBattleSnapshot();
                         if (!activeBattle.active) {
@@ -1171,7 +1180,7 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
                         if (GetTickCount() - drainStart >= BATTLE_DRAIN_TIMEOUT_MS) {
                             break;
                         }
-                        Sleep(100);
+                        ManagedThread::SleepCancellable(100);
                     }
                     if (!g_taskZoneRunning.load() || g_taskZoneSession.load() != sessionId) {
                         break;
@@ -1185,8 +1194,10 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
 
                 ++autoRestartCount;
                 g_taskZoneMapEntered = false;
-                ResponseWaiter::CancelWait();
+                // 先切会话号，再取消等待：反过来 worker 可能在「会话号未变」的窗口里
+                // 匹配到上一轮的迟到回包。这里只定向取消本模块的两条等待。
                 sessionId = g_taskZoneSession.fetch_add(1) + 1;
+                CancelTaskZoneWaits();
 
                 int backoffShift = autoRestartCount - 1;
                 if (backoffShift > 2) {
@@ -1207,12 +1218,13 @@ static DWORD WINAPI EightTrigramsTaskThreadProc(LPVOID lpParam) {
                 UpdateTaskZoneUi(retryText, true);
 
                 DWORD waited = 0;
-                while (g_taskZoneRunning.load() && waited < backoffMs) {
+                while (g_taskZoneRunning.load() && !ManagedThread::StopRequested() &&
+                       waited < backoffMs) {
                     DWORD delay = backoffMs - waited;
                     if (delay > 100) {
                         delay = 100;
                     }
-                    Sleep(delay);
+                    ManagedThread::SleepCancellable(delay);
                     waited += delay;
                 }
                 continue;
@@ -1270,7 +1282,7 @@ BOOL StartEightTrigramsTaskAsync() {
     EightTrigramsTaskData* taskData = new EightTrigramsTaskData();
     taskData->sessionId = sessionId;
 
-    HANDLE hThread = CreateManagedThread(nullptr, 0, EightTrigramsTaskThreadProc, taskData, 0, nullptr);
+    HANDLE hThread = CreateManagedThread(nullptr, 0, EightTrigramsTaskThreadProc, taskData, 0, nullptr, L"eight_trigrams");
     if (hThread) {
         CloseHandle(hThread);
         return TRUE;
@@ -1289,10 +1301,13 @@ VOID StopEightTrigramsTask() {
         return;
     }
 
+    // 先切会话号再清运行标记：否则 worker 可能在「运行标记已清、会话号未变」的
+    // 窗口里按会话号匹配成功，走到收尾分支把状态写成「流程已执行完毕」而不是「已停止」。
+    // story_task.cpp 的 StopStoryTask 是同样的顺序，那边有更详细的论证。
+    g_taskZoneSession.fetch_add(1);
     g_taskZoneRunning = false;
     g_taskZoneMapEntered = false;
-    g_taskZoneSession.fetch_add(1);
-    ResponseWaiter::CancelWait();
+    CancelTaskZoneWaits();
     UpdateTaskZoneUi(L"任务区：已停止", false);
 }
 

@@ -6,20 +6,14 @@
  */
 
 #include <windows.h>
-#include <winhttp.h>
-#include <wincrypt.h>
 #include <condition_variable>
 #include <mutex>
 #include <string>
 #include <vector>
 #include <memory>
-#include <tuple>
-#include <algorithm>
 #include <deque>
 #include <map>
-#include <unordered_map>
 #include <thread>
-#include <cctype>
 #include <exception>
 
 // 第三方库
@@ -27,6 +21,7 @@
 #include <MinHook.h>
 
 // 项目头文件
+#include "byte_reader.h"
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 #include "hook_shared.h"
@@ -44,23 +39,11 @@
 #include "shuangtai_internal.h"
 #include "spirit_collect.h"
 #include "story_task.h"
-#include "story_task_recipe.h"
 #include "utils.h"
 #include "packet_parser.h"
 #include "packet_builder.h"
 #include "app_host.h"
 #include "ui_bridge.h"
-#include "window_messages.h"
-
-// 坐骑大赛活动ID（如果在packet_parser.h中未定义）
-#ifndef HORSE_COMPETITION_ACT_ID
-constexpr int HORSE_COMPETITION_ACT_ID = 665;
-#endif
-
-// 精魄系统活动ID（如果在packet_parser.h中未定义）
-#ifndef SPIRIT_COLLECT_ACT_ID
-constexpr int SPIRIT_COLLECT_ACT_ID = 754;
-#endif
 
 // 精魄系统响应处理函数声明
 void ProcessSpiritPresuresResponse(const GamePacket& packet);
@@ -270,7 +253,6 @@ std::vector<PACKET> g_PacketList;
 std::vector<HijackRule> g_HijackRules;  ///< 劫持规则列表
 CriticalSectionScope g_hijackRulesCS(true);   ///< 劫持规则临界区
 std::atomic<bool> g_bStopAutoSend{false};    ///< 停止自动发送标志
-EXECUTE_SCRIPT_FUNC g_ExecuteScriptFunc = nullptr;  ///< JS执行函数指针
 
 // ============================================================================
 // 导出全局变量（在头文件中声明为 extern）
@@ -416,10 +398,6 @@ inline uint32_t ReadOpcode(const BYTE* pData) {
 // 初始化与清理
 // ============================================================================
 
-void SetExecuteScriptFunction(EXECUTE_SCRIPT_FUNC func) {
-    g_ExecuteScriptFunc = func;
-}
-
 BOOL InitializeWpeHook() {
     if (g_bInitialized) {
         return TRUE;
@@ -469,9 +447,6 @@ VOID CleanupWpeHook() {
     // 停止拦截并标记为未初始化
     g_bInterceptEnabled = false;
     g_bInitialized = false;
-
-    // 停止脚本执行回调
-    SetExecuteScriptFunction(nullptr);
 
     // 等待可能的 Hook 函数退出
     Sleep(10);
@@ -586,10 +561,11 @@ static std::wstring BuildPacketListEntryJs(const BYTE* pData, DWORD dwSize, BOOL
     std::string labelUtf8;
     if (dwSize >= PacketProtocol::HEADER_SIZE) {
         size_t offset = 0;
-        const uint16_t magic = ReadUInt16LE(pData, offset);   // Magic: offset 0-1
-        (void)ReadUInt16LE(pData, offset);                    // Length: offset 2-3
+        ByteReader reader(pData, dwSize, offset);
+        const uint16_t magic = reader.U16();   // Magic: offset 0-1
+        (void)reader.U16();                    // Length: offset 2-3
         if (magic == PacketProtocol::MAGIC_NORMAL || magic == PacketProtocol::MAGIC_COMPRESSED) {
-            const uint32_t opcode = ReadUInt32LE(pData, offset);  // Opcode: offset 4-7
+            const uint32_t opcode = reader.U32();  // Opcode: offset 4-7
             labelUtf8 = GetPacketLabel(opcode, bSend);
         }
     }
@@ -598,8 +574,9 @@ static std::wstring BuildPacketListEntryJs(const BYTE* pData, DWORD dwSize, BOOL
     FormatPacketClock(dwTime, timeStr, _countof(timeStr));
 
     return L"if(window.addPacketToList) { window.addPacketToList("
-        + std::to_wstring(displayIndex) + L", '" + direction + L"', '"
-        + wideHex + L"', '" + timeStr + L"', '" + Utf8ToWide(labelUtf8) + L"'); }";
+        + std::to_wstring(displayIndex) + L", '" + UIBridge::EscapeJsonString(direction) + L"', '"
+        + UIBridge::EscapeJsonString(wideHex) + L"', '" + UIBridge::EscapeJsonString(timeStr) + L"', '"
+        + UIBridge::EscapeJsonString(Utf8ToWide(labelUtf8)) + L"'); }";
 }
 
 void SyncPacketsToUI() {
@@ -756,7 +733,34 @@ void TriggerAutoHealOnce() {
 
 }  // namespace
 
+// ============================================================================
+// 在途 detour 计数
+// ============================================================================
+//
+// MH_DisableHook 只是把目标函数的序言改回去，**不会**等待已经跳进 detour 的线程
+// 走完；这些线程栈里还留着 OriginalSend/OriginalRecv（位于 MinHook 用
+// MemoryLoadLibrary 分配的模块内）的调用帧。若紧接着 MH_Uninitialize +
+// MemoryFreeLibrary，它们返回时就跳到已释放的内存——这是整套卸载流程里唯一
+// 无法靠"关标志"消除的窗口，只能靠计数把它关掉。
+//
+// 计数覆盖 detour 全程（含 OriginalSend/OriginalRecv 调用），所以 DisableHook
+// 之后再等计数归零，就能确定没有人还踩在 MinHook 的内存上。
+// 剩下的极窄窗口是"已经 jmp 进 HookedSend、还没执行到计数自增"——那几条指令在
+// 本 exe 内，继续执行是安全的；因此等待侧要求连续两次采样都为 0 才放行。
+namespace {
+
+std::atomic<long> g_detourInFlight{0};
+
+struct DetourScope {
+    DetourScope() { g_detourInFlight.fetch_add(1); }
+    ~DetourScope() { g_detourInFlight.fetch_sub(1); }
+};
+
+}  // namespace
+
 int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
+    const DetourScope detourScope;
+
     // 总是记录游戏套接字
     if (len > 0) {
         const BYTE* pData = reinterpret_cast<const BYTE*>(buf);
@@ -1094,6 +1098,8 @@ std::vector<BYTE> BuildReceivedPacketBytes(const GamePacket& packet) {
 // ============================================================================
 
 int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
+    const DetourScope detourScope;
+
     int result = OriginalRecv(s, buf, len, flags);
 
     if (result <= 0 || !g_bInitialized) {
@@ -1109,7 +1115,7 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
     std::vector<GamePacket> gamePackets;
     bool canRewriteRecvData = false;
     bool hasValidPackets = PacketParser::ParsePackets(
-        pData, dwSize, FALSE, gamePackets, &canRewriteRecvData);
+        pData, dwSize, gamePackets, &canRewriteRecvData);
     
     // ========================================================================
     // 第二步：封包级别过滤（支持黏包）
@@ -1359,16 +1365,49 @@ BOOL InitializeHooks() {
     return TRUE;
 }
 
+// 等所有在途 detour 走完。返回 false 表示超时——调用方必须据此放弃卸载
+// MinHook 内存，宁可漏一份内存也不能让还在跑的线程跳进已释放的地址。
+static bool WaitForDetoursDrained(DWORD timeoutMs) {
+    const DWORD startTick = GetTickCount();
+    int zeroSamples = 0;
+    while (GetTickCount() - startTick < timeoutMs) {
+        if (g_detourInFlight.load() == 0) {
+            // 连续两次采样为 0 才放行：单次为 0 可能刚好卡在
+            // "已跳进 detour、还没执行计数自增"的那几条指令之间。
+            if (++zeroSamples >= 2) {
+                return true;
+            }
+        } else {
+            zeroSamples = 0;
+        }
+        Sleep(10);
+    }
+    return g_detourInFlight.load() == 0;
+}
+
 VOID UninitializeHooks() {
     g_receiveDispatchAccepting.store(false);
 
+    // 1. 先断电：改回目标函数序言，新的调用不会再进 detour。
     if (g_hMinHookModule) {
         g_pfnMH_DisableHook(MH_ALL_HOOKS);
     }
 
+    // 2. 叫醒所有等待者、收掉派发 worker。
+    //    worker 里的 handler 会调 SendPacket → 再次进 detour，所以必须在排空之前关掉。
     ResponseWaiter::CancelWait();
     StopReceiveDispatchWorker();
 
+    // 3. 等已经跳进来的线程走完（含它们对 OriginalSend/OriginalRecv 的调用）。
+    if (!WaitForDetoursDrained(3000)) {
+        // 时间到仍有人在跑：只留下 MinHook 模块不释放。
+        // 泄漏一份几十 KB 的映射远好过让游戏 socket 线程跳到已释放内存。
+        OutputDebugStringW(L"UninitializeHooks: 在途 detour 未排空，跳过 MinHook 卸载");
+        ResponseWaiter::Cleanup();
+        return;
+    }
+
+    // 4. 确定无人踩在 MinHook 内存上，才真正卸载并释放模块。
     if (g_hMinHookModule) {
         g_pfnMH_Uninitialize();
         UnloadMinHookFromMemory();
@@ -1601,7 +1640,7 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerOpcode(Opcode::COLLECT_STATUS_BACK, ProcessCollectResponse);
     registerOpcode(Opcode::REQ_PACKAGE_DATA_BACK, ProcessPackageDataResponse);
 
-    registerParams(Opcode::HORSE_COMPETITION_BACK, HORSE_COMPETITION_ACT_ID, ProcessHorseCompetitionResponse);
+    registerParams(Opcode::HORSE_COMPETITION_BACK, Opcode::HORSE_COMPETITION_ACT_ID, ProcessHorseCompetitionResponse);
 
     // 最新活动（周活动小游戏）：按活动 ID 路由到统一处理器
     registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_MAZE, ProcessLatestActivityResponse);
@@ -1639,7 +1678,7 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerOpcode(Opcode::SPIRIT_PRESURES_BACK, ProcessSpiritPresuresResponse);
     registerOpcode(Opcode::SPIRIT_SEND_SPIRIT_BACK, ProcessSpiritSendSpiritResponse);
     registerOpcode(Opcode::SPIRIT_PLAYER_INFO_BACK, ProcessSpiritPlayerInfoResponse);
-    registerParams(Opcode::SPIRIT_COLLECT_BACK, SPIRIT_COLLECT_ACT_ID, ProcessSpiritCollectResponse);
+    registerParams(Opcode::SPIRIT_COLLECT_BACK, Opcode::SPIRIT_COLLECT_ACT_ID, ProcessSpiritCollectResponse);
 }
 
     

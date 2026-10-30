@@ -1,3 +1,4 @@
+#include "byte_reader.h"
 #include "horse_competition.h"
 
 #include <timeapi.h>
@@ -12,6 +13,7 @@
 #include <vector>
 
 #include "activity_states_internal.h"
+#include "hook_shared.h"
 #include "packet_builder.h"
 #include "ui_bridge.h"
 #include "utils.h"
@@ -169,11 +171,12 @@ BOOL SendHorsePacketBody(const std::vector<uint8_t>& body, bool useGameCmd) {
 }
 
 bool ReadHorseJsonPayload(const GamePacket& packet, size_t& offset, std::string& json) {
+    ByteReader reader(packet.body, offset);
     if (offset + 2 > packet.body.size()) {
         return false;
     }
 
-    const uint16_t jsonLen = ReadUInt16LE(packet.body.data(), offset);
+    const uint16_t jsonLen = reader.U16();
     if (offset + jsonLen > packet.body.size()) {
         return false;
     }
@@ -251,26 +254,27 @@ enum class HorseWaitOutcome { Signalled, TimedOut, Stopped };
 // 不必等满超时（入房 6 秒、UI_INFO 3 秒这些等待不加就会「点了停止还要等十几秒」）。
 // 退房确认传 watchStop=false：它本身就是停止路径的一部分，没有「等它时被停止」
 // 这个语义，而且超时只有几百毫秒。
+//
+// 底层复用 hook_shared.h 的 WaitForCondition：轮询间隔、超时判定、停止请求检查
+// 只有一份实现。这里的停止信号是 state.stopRequested（赛马主循环跑在模块自己的
+// std::thread 上，ManagedThread::StopRequested 对它恒为 false）。
 template <typename Cond>
 HorseWaitOutcome WaitForHorseCondition(const HorseCompetitionState& state,
                                        Cond cond,
                                        DWORD timeoutMs,
                                        bool watchStop = true) {
-    const auto start = std::chrono::steady_clock::now();
-    while (true) {
-        if (cond()) {
-            return HorseWaitOutcome::Signalled;
-        }
-        if (watchStop && state.stopRequested.load()) {
-            return HorseWaitOutcome::Stopped;
-        }
-        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                 std::chrono::steady_clock::now() - start).count();
-        if (elapsed > timeoutMs) {
-            return HorseWaitOutcome::TimedOut;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    if (!watchStop) {
+        return WaitForCondition(cond, timeoutMs, 100) == WaitOutcome::Signalled
+                   ? HorseWaitOutcome::Signalled
+                   : HorseWaitOutcome::TimedOut;
     }
+    const WaitOutcome outcome = WaitForConditionEx(
+        cond, [&state]() { return state.stopRequested.load(); }, timeoutMs, 100);
+    if (outcome == WaitOutcome::Signalled) {
+        return HorseWaitOutcome::Signalled;
+    }
+    return outcome == WaitOutcome::TimedOut ? HorseWaitOutcome::TimedOut
+                                            : HorseWaitOutcome::Stopped;
 }
 
 void HorseGameMainLoop() {
@@ -1132,6 +1136,7 @@ void HandleHorseRoomStatusResponse(HorseCompetitionState& state, const std::stri
 }
 
 void HandleHorseUiInfoResponse(HorseCompetitionState& state, const GamePacket& packet, size_t& offset) {
+    ByteReader reader(packet.body, offset);
     // 4 个 int32 = 16 字节。旧代码要求 20 字节，若服务器正好只回 16 字节，
     // uiInfoReceived 永远不置真，表现为每轮都「获取活动信息超时」空转。
     // 只在本工具自己在跑时采纳：玩家手动打开游戏内的坐骑大赛界面也会收到同一条
@@ -1152,10 +1157,10 @@ void HandleHorseUiInfoResponse(HorseCompetitionState& state, const GamePacket& p
     }
     state.uiInfoPending = false;
 
-    state.cnt = ReadInt32LE(packet.body.data(), offset);
-    state.isRide = ReadInt32LE(packet.body.data(), offset);
-    state.day = ReadInt32LE(packet.body.data(), offset);
-    state.resDayPoint = ReadInt32LE(packet.body.data(), offset);
+    state.cnt = reader.I32();
+    state.isRide = reader.I32();
+    state.day = reader.I32();
+    state.resDayPoint = reader.I32();
     state.uiInfoAckSeq = state.uiInfoSeq.load();
     state.uiInfoReceived = true;
 
@@ -1167,6 +1172,7 @@ void HandleHorseUiInfoResponse(HorseCompetitionState& state, const GamePacket& p
 }
 
 void HandleHorseEndGameResponse(HorseCompetitionState& state, const GamePacket& packet, size_t& offset) {
+    ByteReader reader(packet.body, offset);
     if (offset + 12 > packet.body.size()) {
         return;
     }
@@ -1206,9 +1212,9 @@ void HandleHorseEndGameResponse(HorseCompetitionState& state, const GamePacket& 
         return;
     }
 
-    const int result = ReadInt32LE(packet.body.data(), offset);
-    ReadInt32LE(packet.body.data(), offset);
-    ReadInt32LE(packet.body.data(), offset);
+    const int result = reader.I32();
+    reader.I32();
+    reader.I32();
 
     if (result != 0) {
         NotifyHorseProgress(L"游戏异常结束，立即退出房间准备下一轮");
@@ -1353,7 +1359,7 @@ static bool LeaveHorseRoomAndConfirm(DWORD confirmTimeoutMs = 800, bool acceptSe
 
     BOOL sent = SendHorseExitRoomPacket();
     if (!sent) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        ManagedThread::SleepCancellable(50);
         sent = SendHorseExitRoomPacket();
     }
 
@@ -1561,7 +1567,8 @@ void ProcessHorseCompetitionResponse(const GamePacket& packet) {
     auto& state = ActivityStateManager::Instance().GetHorseCompetitionState();
 
     size_t offset = 0;
-    const uint16_t cmdLen = ReadUInt16LE(packet.body.data(), offset);
+    ByteReader reader(packet.body, offset);
+    const uint16_t cmdLen = reader.U16();
     if (offset + cmdLen > packet.body.size()) {
         return;
     }
@@ -1603,8 +1610,6 @@ void ProcessHorseCompetitionResponse(const GamePacket& packet) {
             HandleHorseExitRoomResponse(state, json);
         }
     }
-
-    state.waitingResponse = false;
 }
 
 BOOL StartOneKeyHorseCompetitionPacket() {
@@ -1718,8 +1723,7 @@ BOOL StartOneKeyHorseCompetitionPacket() {
         // 点数已刷满也发现不了（会多跑一局，甚至一直跑下去）。
         pendingDayPoint = -1;
         needUiInfo = true;
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(HorseRetryBackoffMs(consecutiveFailures)));
+        ManagedThread::SleepCancellable(HorseRetryBackoffMs(consecutiveFailures));
     };
 
     // 放弃条件命中后由循环开头统一收尾，避免在 lambda 里直接 return。
@@ -1898,7 +1902,7 @@ BOOL StartOneKeyHorseCompetitionPacket() {
             if (waitedMs >= kStartGiveUpMs) {
                 break;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            ManagedThread::SleepCancellable(100);
             waitedMs += 100;
             sinceReadyPing += 100;
             sinceNotify += 100;
@@ -1928,8 +1932,7 @@ BOOL StartOneKeyHorseCompetitionPacket() {
                 lastExitConfirmed = LeaveHorseRoomAndConfirm(400);
                 pendingDayPoint = -1;
                 needUiInfo = true;
-                std::this_thread::sleep_for(
-                    std::chrono::milliseconds(HorseRetryBackoffMs(consecutiveFailures)));
+                ManagedThread::SleepCancellable(HorseRetryBackoffMs(consecutiveFailures));
                 continue;
             }
             if (missedHorseInfo) {
@@ -1983,7 +1986,7 @@ BOOL StartOneKeyHorseCompetitionPacket() {
         bool stoppedByRoomGone = false;
         int roomGoneTicks = 0;
         while (!state.isFinished) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            ManagedThread::SleepCancellable(100);
             waitCount++;
 
             // 用户点了停止：必须能中断。这里最长可能等 40+120 秒，
@@ -2090,8 +2093,7 @@ BOOL StartOneKeyHorseCompetitionPacket() {
                 NotifyHorseProgress(L"房间已关闭，退房后重新匹配...");
                 StopHorseCompetitionGame();
                 lastExitConfirmed = LeaveHorseRoomAndConfirm(400);
-                std::this_thread::sleep_for(
-                    std::chrono::milliseconds(HorseRetryBackoffMs(consecutiveFailures)));
+                ManagedThread::SleepCancellable(HorseRetryBackoffMs(consecutiveFailures));
                 continue;
             }
 
@@ -2139,7 +2141,7 @@ BOOL StartOneKeyHorseCompetitionPacket() {
         // 只是退回「下一轮开头重新拉」的老路径，功能不受影响。
         SendHorseUIInfoPacket();
         const int uiInfoPrefetchSeq = state.uiInfoSeq.load();
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        ManagedThread::SleepCancellable(50);
         lastExitConfirmed = LeaveHorseRoomAndConfirm(400);
         // 只采信「应答了本次预取」的那份回包：要的是新鲜点数，不是赛前的旧值。
         if (state.uiInfoReceived && state.uiInfoAckSeq.load() == uiInfoPrefetchSeq) {

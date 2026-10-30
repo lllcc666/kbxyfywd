@@ -21,7 +21,7 @@ public:
     static bool Initialize();
     static void Cleanup();
 
-    static bool ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
+    static bool ParsePackets(const uint8_t* data, size_t size,
                              std::vector<GamePacket>& outPackets,
                              bool* canRewriteInput = nullptr);
 

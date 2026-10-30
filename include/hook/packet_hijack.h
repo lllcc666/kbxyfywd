@@ -19,7 +19,6 @@ std::string GetPacketLabel(uint32_t opcode, bool bSend);
 BOOL AddHijackRule(HijackType type, bool forSend, bool forRecv,
                    const std::string& searchHex, const std::string& replaceHex = "");
 VOID ClearHijackRules();
-VOID SetHijackEnabled(bool enable);
 bool ProcessHijack(bool bSend, const BYTE* pData, DWORD* pdwSize, std::vector<BYTE>* pModifiedData);
 DWORD SendAllPackets(DWORD intervalMs = 100, DWORD loopCount = 1,
                      PacketProgressCallback progressCallback = nullptr);

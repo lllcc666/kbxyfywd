@@ -1,41 +1,18 @@
 #include <windows.h>
-#include <winhttp.h>
-#include <wincrypt.h>
 
-#include <algorithm>
-#include <atomic>
-#include <cstdint>
-#include <cstdio>
-#include <mutex>
-#include <string>
-#include <thread>
-#include <utility>
-#include <vector>
-
-#include "activity_minigames.h"
-#include "activity_states_internal.h"
-#include "app_host.h"
 #include "battle_six.h"
-#include "dungeon_jump.h"
 #include "hook_shared.h"
-#include "latest_activities.h"
 #include "little_game.h"
 #include "managed_thread.h"
 #include "packet_builder.h"
-#include "packet_parser.h"
 #include "packet_protocol.h"
 #include "shuangtai_internal.h"
 #include "story_task.h"
-#include "story_task_internal.h"
-#include "task_zone_internal.h"
-#include "ui_bridge.h"
-#include "utils.h"
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
 struct DailyTaskData {
     DWORD flags;
-    HWND hwnd;
 };
 
 // ============ 日常活动功能实现 ============
@@ -100,7 +77,7 @@ BOOL SendFamilyDefendPacket() {
         .WriteInt32(0)
         .Build();
     SendPacketBytes(packet1);
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     
     // 封包2: Opcode=1185313, Params=1, Body=[6]
     auto packet2 = PacketBuilder()
@@ -109,7 +86,7 @@ BOOL SendFamilyDefendPacket() {
         .WriteInt32(6)
         .Build();
     SendPacketBytes(packet2);
-    Sleep(300);
+    ManagedThread::SleepCancellable(300);
     
     // 封包3: Opcode=1184801, Params=3
     auto packet3 = PacketBuilder()
@@ -132,7 +109,7 @@ BOOL SendShopSurprisePacket() {
     
     for (int i = 0; i < 3; i++) {
         SendPacketBytes(packet);
-        if (i < 2) Sleep(300);
+        if (i < 2) ManagedThread::SleepCancellable(300);
     }
     
     return TRUE;
@@ -279,7 +256,6 @@ void StartDailyTasksAsync(DWORD flags) {
     
     DailyTaskData* taskData = new DailyTaskData();
     taskData->flags = flags;
-    taskData->hwnd = g_hWnd;
     
     // 走受管线程：进程退出时能统一 RequestStopAll/JoinAll，不再是一条没人等的裸线程。
     const bool started = ManagedThread::Start(L"daily_tasks", [taskData]() {

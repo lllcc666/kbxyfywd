@@ -3,6 +3,7 @@
 #include <atomic>
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 
 #include "packet_types.h"
 #include "wpe_hook.h"
@@ -16,7 +17,6 @@ extern CriticalSectionScope g_hijackRulesCS;
 extern std::atomic<bool> g_bStopAutoSend;
 extern std::atomic<bool> g_blockOpcodeSend;
 extern std::atomic<bool> g_bHijackEnabled;
-extern EXECUTE_SCRIPT_FUNC g_ExecuteScriptFunc;
 extern CRITICAL_SECTION g_towerCS;
 
 // 玄塔"已离开场景"标记：收包线程等 EXIT_WORLD 回包时置位，进场景回包时清零。

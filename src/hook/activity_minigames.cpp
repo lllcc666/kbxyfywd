@@ -14,13 +14,13 @@
 #include "activity_minigames.h"
 #include "activity_states_internal.h"
 #include "battle_six.h"
+#include "byte_reader.h"
 #include "hook_shared.h"
 #include "managed_thread.h"
 #include "packet_builder.h"
 #include "packet_parser.h"
 #include "packet_protocol.h"
 #include "shuangtai_internal.h"
-#include "task_zone_internal.h"
 #include "ui_bridge.h"
 #include "utils.h"
 #include "wpe_hook.h"
@@ -33,7 +33,6 @@ std::atomic<bool> g_heavenFuruiQuerySuccess{false};
 std::atomic<int> g_heavenFuruiBoxCount{0};
 std::atomic<bool> g_heavenFuruiEnteredMap{false};
 std::atomic<int> g_heavenFuruiMaxBoxes{30};  ///< 最大开启宝箱数量
-std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
 
 // ============================================================================
     // 福瑞宝箱功能 (HeavenFurui) owner：局部静态状态统一跟随该功能块维护。
@@ -241,11 +240,8 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
      */
     DWORD WINAPI HeavenFuruiThreadProc(LPVOID lpParam) {
         (void)lpParam;
-        Sleep(300);
-        
-        // 重置已开启数量
-        g_heavenFuruiOpenedBoxes = 0;
-        
+        ManagedThread::SleepCancellable(300);
+
         // 更新辅助提示
         auto updateHelper = [](const std::wstring& text) {
             UIBridge::Instance().UpdateHelperText(text);
@@ -261,7 +257,8 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
         // 遍历所有地图
         for (int mapId : HEAVEN_FURUI_MAPS) {
             // 检查是否已达到目标数量或被停止
-            if (!g_heavenFuruiRunning || totalBoxesPicked >= maxBoxes) {
+            if (!g_heavenFuruiRunning || ManagedThread::StopRequested() ||
+                totalBoxesPicked >= maxBoxes) {
                 break;
             }
             
@@ -283,7 +280,7 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
             
             // 等待响应
             for (int i = 0; i < 10 && !g_heavenFuruiQuerySuccess && g_heavenFuruiRunning; i++) {
-                Sleep(100);
+                ManagedThread::SleepCancellable(100);
             }
             
             // 如果有宝箱且未达到目标
@@ -298,10 +295,10 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
                 
                 // 等待进入地图
                 for (int i = 0; i < 20 && !g_heavenFuruiEnteredMap && g_heavenFuruiRunning; i++) {
-                    Sleep(100);
+                    ManagedThread::SleepCancellable(100);
                 }
                 
-                Sleep(500);  // 等待地图加载
+                ManagedThread::SleepCancellable(500);  // 等待地图加载
                 
                 // 拾取宝箱（不超过目标数量）
                 // 必须用快照：分发线程会在这段时间里 clear/push_back 重建列表，
@@ -309,7 +306,8 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
                 const std::vector<int> boxSnapshot = SnapshotHeavenFuruiBoxIds();
                 for (int boxId : boxSnapshot) {
                     // 检查是否已达到目标或被停止
-                    if (!g_heavenFuruiRunning || totalBoxesPicked >= maxBoxes) {
+                    if (!g_heavenFuruiRunning || ManagedThread::StopRequested() ||
+                        totalBoxesPicked >= maxBoxes) {
                         break;
                     }
                     
@@ -319,14 +317,13 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
                     
                     // 发送拾取封包
                     SendHeavenFuruiPickupPacket(mapId, boxId);
-                    Sleep(200);
+                    ManagedThread::SleepCancellable(200);
                     
                     // 发送确认封包
                     SendHeavenFuruiConfirmPacket();
-                    Sleep(200);
+                    ManagedThread::SleepCancellable(200);
                     
                     totalBoxesPicked++;
-                    g_heavenFuruiOpenedBoxes = totalBoxesPicked;
                     
                     // 更新UI进度
                     wchar_t progressJs[256];
@@ -339,7 +336,7 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
                           mapName.c_str(), totalBoxesPicked, maxBoxes);
                 updateHelper(msg);
                 
-                Sleep(500);
+                ManagedThread::SleepCancellable(500);
             }
             
             // 清空当前地图的宝箱列表
@@ -402,20 +399,20 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
         if (packet.params != HeavenFurui::ACTIVITY_ID) return;
         if (packet.body.size() < 4) return;
         
-        const BYTE* body = packet.body.data();
         size_t offset = 0;
+        ByteReader reader(packet.body, offset);
         
         // 读取 protocolId
-        int protocolId = ReadInt32LE(body, offset);
+        int protocolId = reader.I32();
         
         if (protocolId == 1) {
             // 服务器推送福瑞宝箱状态
             g_heavenFuruiQuerySuccess = true;
             
             if (offset + 12 <= packet.body.size()) {
-                (void)ReadInt32LE(body, offset);  // isVailTime：占位字段
-                (void)ReadInt32LE(body, offset);  // clickIconFlag：占位字段
-                int boxNum = ReadInt32LE(body, offset);
+                (void)reader.I32();  // isVailTime：占位字段
+                (void)reader.I32();  // clickIconFlag：占位字段
+                int boxNum = reader.I32();
                 
                 // 如果已有宝箱数据且新响应 boxNum=0，则忽略
                 // 这可能是进入地图后服务器的状态推送，不应覆盖查询结果
@@ -431,7 +428,7 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
 
                     // 读取宝箱ID列表
                     for (int i = 0; i < boxNum && offset + 4 <= packet.body.size(); i++) {
-                        int boxId = ReadInt32LE(body, offset);
+                        int boxId = reader.I32();
                         g_heavenFuruiBoxIds.push_back(boxId);
                     }
 
@@ -442,7 +439,7 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
                 
                 // 读取已开宝箱数量
                 if (offset + 4 <= packet.body.size()) {
-                    (void)ReadInt32LE(body, offset);  // openBoxNum：占位字段
+                    (void)reader.I32();  // openBoxNum：占位字段
                 }
                 
                 // 通知UI - 显示实际保存的宝箱数量
@@ -462,7 +459,7 @@ std::atomic<int> g_heavenFuruiOpenedBoxes{0};  ///< 已开启宝箱数量
             // 不应该覆盖之前查询得到的宝箱ID列表
             // 只有在非查询状态（即服务器主动推送）时才更新
             if (offset + 4 <= packet.body.size()) {
-                int boxNum = ReadInt32LE(body, offset);
+                int boxNum = reader.I32();
                 // 如果当前没有保存的宝箱ID，才用这个值更新数量
                 // 否则保持查询得到的宝箱信息不变
                 std::lock_guard<std::mutex> lock(g_heavenFuruiStateMutex);

@@ -18,7 +18,7 @@
 
 | 组件 | 说明 |
 |------|------|
-| 语言 | C++17（`/utf-8`，MSVC /W4 无告警） |
+| 语言 | C++17（`/utf-8`，MSVC `/W4`；未开 `/WX`，告警不阻断构建） |
 | 桌面框架 | Win32 API |
 | UI | WebView2 + HTML/CSS/JavaScript |
 | 游戏承载 | ATL / WebBrowser |
@@ -60,7 +60,7 @@ Release 是体积优先配置：`/O1` + `/GL` + `/LTCG` + `/GF` + `/Gy` + `/Gw`�
 kbwebui/
 ├─ src/
 │  ├─ app/                  # 程序入口、主窗口、WebView2 初始化
-│  ├─ core/                 # 桥接、工具、消息分派、数据拦截、受管线程
+│  ├─ core/                 # 桥接、工具、消息分派、受管线程
 │  ├─ hook/                 # Hook 内核 + 各活动自动化模块（一活动一文件）
 │  └─ protocol/             # 封包解析与构造
 ├─ include/
@@ -89,8 +89,9 @@ kbwebui/
 - `web_message_handler.cpp` — 前端消息 → 原生逻辑的唯一入口（动作分派）
 - `ui_bridge.cpp` — C++ → JS 桥接（`ExecuteScript`、进度横幅、列表同步）
 - `managed_thread.cpp` — 受管线程：统一登记、可取消睡眠、退出时 join / 回收
-- `data_interceptor.cpp` — HTTP / 资源响应拦截
 - `utils.cpp` — 字符串、数值、十六进制等基础工具
+
+> HTTP 资源拦截没有独立模块：IE 缓存清理与 WebView2 资源处理都在 `src/app/demo.cpp` 里。
 
 ### `src/protocol/`
 
@@ -109,6 +110,8 @@ kbwebui/
 | `horse_competition.cpp` | 自动坐骑大赛 |
 | `latest_activities.cpp` | 最新活动通用流程（查询 / 开始 / 扫荡 / 领取） |
 | `activity_minigames.cpp` | 各期小游戏自动化实现 |
+| `activity_bus.cpp` | 活动通用启动器（障碍赛跑 / 金平府祈愿 / 五子棋 / 知识小天地） |
+| `little_game.cpp` | 小游戏开始 / 结束发包（两种 body 形态） |
 | `activity_counts.cpp` | 活动剩余次数查询与回填 |
 | `story_task.cpp` | 主线任务（含战斗收尾、配方表驱动） |
 | `eight_trigrams.cpp` | 任务区 / 八卦灵盘 |
@@ -189,7 +192,10 @@ Magic(2) + Length(2) + Opcode(4) + Params(4) + Body
 
 - 后台流程统一用 `ManagedThread::Start(...)`（或 `CreateManagedThread`），睡眠用 `ManagedThread::SleepCancellable(...)`
 - 循环体每轮检查 `ManagedThread::StopRequested()`
-- 退出顺序：`RequestStopAll()` → `JoinAll()` → 再拆 Hook；顺序反过来会踩已释放的资源
+- 退出顺序：`RequestStopAll()` → `JoinAll()` → `CleanupWpeHook()` → `StopIntercept()` → `UninitializeHooks()`。
+  - `JoinAll` 超时（仍有线程在跑）时必须**跳过后面全部清理**直接退出进程：此时拆钩子会让残留线程跳到已卸载的代码上继续发包。
+  - `CleanupWpeHook` 必须排在 `UninitializeHooks` 之前：它内部要 join 赛马主循环，而该线程可能正阻塞在等退房回包上，收包链必须还活着。
+  - `UninitializeHooks` 是「断电」动作（禁 Hook + 取消等待器 + 停收包分发线程 + 等在途 detour 排空后才卸载 MinHook），必须排最后。
 
 ### 解析封包
 
@@ -199,7 +205,8 @@ Magic(2) + Length(2) + Opcode(4) + Params(4) + Body
 ### 修改前端
 
 - 只改 `resources/ui.html`，重新构建会自动重新生成 `embedded/ui_html.h`
-- 从 C++ 注入 JS 时字符串走 `EscapeJsonString`，拼进单引号字面量要一并转义单引号
+- 从 C++ 注入 JS 时，**任何来自封包 / 配置文件 / 用户输入的字符串**都必须走 `UIBridge::EscapeJsonString`；拼进单引号字面量时它已一并转义单引号。纯数字（`std::to_wstring`）与代码内字面量可以直接拼。
+- 不要用 `msg.find(L"键名")` 之外的方式猜前端意图：动作名是唯一契约，新增动作要在 `resources/ui.html` 与 `web_message_handler.cpp` 同时登记。
 
 ## 验证方式
 

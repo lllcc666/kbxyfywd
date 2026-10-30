@@ -7,13 +7,13 @@
 #include <vector>
 
 #include "battle_six.h"
+#include "byte_reader.h"
 #include "hook_shared.h"
 #include "managed_thread.h"
 #include "packet_builder.h"
 #include "packet_parser.h"
 #include "packet_protocol.h"
 #include "ui_bridge.h"
-#include "utils.h"
 #include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
@@ -23,16 +23,13 @@
 
 // 万妖盛会流程 owner：阶段、token 和结算标记统一由该流程维护。
 std::atomic<bool> g_battleSixMatching{false};  ///< 是否正在匹配
-std::atomic<bool> g_battleSixMatchSuccess{false};  ///< 匹配是否成功
 std::atomic<int> g_battleSixSwitchTargetId{-1};  ///< 切换目标精灵uniqueId
-std::atomic<int> g_battleSixSwitchRetryCount{0};  ///< 切换重试次数
 std::atomic<unsigned long long> g_battleSixBattleSession{0};  ///< 当前战斗会话号，避免延迟线程串场
 
 std::atomic<int> g_battleSixFlowStage{BATTLESIX_FLOW_IDLE};
 std::atomic<unsigned long long> g_battleSixFlowToken{0};
 constexpr uint32_t BATTLE_SIX_SETTLEMENT_TEXT_BACK = 1317130;  // 万妖盛会胜负文本弹窗回包
 constexpr uint32_t BATTLE_SIX_SETTLEMENT_PVP_BACK = 1317154;   // 万妖盛会 PVP 结算弹窗回包
-std::atomic<bool> g_battleSixPostSettlementEndSent{false};
 std::atomic<bool> g_battleSixReadySupplementSent{false};
 std::atomic<unsigned long long> g_battleSixRoundToken{0};
 std::atomic<unsigned long long> g_battleSixRoundResultToken{0};
@@ -47,7 +44,6 @@ unsigned long long AdvanceBattleSixFlowStage(int stage) {
 
 void ResetBattleSixFlowState() {
     g_battleSixMatching = false;
-    g_battleSixMatchSuccess = false;
     g_battleSixFlowStage = BATTLESIX_FLOW_IDLE;
     g_battleSixFlowToken.fetch_add(1);
 }
@@ -56,7 +52,7 @@ void ScheduleBattleSixRecoveryViaCombatInfo(DWORD delayMs) {
     DWORD* pDelay = new DWORD(delayMs);
     HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID param) -> DWORD {
         std::unique_ptr<DWORD> delay(static_cast<DWORD*>(param));
-        Sleep(*delay);
+        ManagedThread::SleepCancellable(*delay);
         if (!g_battleSixAuto.IsAutoMatching() || g_battleSixAuto.IsInBattle()) {
             return 0;
         }
@@ -66,7 +62,7 @@ void ScheduleBattleSixRecoveryViaCombatInfo(DWORD delayMs) {
         UIBridge::Instance().UpdateHelperText(L"万妖盛会：重新查询并继续匹配...");
         SendBattleSixCombatInfoPacket();
         return 0;
-    }, pDelay, 0, nullptr);
+    }, pDelay, 0, nullptr, L"battlesix_recovery");
     if (hThread) {
         CloseHandle(hThread);
     } else {
@@ -129,13 +125,22 @@ void ArmBattleSixFlowWatchdog(
     auto* context = new BattleSixWatchdogContext{timeoutMs, stage, token, cancelBeforeRecovery, timeoutText};
     HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID param) -> DWORD {
         std::unique_ptr<BattleSixWatchdogContext> context(static_cast<BattleSixWatchdogContext*>(param));
-        Sleep(context->timeoutMs);
-
-        if (!g_battleSixAuto.IsAutoMatching() || g_battleSixAuto.IsInBattle()) {
-            return 0;
-        }
+        // 头注释说「靠 token 作废，不必再靠 Sleep 猜时序」——那么作废判定就该排在最前面：
+        // 阶段已经推进过的看门狗没必要再等满整个超时窗口，也不该因为「恰好不在匹配中」
+        // 就把自己当成正常结束（那会让真正的超时静默消失）。
         if (g_battleSixFlowToken.load() != context->token ||
             g_battleSixFlowStage.load() != context->stage) {
+            return 0;
+        }
+        if (!ManagedThread::SleepCancellable(context->timeoutMs)) {
+            return 0;
+        }
+        // 睡醒后再判一次：这一觉期间可能已经进战斗或本场已结算。
+        if (g_battleSixFlowToken.load() != context->token ||
+            g_battleSixFlowStage.load() != context->stage) {
+            return 0;
+        }
+        if (!g_battleSixAuto.IsAutoMatching() || g_battleSixAuto.IsInBattle()) {
             return 0;
         }
 
@@ -147,7 +152,7 @@ void ArmBattleSixFlowWatchdog(
         }
         ScheduleBattleSixRecoveryViaCombatInfo(1500);
         return 0;
-    }, context, 0, nullptr);
+    }, context, 0, nullptr, L"battlesix_watchdog");
 
     if (hThread) {
         CloseHandle(hThread);
@@ -163,11 +168,8 @@ void ArmBattleSixFlowWatchdog(
 // BattleSixAutoBattle 类实现
 BattleSixAutoBattle::BattleSixAutoBattle()
     : m_currentSpiritIndex(0)
-    , m_currentSkillIndex(0)
     , m_enemySid(0)
-    , m_enemyUniqueId(0)
     , m_enemyActiveIndex(-1)
-    , m_myUniqueId(0)
     , m_lastActionRoundToken(0)
     , m_isInBattle(false)
     , m_autoBattleEnabled(false)
@@ -177,35 +179,18 @@ BattleSixAutoBattle::BattleSixAutoBattle()
     , m_winCount(0)
     , m_loseCount(0) {
 }
-void BattleSixAutoBattle::UpdateCombatInfo(
-    int winStreak,
-    int teamNum,
-    int currentCount,
-    int firstSpiritId,
-    std::vector<BattleSixLineupEntry> lineup) {
-    std::lock_guard<std::recursive_mutex> stateLock(m_stateMutex);
-    m_winStreak = winStreak;
-    m_teamNum = teamNum;
-    m_lineupCurrentCount = currentCount;
-    m_firstSpiritId = firstSpiritId;
-    m_lineup = std::move(lineup);
-}
-
 void BattleSixAutoBattle::StartBattle() {
     std::lock_guard<std::recursive_mutex> stateLock(m_stateMutex);
     m_isInBattle.store(true);
     m_currentSpiritIndex = 0;
-    m_currentSkillIndex = 0;
     m_lastActionRoundToken = 0;
     g_battleSixBattleSession.fetch_add(1);
     g_battleSixRoundToken = 0;
     g_battleSixRoundResultToken = 0;
     g_battleSixPlayOverToken = 0;
-    g_battleSixPostSettlementEndSent = false;
     g_battleSixSettlementKnown = false;
     g_battleSixSettlementFlags = 0;
     g_battleSixSwitchTargetId = -1;
-    g_battleSixSwitchRetryCount = 0;
     UIBridge::Instance().UpdateHelperText(L"战斗开始");
 }
 
@@ -216,14 +201,11 @@ void BattleSixAutoBattle::EndBattle() {
     m_enemySpirits.clear();
     m_currentSpiritIndex = -1;
     m_enemySid = 0;
-    m_enemyUniqueId = 0;
     m_enemyActiveIndex = -1;
     g_battleSixSettlementKnown = false;
     g_battleSixSettlementFlags = 0;
-    m_myUniqueId = 0;
     g_battleSixBattleSession.fetch_add(1);
     g_battleSixSwitchTargetId = -1;
-    g_battleSixSwitchRetryCount = 0;
     UIBridge::Instance().UpdateHelperText(L"战斗结束");
 }
 
@@ -264,12 +246,10 @@ bool BattleSixAutoBattle::IsMySpiritBySid(int sid) const {
 void BattleSixAutoBattle::RefreshEnemyTarget() {
     std::lock_guard<std::recursive_mutex> stateLock(m_stateMutex);
     m_enemySid = 0;
-    m_enemyUniqueId = 0;
     if (m_enemyActiveIndex >= 0 && m_enemyActiveIndex < static_cast<int>(m_enemySpirits.size())) {
         const auto& active = m_enemySpirits[m_enemyActiveIndex];
         if (!active.isDead && active.hp > 0) {
             m_enemySid = active.sid;
-            m_enemyUniqueId = active.uniqueId;
             return;
         }
     }
@@ -278,7 +258,6 @@ void BattleSixAutoBattle::RefreshEnemyTarget() {
         if (!spirit.isDead && spirit.hp > 0) {
             m_enemyActiveIndex = static_cast<int>(i);
             m_enemySid = spirit.sid;
-            m_enemyUniqueId = spirit.uniqueId;
             break;
         }
     }
@@ -362,7 +341,7 @@ BOOL BattleSixAutoBattle::OnBattleRoundStart() {
     };
     HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
         std::unique_ptr<SkillThreadData> data(static_cast<SkillThreadData*>(lpParam));
-        Sleep(600);
+        ManagedThread::SleepCancellable(600);
         if (g_battleSixBattleSession.load() != data->battleSession ||
             g_battleSixRoundToken.load() != data->roundToken ||
             g_battleSixRoundResultToken.load() != data->roundResultToken ||
@@ -371,7 +350,7 @@ BOOL BattleSixAutoBattle::OnBattleRoundStart() {
         }
         SendBattleSixUserOpPacket(0, data->targetId, data->skillId);
         return 0;
-    }, threadData, 0, nullptr);
+    }, threadData, 0, nullptr, L"battlesix_skill");
 
     if (hThread) {
         CloseHandle(hThread);
@@ -388,6 +367,7 @@ void BattleSixAutoBattle::OnBattleRoundResult(const GamePacket& packet) {
     // 0 = 普通攻击, 1 = 切换宠物, 2 = 使用道具, 3 = 逃跑
     int cmdType = static_cast<int>(packet.params);
     size_t offset = 0;
+    ByteReader reader(packet.body, offset);
     
     if (packet.body.size() < 4) {
         return;
@@ -399,22 +379,22 @@ void BattleSixAutoBattle::OnBattleRoundResult(const GamePacket& packet) {
             return;
         }
         
-        int sid = ReadInt32LE(packet.body.data(), offset);
-        (void)ReadInt32LE(packet.body.data(), offset);  // uniqueId：占位字段，仅需推进 offset
-        int sta = ReadInt32LE(packet.body.data(), offset);
+        int sid = reader.I32();
+        (void)reader.I32();  // uniqueId：占位字段，仅需推进 offset
+        int sta = reader.I32();
         
         if (sta == 1 && offset + 44 <= packet.body.size()) {
-            const int rawState = ReadInt32LE(packet.body.data(), offset);
-            const int newSid = ReadInt32LE(packet.body.data(), offset);
-            const int groupType = ReadInt32LE(packet.body.data(), offset);
-            const int hp = ReadInt32LE(packet.body.data(), offset);
-            const int maxHp = ReadInt32LE(packet.body.data(), offset);
-            const int level = ReadInt32LE(packet.body.data(), offset);
-            const int elem = ReadInt32LE(packet.body.data(), offset);
-            const int spiritId = ReadInt32LE(packet.body.data(), offset);
-            const int newUniqueId = ReadInt32LE(packet.body.data(), offset);
-            const int userId = ReadInt32LE(packet.body.data(), offset);
-            const int skillNum = ReadInt32LE(packet.body.data(), offset);
+            const int rawState = reader.I32();
+            const int newSid = reader.I32();
+            const int groupType = reader.I32();
+            const int hp = reader.I32();
+            const int maxHp = reader.I32();
+            const int level = reader.I32();
+            const int elem = reader.I32();
+            const int spiritId = reader.I32();
+            const int newUniqueId = reader.I32();
+            const int userId = reader.I32();
+            const int skillNum = reader.I32();
             if (skillNum < 0 || skillNum > 128) return;
             (void)rawState;
             (void)groupType;
@@ -441,9 +421,9 @@ void BattleSixAutoBattle::OnBattleRoundResult(const GamePacket& packet) {
                 spirit.skills.reserve(static_cast<size_t>(skillNum));
                 for (int j = 0; j < skillNum; ++j) {
                     BattleSixSkillInfo skill;
-                    skill.skillId = ReadInt32LE(packet.body.data(), offset);
-                    skill.currentPP = ReadInt32LE(packet.body.data(), offset);
-                    skill.maxPP = ReadInt32LE(packet.body.data(), offset);
+                    skill.skillId = reader.I32();
+                    skill.currentPP = reader.I32();
+                    skill.maxPP = reader.I32();
                     skill.available = skill.currentPP > 0;
                     skill.name = GetSkillName(skill.skillId);
                     skill.power = GetSkillPower(skill.skillId, 0);
@@ -451,7 +431,6 @@ void BattleSixAutoBattle::OnBattleRoundResult(const GamePacket& packet) {
                 }
                 if (mySide) {
                     m_currentSpiritIndex = index;
-                    m_myUniqueId = newUniqueId;
                 } else {
                     m_enemyActiveIndex = index;
                 }
@@ -461,19 +440,18 @@ void BattleSixAutoBattle::OnBattleRoundResult(const GamePacket& packet) {
             if (isMySide && m_currentSpiritIndex >= 0 && m_currentSpiritIndex < static_cast<int>(m_mySpirits.size()) &&
                 m_mySpirits[m_currentSpiritIndex].uniqueId == newUniqueId) {
                 g_battleSixSwitchTargetId = -1;
-                g_battleSixSwitchRetryCount = 0;
             }
             RefreshEnemyTarget();
         }
     } else if (cmdType == 0) {
         // 普通攻击结果
-        int haveBattle = ReadInt32LE(packet.body.data(), offset);
+        int haveBattle = reader.I32();
         
             if (haveBattle == 1) {
-                int atkId = ReadInt32LE(packet.body.data(), offset);
-                int skillId = ReadInt32LE(packet.body.data(), offset);
-                int defId = ReadInt32LE(packet.body.data(), offset);
-                int miss = ReadInt32LE(packet.body.data(), offset);
+                int atkId = reader.I32();
+                int skillId = reader.I32();
+                int defId = reader.I32();
+                int miss = reader.I32();
 
                 // 对照 AS3/BattleModel：skillid 在 miss 之前就已确认读取，
                 // 本轮是否命中只影响后续伤害字段，不影响“技能已经被使用”这一事实。
@@ -484,10 +462,10 @@ void BattleSixAutoBattle::OnBattleRoundResult(const GamePacket& packet) {
                 }
             
             if (miss == 0) {
-                (void)ReadInt32LE(packet.body.data(), offset);  // brust：占位字段
-                int atkHp = ReadInt32LE(packet.body.data(), offset);
-                int defHp = ReadInt32LE(packet.body.data(), offset);
-                (void)ReadInt32LE(packet.body.data(), offset);  // reboundHp：占位字段
+                (void)reader.I32();  // brust：占位字段
+                int atkHp = reader.I32();
+                int defHp = reader.I32();
+                (void)reader.I32();  // reboundHp：占位字段
                 
                 // 更新攻击者和防御者的HP
                 // 关键：atkHp和defHp的含义取决于谁是攻击者
@@ -517,8 +495,7 @@ BOOL BattleSixAutoBattle::AutoSwitchSpirit() {
         if (m_currentSpiritIndex >= 0 && m_currentSpiritIndex < (int)m_mySpirits.size() &&
             m_mySpirits[m_currentSpiritIndex].uniqueId == pendingTargetId) {
             g_battleSixSwitchTargetId = -1;
-            g_battleSixSwitchRetryCount = 0;
-        } else {
+                } else {
             return TRUE;
         }
     }
@@ -543,11 +520,10 @@ BOOL BattleSixAutoBattle::AutoSwitchSpirit() {
     const unsigned long long battleSession = g_battleSixBattleSession.load();
     SwitchThreadData* threadData = new SwitchThreadData{battleSession, spiritUniqueId};
     g_battleSixSwitchTargetId = spiritUniqueId;
-    g_battleSixSwitchRetryCount = 0;
 
     HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
         auto* data = static_cast<SwitchThreadData*>(lpParam);
-        Sleep(300);
+        ManagedThread::SleepCancellable(300);
         if (g_battleSixBattleSession.load() != data->battleSession || !g_battleSixAuto.IsInBattle()) {
             delete data;
             return 0;
@@ -555,7 +531,7 @@ BOOL BattleSixAutoBattle::AutoSwitchSpirit() {
         SendBattleSixUserOpPacket(1, data->uniqueId, 0);
         delete data;
         return 0;
-    }, threadData, 0, nullptr);
+    }, threadData, 0, nullptr, L"battlesix_switch");
 
     if (hThread) {
         CloseHandle(hThread);
@@ -564,7 +540,6 @@ BOOL BattleSixAutoBattle::AutoSwitchSpirit() {
 
     delete threadData;
     g_battleSixSwitchTargetId = -1;
-    g_battleSixSwitchRetryCount = 0;
     return FALSE;
 }
 
@@ -572,17 +547,6 @@ int BattleSixAutoBattle::GetAliveSpiritCount() {
     std::lock_guard<std::recursive_mutex> stateLock(m_stateMutex);
     int count = 0;
     for (const auto& spirit : m_mySpirits) {
-        if (!spirit.isDead && spirit.hp > 0) {
-            count++;
-        }
-    }
-    return count;
-}
-
-int BattleSixAutoBattle::GetEnemyAliveSpiritCount() {
-    std::lock_guard<std::recursive_mutex> stateLock(m_stateMutex);
-    int count = 0;
-    for (const auto& spirit : m_enemySpirits) {
         if (!spirit.isDead && spirit.hp > 0) {
             count++;
         }
@@ -720,8 +684,13 @@ static void StartBattleSixMatchRetryLoop(unsigned long long token) {
     auto* context = new MatchRetryContext{token};
     HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID param) -> DWORD {
         std::unique_ptr<MatchRetryContext> context(static_cast<MatchRetryContext*>(param));
-        while (true) {
-            Sleep(1000);
+        // 补发匹配包的循环没有会话号可用（token 由 g_battleSixFlowToken 承担），
+        // 这里再加一道 StopRequested：退出流程 RequestStopAll 之后不必等下一轮
+        // 的 token 比对，SleepCancellable 返回 false 就立刻收手。
+        while (!ManagedThread::StopRequested()) {
+            if (!ManagedThread::SleepCancellable(1000)) {
+                return 0;
+            }
 
             if (!g_battleSixAuto.IsAutoMatching() || g_battleSixAuto.IsInBattle()) {
                 return 0;
@@ -735,7 +704,8 @@ static void StartBattleSixMatchRetryLoop(unsigned long long token) {
 
             SendBattleSixMatchPacketOnce();
         }
-    }, context, 0, nullptr);
+        return 0;
+    }, context, 0, nullptr, L"battlesix_match_retry");
 
     if (hThread) {
         CloseHandle(hThread);
@@ -746,7 +716,6 @@ static void StartBattleSixMatchRetryLoop(unsigned long long token) {
 
 BOOL SendBattleSixMatchPacket() {
     g_battleSixMatching = true;
-    g_battleSixMatchSuccess = false;
     const unsigned long long token = AdvanceBattleSixFlowStage(BATTLESIX_FLOW_MATCHING);
     ArmBattleSixFlowWatchdog(
         45000,
@@ -818,8 +787,7 @@ BOOL SendBattleSixEndPacket() {
 // 万妖盛会响应处理函数实现
 void ProcessBattleSixMatchResponse(const GamePacket& packet) {
     if (packet.params != 0) {
-        g_battleSixMatchSuccess = false;
-        g_battleSixMatching = false;
+            g_battleSixMatching = false;
         ResetBattleSixFlowState();
 
         wchar_t msg[256];
@@ -833,8 +801,7 @@ void ProcessBattleSixMatchResponse(const GamePacket& packet) {
 
     // AS3: params=0 且 Body 为空表示仍在匹配，不是异常响应。
     if (packet.body.empty()) {
-        g_battleSixMatchSuccess = false;
-        g_battleSixMatching = true;
+            g_battleSixMatching = true;
         AdvanceBattleSixFlowStage(BATTLESIX_FLOW_MATCHING);
         UIBridge::Instance().UpdateHelperText(L"万妖盛会：正在匹配");
         return;
@@ -844,8 +811,8 @@ void ProcessBattleSixMatchResponse(const GamePacket& packet) {
     }
 
     size_t offset = 0;
-    const int opponentId = ReadInt32LE(packet.body.data(), offset);
-    g_battleSixMatchSuccess = true;
+    ByteReader reader(packet.body, offset);
+    const int opponentId = reader.I32();
     g_battleSixMatching = false;
     const unsigned long long token = AdvanceBattleSixFlowStage(BATTLESIX_FLOW_WAITING_BATTLE_START);
 
@@ -863,14 +830,14 @@ void ProcessBattleSixMatchResponse(const GamePacket& packet) {
     auto* reqStartData = new ReqStartThreadData{token};
     HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
         std::unique_ptr<ReqStartThreadData> data(static_cast<ReqStartThreadData*>(lpParam));
-        Sleep(2000);
+        ManagedThread::SleepCancellable(2000);
         if (g_battleSixAuto.IsAutoMatching() && !g_battleSixAuto.IsInBattle() &&
             g_battleSixFlowStage.load() == BATTLESIX_FLOW_WAITING_BATTLE_START &&
             g_battleSixFlowToken.load() == data->token) {
             SendBattleSixReqStartPacket();
         }
         return 0;
-    }, reqStartData, 0, nullptr);
+    }, reqStartData, 0, nullptr, L"battlesix_req_start");
     if (hThread) CloseHandle(hThread); else delete reqStartData;
 }
 void ProcessBattleSixCancelMatchResponse(const GamePacket& packet) {
@@ -880,7 +847,6 @@ void ProcessBattleSixCancelMatchResponse(const GamePacket& packet) {
         return;
     }
     g_battleSixMatching = false;
-    g_battleSixMatchSuccess = false;
     ResetBattleSixFlowState();
     UIBridge::Instance().UpdateHelperText(L"万妖盛会：已取消匹配");
 }
@@ -890,8 +856,9 @@ void ProcessBattleSixPrepareCombatResponse(const GamePacket& packet) {
         return;
     }
     size_t offset = 0;
-    const int prepareCode = ReadInt32LE(packet.body.data(), offset);
-    const int prepareValue = ReadInt32LE(packet.body.data(), offset);
+    ByteReader reader(packet.body, offset);
+    const int prepareCode = reader.I32();
+    const int prepareValue = reader.I32();
     const unsigned long long token = AdvanceBattleSixFlowStage(BATTLESIX_FLOW_PREPARING_COMBAT);
     UIBridge::Instance().UpdateHelperText(
         L"万妖盛会：准备战斗（" + std::to_wstring(prepareCode) +
@@ -917,11 +884,11 @@ void ProcessBattleSixCombatOverResponse(const GamePacket& packet) {
     if ((packet.params == 1 || packet.params == 3 || packet.params == 4) &&
         packet.body.size() >= sizeof(int32_t)) {
         size_t offset = 0;
-        const int userId = ReadInt32LE(packet.body.data(), offset);
+        ByteReader reader(packet.body, offset);
+        const int userId = reader.I32();
         reason = L"，关联玩家 " + std::to_wstring(userId);
     }
     g_battleSixMatching = false;
-    g_battleSixMatchSuccess = false;
     g_battleSixAuto.EndBattle();
     g_battleSixAuto.SetAutoMatching(false);
     ResetBattleSixFlowState();
@@ -934,13 +901,14 @@ void ProcessBattleSixSelfBanSpiritResponse(const GamePacket& packet) {
         return;
     }
     size_t offset = 0;
-    const int count = ReadInt32LE(packet.body.data(), offset);
+    ByteReader reader(packet.body, offset);
+    const int count = reader.I32();
     if (count < 0 || count > 128 || packet.body.size() < sizeof(int32_t) * (1u + static_cast<size_t>(count))) {
         return;
     }
     std::wstring message = L"万妖盛会：阵容包含禁用妖怪";
     for (int i = 0; i < count; ++i) {
-        const int spiritId = ReadInt32LE(packet.body.data(), offset);
+        const int spiritId = reader.I32();
         message += (i == 0 ? L" " : L"," ) + std::to_wstring(spiritId);
     }
     UIBridge::Instance().UpdateHelperText(message);
@@ -965,31 +933,25 @@ void ProcessBattleSixCombatInfoResponse(const GamePacket& packet) {
     }
 
     size_t offset = 0;
-    const int winStreak = ReadInt32LE(packet.body.data(), offset);
-    const int teamNum = ReadInt32LE(packet.body.data(), offset);
-    const int currentCount = ReadInt32LE(packet.body.data(), offset);
-    const int firstSpiritId = ReadInt32LE(packet.body.data(), offset);
-    const int monsterCount = ReadInt32LE(packet.body.data(), offset);
+    ByteReader reader(packet.body, offset);
+    const int winStreak = reader.I32();
+    const int teamNum = reader.I32();
+    const int currentCount = reader.I32();
+    const int firstSpiritId = reader.I32();
+    const int monsterCount = reader.I32();
     if (monsterCount < 0 || monsterCount > 128 ||
         packet.body.size() < offset + sizeof(int32_t) * 4u * static_cast<size_t>(monsterCount)) {
         UIBridge::Instance().UpdateHelperText(L"万妖盛会：战斗信息阵容数据无效");
         return;
     }
 
-    std::vector<BattleSixLineupEntry> lineup;
-    lineup.reserve(static_cast<size_t>(monsterCount));
-    for (int i = 0; i < monsterCount; ++i) {
-        BattleSixLineupEntry entry;
-        entry.position = ReadInt32LE(packet.body.data(), offset);
-        entry.id = ReadInt32LE(packet.body.data(), offset);
-        entry.spiritId = ReadInt32LE(packet.body.data(), offset);
-        entry.level = ReadInt32LE(packet.body.data(), offset);
-        lineup.push_back(entry);
-    }
-    std::sort(lineup.begin(), lineup.end(), [](const auto& left, const auto& right) {
-        return left.position < right.position;
-    });
-    g_battleSixAuto.UpdateCombatInfo(winStreak, teamNum, currentCount, firstSpiritId, std::move(lineup));
+    // 阵容明细与 teamNum/currentCount/firstSpiritId 曾经被塞进 BattleSixAutoBattle，
+    // 但全仓没有任何读取点——战斗决策走的是 battle_snapshot（myPets/otherPets）。
+    // 这里只按格式把它们跳过去（上一条 if 已校验长度）。
+    offset += sizeof(int32_t) * 4u * static_cast<size_t>(monsterCount);
+    (void)teamNum;
+    (void)currentCount;
+    (void)firstSpiritId;
 
     UIBridge::Instance().UpdateHelperText(
         L"万妖盛会：已打开界面，连胜" + std::to_wstring(winStreak) +
@@ -1000,12 +962,12 @@ void ProcessBattleSixCombatInfoResponse(const GamePacket& packet) {
         g_battleSixFlowStage.load() == BATTLESIX_FLOW_IDLE &&
         !g_battleSixMatching.load()) {
         HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID) -> DWORD {
-            Sleep(1000);
+            ManagedThread::SleepCancellable(1000);
             if (!g_battleSixAuto.IsAutoMatching() || g_battleSixAuto.IsInBattle()) return 0;
             if (g_battleSixFlowStage.load() != BATTLESIX_FLOW_IDLE || g_battleSixMatching.load()) return 0;
             SendBattleSixMatchPacket();
             return 0;
-        }, nullptr, 0, nullptr);
+        }, nullptr, 0, nullptr, L"battlesix_delayed_match");
         if (hThread) CloseHandle(hThread);
     }
 }
@@ -1033,7 +995,7 @@ void ProcessBattleSixBattleRoundResultResponse(const GamePacket& packet) {
     HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
         std::unique_ptr<BattlePlayOverThreadData> data(
             static_cast<BattlePlayOverThreadData*>(lpParam));
-        Sleep(1200);
+        ManagedThread::SleepCancellable(1200);
 
         if (g_battleSixBattleSession.load() != data->battleSession || !g_battleSixAuto.IsInBattle()) {
             return 0;
@@ -1047,7 +1009,7 @@ void ProcessBattleSixBattleRoundResultResponse(const GamePacket& packet) {
 
         SendBattlePlayOverPacket();
         return 0;
-    }, threadData, 0, nullptr);
+    }, threadData, 0, nullptr, L"battlesix_playover");
 
     if (hThread) {
         CloseHandle(hThread);
@@ -1134,13 +1096,13 @@ void ProcessBattleSixBattleEndResponse(const GamePacket& packet) {
             NextMatchThreadData* threadData = new NextMatchThreadData{battleSession};
             HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
                 std::unique_ptr<NextMatchThreadData> data(static_cast<NextMatchThreadData*>(lpParam));
-                Sleep(2000);  // 等待2秒
+                ManagedThread::SleepCancellable(2000);  // 等待2秒
                 if (g_battleSixBattleSession.load() == data->battleSession &&
                     g_battleSixAuto.IsAutoMatching() && !g_battleSixAuto.IsInBattle()) {
                     SendBattleSixMatchPacket();
                 }
                 return 0;
-            }, threadData, 0, nullptr);
+            }, threadData, 0, nullptr, L"battlesix_next_match");
             if (hThread) {
                 CloseHandle(hThread);
             } else {
@@ -1248,7 +1210,6 @@ void BattleSixSyncFromBattle(const BattleData& battle, bool initialize) {
     const int enemyActiveIndex = syncTeam(battle.otherPets, g_battleSixAuto.GetEnemySpirits(), battle.otherActiveIndex);
     if (myActiveIndex >= 0) {
         g_battleSixAuto.SetCurrentSpiritIndex(myActiveIndex);
-        g_battleSixAuto.SetMyUniqueId(g_battleSixAuto.GetMySpirits()[myActiveIndex].uniqueId);
     }
     if (enemyActiveIndex >= 0) g_battleSixAuto.SetEnemyActiveIndex(enemyActiveIndex);
     g_battleSixAuto.RefreshEnemyTarget();

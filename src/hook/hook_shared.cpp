@@ -1,3 +1,4 @@
+#include "byte_reader.h"
 #include "hook_shared.h"
 #include "managed_thread.h"
 
@@ -6,16 +7,16 @@
 #include <utility>
 #include <vector>
 
-#include "packet_builder.h"
 #include "packet_protocol.h"
 #include "ui_bridge.h"
 
 bool ReadPacketString(const BYTE* body, size_t bodySize, size_t& offset, std::string& out) {
+    ByteReader reader(body, bodySize, offset);
     if (!body || offset + 2 > bodySize) {
         return false;
     }
 
-    uint16_t len = ReadUInt16LE(body, offset);
+    uint16_t len = reader.U16();
     if (offset + len > bodySize) {
         return false;
     }

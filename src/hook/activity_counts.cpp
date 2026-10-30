@@ -1,33 +1,16 @@
 #include <windows.h>
 
-#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
-#include <mutex>
-#include <string>
-#include <thread>
-#include <utility>
 #include <vector>
 
-#include "activity_minigames.h"
 #include "activity_states_internal.h"
-#include "app_host.h"
 #include "battle_six.h"
-#include "dungeon_jump.h"
 #include "hook_shared.h"
 #include "latest_activities.h"
-#include "managed_thread.h"
 #include "packet_builder.h"
-#include "packet_parser.h"
-#include "packet_protocol.h"
-#include "shuangtai_internal.h"
-#include "story_task.h"
-#include "story_task_internal.h"
-#include "task_zone_internal.h"
 #include "ui_bridge.h"
-#include "utils.h"
-#include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
 // ============================================================================
@@ -130,7 +113,7 @@ void QueryActivityCountsAsync() {
         int unavailableCount = 0;
 
         for (int i = 0; i < kActivityCountTargetNum; ++i) {
-            if (!IsWpeHookInitialized()) {
+            if (!IsWpeHookInitialized() || ManagedThread::StopRequested()) {
                 break;
             }
 
@@ -160,13 +143,13 @@ void QueryActivityCountsAsync() {
                 if (needProbeLock) {
                     EndLatestActivityProbe(activityId);
                 }
-                Sleep(120);
+                ManagedThread::SleepCancellable(120);
                 continue;
             }
 
             // 响应等待被唤醒发生在 recv hook，而解析 playCount 的 handler 跑在
             // 派发 worker 线程上，二者存在先后差；等待 handler 落地后再读取。
-            Sleep(150);
+            ManagedThread::SleepCancellable(150);
             const int remaining = GetActivityRemainingCount(activityId);
             if (remaining < 0) {
                 // 有响应但未解析出次数，同样视为不可用。
@@ -180,7 +163,7 @@ void QueryActivityCountsAsync() {
             if (needProbeLock) {
                 EndLatestActivityProbe(activityId);
             }
-            Sleep(120);
+            ManagedThread::SleepCancellable(120);
         }
 
         wchar_t summary[160];

@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -24,7 +25,6 @@ extern std::atomic<bool> g_heavenFuruiQuerySuccess;
 extern std::atomic<int> g_heavenFuruiBoxCount;
 extern std::atomic<bool> g_heavenFuruiEnteredMap;
 extern std::atomic<int> g_heavenFuruiMaxBoxes;
-extern std::atomic<int> g_heavenFuruiOpenedBoxes;
 
 BOOL SendHeavenFuruiPacket(int opType, const std::vector<int32_t>& bodyValues = {});
 BOOL SendHeavenFuruiQueryPacket(int mapId);

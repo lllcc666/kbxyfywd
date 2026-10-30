@@ -1,36 +1,16 @@
 #include <windows.h>
-#include <winhttp.h>
-#include <wincrypt.h>
 
-#include <algorithm>
-#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <mutex>
 #include <string>
-#include <thread>
 #include <utility>
 #include <vector>
 
-#include "activity_minigames.h"
-#include "activity_states_internal.h"
-#include "app_host.h"
 #include "battle_six.h"
+#include "byte_reader.h"
 #include "dungeon_jump.h"
-#include "hook_shared.h"
-#include "latest_activities.h"
-#include "managed_thread.h"
 #include "packet_builder.h"
-#include "packet_parser.h"
-#include "packet_protocol.h"
-#include "shuangtai_internal.h"
-#include "story_task.h"
-#include "story_task_internal.h"
-#include "task_zone_internal.h"
-#include "ui_bridge.h"
-#include "utils.h"
-#include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
 // 封包标签化功能
@@ -72,10 +52,6 @@ BOOL AddHijackRule(HijackType type, bool forSend, bool forRecv,
 VOID ClearHijackRules() {
     CriticalSectionLock lock(g_hijackRulesCS.Get());
     g_HijackRules.clear();
-}
-
-VOID SetHijackEnabled(bool enable) {
-    g_bHijackEnabled = enable;
 }
 
 namespace {
@@ -274,10 +250,11 @@ DWORD SendAllPackets(DWORD intervalMs, DWORD loopCount,
                 std::string label = "";
                 if (packet.dwSize >= PacketProtocol::HEADER_SIZE) {
                     size_t offset = 0;
-                    uint16_t magic = ReadUInt16LE(packet.pData, offset);  // Magic: offset 0-1
-                    (void)ReadUInt16LE(packet.pData, offset);             // Length: offset 2-3
+                    ByteReader reader(packet.pData, packet.dwSize, offset);
+                    uint16_t magic = reader.U16();  // Magic: offset 0-1
+                    (void)reader.U16();             // Length: offset 2-3
                     if (magic == PacketProtocol::MAGIC_NORMAL || magic == PacketProtocol::MAGIC_COMPRESSED) {
-                        uint32_t opcode = ReadUInt32LE(packet.pData, offset);  // Opcode: offset 4-7
+                        uint32_t opcode = reader.U32();  // Opcode: offset 4-7
                         label = GetPacketLabel(opcode, true);
                     }
                 }
@@ -304,11 +281,12 @@ DWORD SendAllPackets(DWORD intervalMs, DWORD loopCount,
             // 封包结构: 12字节头部 + 4字节Body (counter)
             if (packetData.size() >= 16) {
                 size_t offset = 0;
-                uint16_t magic = ReadUInt16LE(packetData.data(), offset);  // Magic: offset 0-1
-                (void)ReadUInt16LE(packetData.data(), offset);             // Length: offset 2-3
+                ByteReader reader2(packetData.data(), packetData.size(), offset);
+                uint16_t magic = reader2.U16();  // Magic: offset 0-1
+                (void)reader2.U16();             // Length: offset 2-3
                 
                 if (magic == PacketProtocol::MAGIC_NORMAL || magic == PacketProtocol::MAGIC_COMPRESSED) {
-                    uint32_t opcode = ReadUInt32LE(packetData.data(), offset);  // Opcode: offset 4-7
+                    uint32_t opcode = reader2.U32();  // Opcode: offset 4-7
                     
                     if (opcode == Opcode::CLICK_NPC) {  // 1186048 - 发起战斗
                         // 获取当前 counter 值（从全局变量）
@@ -338,7 +316,14 @@ DWORD SendAllPackets(DWORD intervalMs, DWORD loopCount,
             }
             
             if (intervalMs > 0) {
-                Sleep(intervalMs);
+                // 按 50ms 分片睡：间隔由界面输入，可能是好几秒，整段 Sleep 下来
+                // 用户点「停止自动发送」要等满一个间隔才收手。这里响应的是本模块
+                // 自己的 g_bStopAutoSend（本函数跑在 detach 线程上，不受
+                // ManagedThread 的停止请求管辖）。
+                for (DWORD slept = 0; slept < intervalMs && !g_bStopAutoSend; slept += 50) {
+                    const DWORD step = (intervalMs - slept < 50) ? (intervalMs - slept) : 50;
+                    Sleep(step);
+                }
             }
         }
     }

@@ -12,6 +12,7 @@
 #include "battle_packets.h"
 #include "activity_states_internal.h"
 #include "battle_six.h"
+#include "byte_reader.h"
 #include "hook_shared.h"
 #include "managed_thread.h"
 #include "packet_builder.h"
@@ -134,17 +135,17 @@ static bool IsStorySubtaskFinishedInCache(uint32_t subtaskId) {
 // 不能复用 WaitForEightTrigramsMapEnter，那个函数以 g_taskZoneRunning 为循环条件，
 // 主线流程下该标记始终为 false，会立即返回失败。
 static bool WaitForStoryMapEnter(unsigned long long sessionId, DWORD timeoutMs) {
-    const DWORD startTick = GetTickCount();
-    while (g_storyTaskRunning.load() && g_storyTaskSession.load() == sessionId) {
-        if (g_storyTaskMapEntered.load() && g_storyTaskMapEnterSession.load() == sessionId) {
-            return true;
-        }
-        if (GetTickCount() - startTick >= timeoutMs) {
-            return false;
-        }
-        Sleep(50);
-    }
-    return false;
+    return WaitForConditionEx(
+               [sessionId]() {
+                   return g_storyTaskMapEntered.load() &&
+                          g_storyTaskMapEnterSession.load() == sessionId;
+               },
+               [sessionId]() {
+                   return !g_storyTaskRunning.load() ||
+                          g_storyTaskSession.load() != sessionId;
+               },
+               timeoutMs,
+               50) == WaitOutcome::Signalled;
 }
 
 static void ResetStoryTaskState() {
@@ -172,28 +173,28 @@ static bool TakeStoryPendingDialog(unsigned long long sessionId,
                                    uint32_t& npcId,
                                    DWORD timeoutMs,
                                    bool* forceReply = nullptr) {
-    const DWORD startTick = GetTickCount();
-    while (g_storyTaskRunning.load() && g_storyTaskSession.load() == sessionId) {
-        {
-            std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
-            if (!g_storyTaskState.pendingDialogs.empty()) {
-                const StoryTaskState::PendingDialog front =
-                    g_storyTaskState.pendingDialogs.front();
-                g_storyTaskState.pendingDialogs.pop_front();
-                dialogId = front.dialogId;
-                npcId = front.npcId;
-                if (forceReply != nullptr) {
-                    *forceReply = front.forceReply;
-                }
-                return true;
-            }
-        }
-        if (GetTickCount() - startTick >= timeoutMs) {
-            return false;
-        }
-        Sleep(50);
-    }
-    return false;
+    return WaitForConditionEx(
+               [&dialogId, &npcId, forceReply]() {
+                   std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
+                   if (g_storyTaskState.pendingDialogs.empty()) {
+                       return false;
+                   }
+                   const StoryTaskState::PendingDialog front =
+                       g_storyTaskState.pendingDialogs.front();
+                   g_storyTaskState.pendingDialogs.pop_front();
+                   dialogId = front.dialogId;
+                   npcId = front.npcId;
+                   if (forceReply != nullptr) {
+                       *forceReply = front.forceReply;
+                   }
+                   return true;
+               },
+               [sessionId]() {
+                   return !g_storyTaskRunning.load() ||
+                          g_storyTaskSession.load() != sessionId;
+               },
+               timeoutMs,
+               50) == WaitOutcome::Signalled;
 }
 
 // 压入一个待回应的对话节点。dialogId 为 0 时忽略（AS3 对 dialogId==0 是改发
@@ -242,7 +243,7 @@ static bool SendStoryAcceptTaskPacket(uint32_t subtaskId) {
     if (!SendPacketBytes(packet)) {
         return false;
     }
-    Sleep(EIGHT_TRIGRAMS_TALK_DELAY_MS);
+    ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_TALK_DELAY_MS);
     return true;
 }
 
@@ -307,7 +308,7 @@ static bool SendStoryNpcStatusPacket(uint32_t npcId) {
     if (!SendPacketBytes(packet)) {
         return false;
     }
-    Sleep(EIGHT_TRIGRAMS_CLICK_DELAY_MS);
+    ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_CLICK_DELAY_MS);
     return true;
 }
 
@@ -337,21 +338,21 @@ static bool RequestStorySceneNpcList(unsigned long long sessionId, DWORD timeout
 // 解析仍可能晚一两拍，这里再短轮询等 sceneNpcListReady。
 static bool TakeStorySceneNpcList(unsigned long long sessionId, DWORD timeoutMs,
                                   std::vector<uint32_t>& npcIds) {
-    const DWORD startTick = GetTickCount();
-    while (g_storyTaskRunning.load() && g_storyTaskSession.load() == sessionId) {
-        {
-            std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
-            if (g_storyTaskState.sceneNpcListReady) {
-                npcIds = g_storyTaskState.sceneNpcIds;
-                return true;
-            }
-        }
-        if (GetTickCount() - startTick >= timeoutMs) {
-            return false;
-        }
-        Sleep(50);
-    }
-    return false;
+    return WaitForConditionEx(
+               [sessionId, &npcIds]() {
+                   std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
+                   if (!g_storyTaskState.sceneNpcListReady) {
+                       return false;
+                   }
+                   npcIds = g_storyTaskState.sceneNpcIds;
+                   return true;
+               },
+               [sessionId]() {
+                   return !g_storyTaskRunning.load() ||
+                          g_storyTaskSession.load() != sessionId;
+               },
+               timeoutMs,
+               50) == WaitOutcome::Signalled;
 }
 
 // 进场景后向该场景的 NPC 逐个上报状态。
@@ -410,7 +411,7 @@ static bool SwitchStoryScene(unsigned long long sessionId, uint32_t sceneId) {
         return false;
     }
     g_storyTaskCurrentScene.store(sceneId);
-    Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+    ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
     // 进图后先拉场景 NPC 列表，再逐个上报状态：服务端据此才继续下发下一句对白。
     ReportStorySceneNpcStatus(sessionId, sceneId);
     return true;
@@ -443,7 +444,7 @@ static bool SendStoryActionPacket(uint32_t actionId, uint32_t destX, uint32_t de
     if (!SendPacketBytes(packet)) {
         return false;
     }
-    Sleep(EIGHT_TRIGRAMS_CLICK_DELAY_MS);
+    ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_CLICK_DELAY_MS);
     return true;
 }
 
@@ -476,16 +477,17 @@ constexpr uint32_t kStoryCancelOpcodes[] = {
 
 // 等到服务端推出下一个对白节点；返回 true 表示队列里已经有一个待回应的节点。
 static bool WaitStoryDialog(unsigned long long sessionId, DWORD timeoutMs) {
-    const DWORD startTick = GetTickCount();
-    while (GetTickCount() - startTick < timeoutMs) {
-        if (!g_storyTaskRunning.load() || g_storyTaskSession.load() != sessionId) {
-            return false;
-        }
-        if (HasStoryPendingDialog()) {
-            return true;
-        }
-        Sleep(STORY_DIALOG_POLL_STEP_MS);
+    const WaitOutcome outcome = WaitForConditionEx(
+        []() { return HasStoryPendingDialog(); },
+        [sessionId]() {
+            return !g_storyTaskRunning.load() || g_storyTaskSession.load() != sessionId;
+        },
+        timeoutMs,
+        STORY_DIALOG_POLL_STEP_MS);
+    if (outcome == WaitOutcome::Stopped) {
+        return false;
     }
+    // 超时那一刻队列里可能刚好到了节点，按原语义再确认一次。
     return HasStoryPendingDialog();
 }
 
@@ -527,7 +529,7 @@ static bool ShootStoryAlertTarget(unsigned long long sessionId,
     if (npcId != 0) {
         UpdateStoryTaskUi(L"主线任务：施法后补点 " + std::to_wstring(npcId), true);
         SendTaskZoneClickPacket(npcId, false);
-        Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+        ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
     }
     return true;
 }
@@ -570,7 +572,7 @@ static bool RunStoryAlertTargets(unsigned long long sessionId, uint32_t dialogId
             }
             // 进图先报到：抓包里的猴子对白 200200303 就是 NPC_STATUS(21406) 推出来的。
             ReportStorySceneNpcStatus(sessionId, target.scene);
-            Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+            ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
             if (HasStoryPendingDialog()) {
                 return true;
             }
@@ -724,16 +726,16 @@ static void FinishStoryBattle(unsigned long long sessionId, uint32_t dialogId,
     HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
         std::unique_ptr<StoryBattleFinishData> d(
             static_cast<StoryBattleFinishData*>(lpParam));
-        Sleep(500);
+        ManagedThread::SleepCancellable(500);
         SendNormalBattleEndPacket();
         // 只有任务还在同一个会话里跑，这个节点才值得补回；停止或换会话都不补。
         if (d->dialogId != 0 && d->npcId != 0 && g_storyTaskRunning.load() &&
             g_storyTaskSession.load() == d->sessionId) {
-            Sleep(200);
+            ManagedThread::SleepCancellable(200);
             SendTaskZoneTalkPacket(d->npcId, d->dialogId);
         }
         return 0;
-    }, data, 0, nullptr);
+    }, data, 0, nullptr, L"story_battle_finish");
     if (hThread) {
         CloseHandle(hThread);
     } else {
@@ -978,7 +980,7 @@ static bool ReplyStoryDialogNode(unsigned long long sessionId, uint32_t dialogId
         }
         // 每拍之间留一点间隔，等价于玩家点击的节奏，避免服务端把连续动作并成一包。
         if (beat + 1 < beats) {
-            Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+            ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
         }
     }
 
@@ -1016,20 +1018,17 @@ static bool EnsureStoryMagicList(unsigned long long sessionId, DWORD timeoutMs) 
                     Opcode::GET_MAGIC_INDEX_BACK, timeoutMs)) {
         return false;
     }
-    const DWORD startTick = GetTickCount();
-    while (g_storyTaskRunning.load() && g_storyTaskSession.load() == sessionId) {
-        {
-            std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
-            if (g_storyTaskState.magicIndexLoaded) {
-                return true;
-            }
-        }
-        if (GetTickCount() - startTick >= timeoutMs) {
-            break;
-        }
-        Sleep(50);
-    }
-    return false;
+    return WaitForConditionEx(
+               []() {
+                   std::lock_guard<std::mutex> lock(g_storyTaskState.mutex);
+                   return g_storyTaskState.magicIndexLoaded;
+               },
+               [sessionId]() {
+                   return !g_storyTaskRunning.load() ||
+                          g_storyTaskSession.load() != sessionId;
+               },
+               timeoutMs,
+               50) == WaitOutcome::Signalled;
 }
 
 static uint32_t FirstStoryMagicId() {
@@ -1049,7 +1048,7 @@ static bool ReplyOnePendingStoryDialog(unsigned long long sessionId, DWORD waitM
     }
     UpdateStoryTaskUi(L"主线任务：前置动作推进对话 " + std::to_wstring(dialogId), true);
     ReplyStoryDialogNode(sessionId, dialogId, npcId, forceReply);
-    Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+    ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
     return true;
 }
 
@@ -1115,7 +1114,7 @@ static bool RunStoryPreActions(unsigned long long sessionId, uint32_t subtaskId,
             }
         }
         acted = true;
-        Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+        ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
     }
     return acted;
 }
@@ -1149,7 +1148,7 @@ static bool RunStorySubtask(unsigned long long sessionId, const StoryTaskRecipe:
             return false;
         }
         g_storyTaskCurrentScene.store(subtask.scene);
-        Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+        ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
         // 与真实客户端一致：进图后先拉场景 NPC 列表，再逐个上报状态。
         // 服务端要等这些上报才继续推该子任务的对白（抓包 21319 就是动态任务 NPC）。
         ReportStorySceneNpcStatus(sessionId, subtask.scene);
@@ -1192,15 +1191,15 @@ static bool RunStorySubtask(unsigned long long sessionId, const StoryTaskRecipe:
             const DWORD acceptDeadline = GetTickCount() + acceptWaitMs;
             bool accepted = false;
             bool responded = false;
-            while (g_storyTaskRunning.load() && g_storyTaskSession.load() == sessionId &&
-                   GetTickCount() < acceptDeadline) {
+            while (g_storyTaskRunning.load() && !ManagedThread::StopRequested() &&
+                   g_storyTaskSession.load() == sessionId && GetTickCount() < acceptDeadline) {
                 uint32_t acceptId = 0;
                 if (!TakeStoryPendingAcceptSubtask(acceptId)) {
                     if (HasStoryPendingDialog()) {
                         responded = true;
                         break;
                     }
-                    Sleep(100);
+                    ManagedThread::SleepCancellable(100);
                     continue;
                 }
                 UpdateStoryTaskUi(L"主线任务：接受子任务 " + std::to_wstring(acceptId), true);
@@ -1208,7 +1207,7 @@ static bool RunStorySubtask(unsigned long long sessionId, const StoryTaskRecipe:
                     UpdateStoryTaskUi(L"主线任务：接任务发包失败", false);
                     return false;
                 }
-                Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+                ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
                 // 接完任务要重新点一次 NPC 才会下发给这个子任务的首个对话节点。
                 SendTaskZoneClickPacket(npcId, false);
                 accepted = true;
@@ -1250,7 +1249,8 @@ static bool RunStorySubtask(unsigned long long sessionId, const StoryTaskRecipe:
     // alert 兜底只跑一次：配方里的提示目标是文案正则猜的，不能反复拿来试。
     bool alertFallbackTried = false;
 
-    while (g_storyTaskRunning.load() && g_storyTaskSession.load() == sessionId) {
+    while (g_storyTaskRunning.load() && !ManagedThread::StopRequested() &&
+           g_storyTaskSession.load() == sessionId) {
         if (IsStorySubtaskFinishedInCache(subtask.subtaskId)) {
             return true;
         }
@@ -1284,7 +1284,7 @@ static bool RunStorySubtask(unsigned long long sessionId, const StoryTaskRecipe:
                                      std::to_wstring(lastTalkNpc),
                                  true);
                 SendTaskZoneClickPacket(lastTalkNpc, false);
-                Sleep(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
+                ManagedThread::SleepCancellable(EIGHT_TRIGRAMS_RESULT_DELAY_MS);
                 continue;
             }
             // 补点两次仍静默：才动用配方里从 alert 文案猜出来的提示目标。
@@ -1389,7 +1389,10 @@ static DWORD WINAPI StoryTaskThreadProc(LPVOID lpParam) {
     int subtaskSkipped = 0;
     int subtaskFailed = 0;
 
-    for (uint32_t i = 0; i < StoryTaskRecipe::SUBTASK_COUNT && g_storyTaskRunning.load(); ++i) {
+    for (uint32_t i = 0;
+         i < StoryTaskRecipe::SUBTASK_COUNT && g_storyTaskRunning.load() &&
+         !ManagedThread::StopRequested();
+         ++i) {
         if (g_storyTaskSession.load() != sessionId) {
             break;
         }
@@ -1478,7 +1481,7 @@ BOOL StartStoryTaskAsync(const std::vector<uint32_t>& subtaskIds) {
 
     EightTrigramsTaskData* taskData = new EightTrigramsTaskData();
     taskData->sessionId = sessionId;
-    HANDLE hThread = CreateManagedThread(nullptr, 0, StoryTaskThreadProc, taskData, 0, nullptr);
+    HANDLE hThread = CreateManagedThread(nullptr, 0, StoryTaskThreadProc, taskData, 0, nullptr, L"story_task");
     if (hThread) {
         CloseHandle(hThread);
         return TRUE;
@@ -1526,6 +1529,7 @@ void StoryTaskOnDialogResponse(const GamePacket& packet) {
     static constexpr uint32_t kDialogPlaceholder = 9999999;
 
     size_t offset = 0;
+    ByteReader reader(packet.body, offset);
     uint32_t npcId = 0;
     bool forceReply = false;
 
@@ -1535,33 +1539,33 @@ void StoryTaskOnDialogResponse(const GamePacket& packet) {
         case 22: {
             // npcid, itemCount, (type,id,count)..., dialogId
             if (offset + 4 > packet.body.size()) return;
-            npcId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
-            const int itemCount = ReadInt32LE(packet.body.data(), offset);
+            npcId = static_cast<uint32_t>(reader.I32());
+            const int itemCount = reader.I32();
             for (int i = 0; i < itemCount; ++i) {
                 if (offset + 12 > packet.body.size()) return;
-                ReadInt32LE(packet.body.data(), offset);
-                ReadInt32LE(packet.body.data(), offset);
-                ReadInt32LE(packet.body.data(), offset);
+                reader.I32();
+                reader.I32();
+                reader.I32();
             }
             if (offset + 4 > packet.body.size()) return;
             PushStoryPendingDialog(
-                static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset)), npcId,
+                static_cast<uint32_t>(reader.I32()), npcId,
                 packet.params);
             return;
         }
         case 21: {
             // npcid, count, (type,id)..., dialogId（每项 2 个 int，与 case 1/5/22 不同）
             if (offset + 4 > packet.body.size()) return;
-            npcId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
-            const int paramCount = ReadInt32LE(packet.body.data(), offset);
+            npcId = static_cast<uint32_t>(reader.I32());
+            const int paramCount = reader.I32();
             for (int i = 0; i < paramCount; ++i) {
                 if (offset + 8 > packet.body.size()) return;
-                ReadInt32LE(packet.body.data(), offset);
-                ReadInt32LE(packet.body.data(), offset);
+                reader.I32();
+                reader.I32();
             }
             if (offset + 4 > packet.body.size()) return;
             PushStoryPendingDialog(
-                static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset)), npcId,
+                static_cast<uint32_t>(reader.I32()), npcId,
                 packet.params);
             return;
         }
@@ -1575,18 +1579,18 @@ void StoryTaskOnDialogResponse(const GamePacket& packet) {
             // 也就是说这类 alert 节点**必须回包**（与纯提示的 alert 不同）。
             if (offset + 4 > packet.body.size()) return;
             const uint32_t dialogId =
-                static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+                static_cast<uint32_t>(reader.I32());
             if (offset + 4 <= packet.body.size()) {
-                const int account = ReadInt32LE(packet.body.data(), offset);
+                const int account = reader.I32();
                 for (int i = 0; i < account; ++i) {
                     if (offset + 12 > packet.body.size()) break;
-                    ReadInt32LE(packet.body.data(), offset);
-                    ReadInt32LE(packet.body.data(), offset);
-                    ReadInt32LE(packet.body.data(), offset);
+                    reader.I32();
+                    reader.I32();
+                    reader.I32();
                 }
                 if (offset + 4 <= packet.body.size()) {
                     const uint32_t flag =
-                        static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+                        static_cast<uint32_t>(reader.I32());
                     if (flag != 0) {
                         npcId = flag;
                         forceReply = true;
@@ -1599,7 +1603,7 @@ void StoryTaskOnDialogResponse(const GamePacket& packet) {
         case 3:
             if (offset + 4 > packet.body.size()) return;
             PushStoryPendingDialog(
-                static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset)), 0,
+                static_cast<uint32_t>(reader.I32()), 0,
                 packet.params);
             return;
         case 10: {
@@ -1608,10 +1612,10 @@ void StoryTaskOnDialogResponse(const GamePacket& packet) {
             // 两条都排进 dialogList，逐条推进（等于 9999999 的那条丢弃）。
             if (offset + 12 > packet.body.size()) return;
             const uint32_t dialogOne =
-                static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+                static_cast<uint32_t>(reader.I32());
             const uint32_t dialogTwo =
-                static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
-            npcId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+                static_cast<uint32_t>(reader.I32());
+            npcId = static_cast<uint32_t>(reader.I32());
             if (dialogOne != kDialogPlaceholder) {
                 PushStoryPendingDialog(dialogOne, npcId, packet.params);
             }
@@ -1625,15 +1629,15 @@ void StoryTaskOnDialogResponse(const GamePacket& packet) {
             // 由调用方退回当前子任务的入口 NPC。
             if (offset + 4 > packet.body.size()) return;
             PushStoryPendingDialog(
-                static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset)), 0,
+                static_cast<uint32_t>(reader.I32()), 0,
                 packet.params);
             return;
         case 7: {
             if (offset + 12 > packet.body.size()) return;
-            ReadInt32LE(packet.body.data(), offset);  // boardId
+            reader.I32();  // boardId
             const uint32_t dialogId =
-                static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
-            npcId = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+                static_cast<uint32_t>(reader.I32());
+            npcId = static_cast<uint32_t>(reader.I32());
             PushStoryPendingDialog(dialogId, npcId, packet.params);
             return;
         }
@@ -1645,17 +1649,17 @@ void StoryTaskOnDialogResponse(const GamePacket& packet) {
             // abilityNum 段**读完**，否则后续字段从中间开始解析、整包错位。
             if (offset + 8 > packet.body.size()) return;
             const uint32_t dialogId =
-                static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
-            const int abilityNum = ReadInt32LE(packet.body.data(), offset);
+                static_cast<uint32_t>(reader.I32());
+            const int abilityNum = reader.I32();
             for (int i = 0; i < abilityNum && offset + 4 <= packet.body.size(); ++i) {
-                const int abilityId = ReadInt32LE(packet.body.data(), offset);
+                const int abilityId = reader.I32();
                 if (abilityId != 1) {
                     continue;
                 }
                 if (offset + 4 > packet.body.size()) break;
-                const int gameNum = ReadInt32LE(packet.body.data(), offset);
+                const int gameNum = reader.I32();
                 for (int g = 0; g < gameNum && offset + 4 <= packet.body.size(); ++g) {
-                    ReadInt32LE(packet.body.data(), offset);  // gamelist 项：AS3 只喂给面板
+                    reader.I32();  // gamelist 项：AS3 只喂给面板
                 }
             }
             PushStoryPendingDialog(dialogId, 0, packet.params);
@@ -1680,20 +1684,21 @@ void StoryTaskOnNpcTaskListResponse(const GamePacket& packet) {
     const uint32_t currentSubtask = g_storyTaskCurrentSubtask.load();
 
     size_t offset = 0;
+    ByteReader reader(packet.body, offset);
     const uint32_t headerDialogId =
-        static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+        static_cast<uint32_t>(reader.I32());
 
     int listType = -1;
     int taskCount = 0;
     if (offset + 8 <= packet.body.size()) {
-        listType = ReadInt32LE(packet.body.data(), offset);
-        taskCount = ReadInt32LE(packet.body.data(), offset);
+        listType = reader.I32();
+        taskCount = reader.I32();
         if (taskCount == -1) {
             // specialType 分支：真正的条数在下一个 int，负数表示八卦/特殊入口。
             if (offset + 4 > packet.body.size()) {
                 taskCount = 0;
             } else {
-                taskCount = ReadInt32LE(packet.body.data(), offset);
+                taskCount = reader.I32();
             }
         }
     }
@@ -1710,8 +1715,8 @@ void StoryTaskOnNpcTaskListResponse(const GamePacket& packet) {
                 break;
             }
             const uint32_t entryDialogId =
-                static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
-            ReadInt32LE(packet.body.data(), offset);  // state：AS3 只透传给列表项，不过滤
+                static_cast<uint32_t>(reader.I32());
+            reader.I32();  // state：AS3 只透传给列表项，不过滤
             // dialogId / 100 = 子任务号（200100101 -> 2001001），与本步匹配的才是目标。
             const uint32_t entrySubtask = entryDialogId / 100;
             // 「离开 / 放弃」项（dialogId 末两位为 02）：任何情况下都不该被自动选中
@@ -1743,13 +1748,13 @@ void StoryTaskOnNpcTaskListResponse(const GamePacket& packet) {
                 break;
             }
             acceptSubtaskIds.push_back(
-                static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset)));
+                static_cast<uint32_t>(reader.I32()));
         }
         // AS3 TaskParse:544/545：type=1 的 tasklist 之后紧跟 canReceive 与 taskId。
         // canReceive != 1 表示这个 NPC 上已经在做该任务，AS3 只弹「已经接受了任务」，
         // 不补发 ACCEPT_TASK（TaskAcceptMachine.onClickAccept:130），只能等服务端推对话。
         if (offset + 4 <= packet.body.size()) {
-            canReceive = ReadInt32LE(packet.body.data(), offset) == 1;
+            canReceive = reader.I32() == 1;
         }
         if (!canReceive) {
             acceptSubtaskIds.clear();
@@ -1798,10 +1803,11 @@ void StoryTaskOnNpcTaskListResponse(const GamePacket& packet) {
                             L" headerDialogId=" + std::to_wstring(headerDialogId) +
                             L" bodyInts=[";
         for (size_t i = 0; i + 4 <= packet.body.size() && i < 40; i += 4) {
+            ByteReader dumpReader(packet.body, i);
             if (i != 0) {
                 dump += L",";
             }
-            dump += std::to_wstring(ReadInt32LE(packet.body.data(), i));
+            dump += std::to_wstring(dumpReader.I32());
         }
         dump += L"]";
         UpdateStoryTaskUi(dump, true);
@@ -1841,7 +1847,8 @@ void StoryTaskOnNpcListResponse(const GamePacket& packet) {
         return;
     }
     size_t offset = 0;
-    const int count = ReadInt32LE(packet.body.data(), offset);
+    ByteReader reader(packet.body, offset);
+    const int count = reader.I32();
     if (count <= 0) {
         return;
     }
@@ -1853,7 +1860,7 @@ void StoryTaskOnNpcListResponse(const GamePacket& packet) {
             break;
         }
         const uint32_t npcId =
-            static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
+            static_cast<uint32_t>(reader.I32());
         if (npcId != 0) {
             npcIds.push_back(npcId);
         }
@@ -1876,14 +1883,15 @@ void StoryTaskOnMagicIndexResponse(const GamePacket& packet) {
     }
     std::vector<uint32_t> magicIds;
     size_t offset = 0;
+    ByteReader reader(packet.body, offset);
     for (int i = 0; i < count; ++i) {
         if (offset + 16 > packet.body.size()) {
             break;
         }
-        const uint32_t id = static_cast<uint32_t>(ReadInt32LE(packet.body.data(), offset));
-        const int type = ReadInt32LE(packet.body.data(), offset);
-        ReadInt32LE(packet.body.data(), offset);  // state
-        ReadInt32LE(packet.body.data(), offset);  // num
+        const uint32_t id = static_cast<uint32_t>(reader.I32());
+        const int type = reader.I32();
+        reader.I32();  // state
+        reader.I32();  // num
         if (type == 1 && id != 0) {
             magicIds.push_back(id);
         }

@@ -33,18 +33,14 @@ struct SpiritInfo {
 };
 
 struct SpiritCollectState {
-    bool isActive = false;
     std::vector<SpiritInfo> spiritList;
     int dailyOutLimit = 0;
     int weeklyOutLimit = 0;
-    int selectedFriendId = 0;
 
     void Reset() {
-        isActive = false;
         spiritList.clear();
         dailyOutLimit = 0;
         weeklyOutLimit = 0;
-        selectedFriendId = 0;
     }
 };
 

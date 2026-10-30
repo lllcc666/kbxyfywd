@@ -1,36 +1,15 @@
 #include <windows.h>
-#include <winhttp.h>
-#include <wincrypt.h>
 
 #include <algorithm>
-#include <atomic>
-#include <cstdint>
 #include <cstdio>
 #include <fstream>
-#include <mutex>
 #include <string>
-#include <thread>
 #include <utility>
 #include <vector>
 
-#include "activity_minigames.h"
-#include "activity_states_internal.h"
-#include "app_host.h"
-#include "battle_six.h"
 #include "dungeon_jump.h"
 #include "hook_shared.h"
-#include "latest_activities.h"
-#include "managed_thread.h"
 #include "packet_builder.h"
-#include "packet_parser.h"
-#include "packet_protocol.h"
-#include "shuangtai_internal.h"
-#include "story_task.h"
-#include "story_task_internal.h"
-#include "task_zone_internal.h"
-#include "ui_bridge.h"
-#include "utils.h"
-#include "wpe_hook.h"
 #include "wpe_hook_internal.h"
 
 // 封包文本文件格式：每行一个包，带方向标记。

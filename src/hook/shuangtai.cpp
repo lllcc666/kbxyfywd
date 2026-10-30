@@ -123,33 +123,6 @@ void ShuangTaiAutoBattle::RequestStop() {
     UIBridge::Instance().UpdateHelperText(L"双台谷刷级：将在本轮完成后停止...");
 }
 
-void ShuangTaiAutoBattle::Stop() {
-    m_running = false;
-    m_stopRequested = false;
-    
-    // 恢复屏蔽战斗状态
-    if (m_blockBattle) {
-        g_blockBattle = false;
-    }
-    
-    UpdateState(ShuangTaiState::STOPPED);
-    UIBridge::Instance().UpdateHelperText(L"双台谷刷级：已停止");
-}
-
-void ShuangTaiAutoBattle::Reset() {
-    m_running = false;
-    m_stopRequested = false;
-    m_state = ShuangTaiState::IDLE;
-    m_blockBattle = false;
-    m_petIndex = 0;
-    m_attackRound = 0;
-    m_mainPetId = 0;
-    m_mainPetSkillId = 0;
-    m_petIds.clear();
-    m_totalRounds = 0;
-    m_roundActionPending = false;
-}
-
 bool ShuangTaiAutoBattle::InitializePetData() {
     const MonsterData snapshot = SnapshotMonsterData();
     if (snapshot.monsters.empty()) {
@@ -230,13 +203,14 @@ void ShuangTaiAutoBattle::SendInitPacket() {
     
     HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
         auto* d = static_cast<DelayedData*>(lpParam);
-        Sleep(300);
-        if (d->self->IsRunning()) {
+        // SleepCancellable 返回 false = 退出流程已经 RequestStopAll，
+        // 此时再发一个跳层包只会把「正在关停」变成「刚发完包又收到回包」。
+        if (ManagedThread::SleepCancellable(300) && d->self->IsRunning()) {
             d->self->SendJumpLayerPacket();
         }
         delete d;
         return 0;
-    }, data, 0, nullptr);
+    }, data, 0, nullptr, L"shuangtai_after_init");
     
     if (hThread) CloseHandle(hThread);
     else delete data;
@@ -261,13 +235,12 @@ void ShuangTaiAutoBattle::SendJumpLayerPacket() {
     
     HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
         auto* d = static_cast<DelayedData*>(lpParam);
-        Sleep(300);
-        if (d->self->IsRunning()) {
+        if (ManagedThread::SleepCancellable(300) && d->self->IsRunning()) {
             d->self->SendEnterBattlePacket();
         }
         delete d;
         return 0;
-    }, data, 0, nullptr);
+    }, data, 0, nullptr, L"shuangtai_after_jump");
     
     if (hThread) CloseHandle(hThread);
     else delete data;
@@ -422,8 +395,8 @@ void ShuangTaiAutoBattle::OnBattleRoundStartResponse() {
         DelayedData* data = new DelayedData{self, action};
         HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
             auto* d = static_cast<DelayedData*>(lpParam);
-            Sleep(300);
-            if (d->self->IsRunning() && !d->self->m_roundActionPending.load()) {
+            if (ManagedThread::SleepCancellable(300) && d->self->IsRunning() &&
+                !d->self->m_roundActionPending.load()) {
                 if (d->action == 0) {
                     d->self->SwitchToNextPet();
                 } else if (d->action == 1) {
@@ -434,7 +407,7 @@ void ShuangTaiAutoBattle::OnBattleRoundStartResponse() {
             }
             delete d;
             return 0;
-        }, data, 0, nullptr);
+        }, data, 0, nullptr, L"shuangtai_round_action");
         if (hThread) CloseHandle(hThread);
         else delete data;
     };
@@ -511,13 +484,12 @@ void ShuangTaiAutoBattle::OnBattleEndResponse(const GamePacket& packet) {
     
     HANDLE hThread = CreateManagedThread(nullptr, 0, [](LPVOID lpParam) -> DWORD {
         auto* d = static_cast<DelayedData*>(lpParam);
-        Sleep(300);
-        if (d->self->IsRunning()) {
+        if (ManagedThread::SleepCancellable(300) && d->self->IsRunning()) {
             d->self->StartNewRound();
         }
         delete d;
         return 0;
-    }, data, 0, nullptr);
+    }, data, 0, nullptr, L"shuangtai_next_round");
     
     if (hThread) CloseHandle(hThread);
     else delete data;

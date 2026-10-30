@@ -221,13 +221,3 @@ size_t ManagedThread::JoinAll(DWORD timeoutMs) {
     return stillRunning;
 }
 
-size_t ManagedThread::ActiveCount() {
-    std::lock_guard<std::mutex> lock(g_registryMutex);
-    size_t count = 0;
-    for (auto& state : g_registry) {
-        if (!state->finished.load()) {
-            ++count;
-        }
-    }
-    return count;
-}

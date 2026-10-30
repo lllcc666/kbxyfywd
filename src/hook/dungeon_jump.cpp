@@ -167,13 +167,14 @@ static DWORD WINAPI DungeonJumpThreadProc(LPVOID lpParam) {
     // 等待妖怪背包数据响应（最多等待3秒）
     int waitCount = 0;
     const int maxWaitCount = 30;
-    while (!g_dungeonJumpState.monsterDataReceived && waitCount < maxWaitCount) {
-        Sleep(100);
+    while (!g_dungeonJumpState.monsterDataReceived && waitCount < maxWaitCount &&
+           !ManagedThread::StopRequested()) {
+        ManagedThread::SleepCancellable(100);
         waitCount++;
     }
     
     if (!g_dungeonJumpState.monsterDataReceived) {
-        g_dungeonJumpState.Reset();
+        g_dungeonJumpState.Reset();  // 此前的分支什么都没存，Reset 安全
         return 1;
     }
     
@@ -191,13 +192,14 @@ static DWORD WINAPI DungeonJumpThreadProc(LPVOID lpParam) {
     // 存入高等级妖怪（无提示）
     if (!g_dungeonJumpState.highLevelMonsters.empty()) {
         for (const auto& monster : g_dungeonJumpState.highLevelMonsters) {
-            if (!g_dungeonJumpState.isRunning) {
-                return 1;
+            if (!g_dungeonJumpState.isRunning || ManagedThread::StopRequested()) {
+                // 停止请求必须走 CLEANUP：已经存进仓库的妖怪要取回来再退出。
+                goto CLEANUP;
             }
             
             if (SendPutSpiritToStorePacket(monster.id)) {
                 g_dungeonJumpState.storedMonsterCount++;
-                Sleep(200);
+                ManagedThread::SleepCancellable(200);
             }
         }
     }
@@ -263,24 +265,22 @@ static DWORD WINAPI DungeonJumpThreadProc(LPVOID lpParam) {
     
     // 清理和恢复流程（无提示）
 CLEANUP:
-    // 取回妖怪（无提示）
+    // 取回妖怪与还原首发是「恢复现场」，不受 isRunning 影响：
+    // 中途停止时妖怪已经存进仓库，若因为 isRunning 变 false 就跳过取回，
+    // 玩家的妖怪会一直留在仓库里——这比多发两个包严重得多。
     if (g_dungeonJumpState.storedMonsterCount > 0) {
         for (const auto& monster : g_dungeonJumpState.highLevelMonsters) {
-            if (!g_dungeonJumpState.isRunning) break;
-            
             if (SendGetSpiritFromStorePacket(monster.id)) {
-                g_dungeonJumpState.retrievedMonsterCount++;
-                Sleep(200);
+                ManagedThread::SleepCancellable(200);
             }
         }
     }
-    
-    // 设置首发（无提示）
-    if (g_dungeonJumpState.originalFirstSpiritId > 0 && g_dungeonJumpState.isRunning) {
+
+    if (g_dungeonJumpState.originalFirstSpiritId > 0) {
         SendSetFirstSpiritPacket(g_dungeonJumpState.originalFirstSpiritId);
-        Sleep(200);
+        ManagedThread::SleepCancellable(200);
     }
-    
+
     g_dungeonJumpState.Reset();
     return 0;
 }
@@ -294,18 +294,28 @@ BOOL StartOneKeyDungeonJumpPacket(int targetLayer) {
     g_dungeonJumpState.Reset();
     g_dungeonJumpState.isRunning = true;
     g_dungeonJumpState.targetLayer = targetLayer;
-    
-    // 创建异步线程执行跳层流程
-    HANDLE hThread = CreateManagedThread(nullptr, 0, DungeonJumpThreadProc, nullptr, 0, nullptr);
-    if (!hThread) {
+    g_dungeonJumpState.threadFinished = false;
+
+    // 走受管线程：RequestStopAll/JoinAll 能收住它，StopDungeonJump 也能等它收尾。
+    if (!ManagedThread::Start(L"dungeon_jump", []() {
+            DungeonJumpThreadProc(nullptr);
+            g_dungeonJumpState.threadFinished = true;
+        })) {
         g_dungeonJumpState.Reset();
+        g_dungeonJumpState.threadFinished = true;
         return FALSE;
     }
-    
-    CloseHandle(hThread);
+
     return TRUE;
 }
 
 void StopDungeonJump() {
-    g_dungeonJumpState.Reset();
+    // 只放下运行标志，其余状态交给线程自己走 CLEANUP 恢复后再 Reset：
+    // 在这里 Reset 会先把 highLevelMonsters 清空，线程随后就取不回已存的妖怪。
+    g_dungeonJumpState.isRunning = false;
+
+    // 线程体内的 Sleep 都是 SleepCancellable（分片 50ms），最坏一次循环 200ms 就能看到标志。
+    for (int i = 0; i < 100 && !g_dungeonJumpState.threadFinished.load(); ++i) {
+        Sleep(50);
+    }
 }

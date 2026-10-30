@@ -1,4 +1,5 @@
 #include "activity_bus.h"
+#include "byte_reader.h"
 
 #include <windows.h>
 
@@ -68,7 +69,7 @@ void ReportActivityResult(const wchar_t* name, const SendCounter& counter) {
     }
 
     std::wstring script = L"if (window.updateDailyTaskStatus) { window.updateDailyTaskStatus(\"";
-    script += buf;
+    script += UIBridge::EscapeJsonString(buf);
     script += L"\", false); }";
     PostScriptToUI(script);
 }
@@ -131,6 +132,7 @@ void ProcessRunCompetitionResponse(const GamePacket& packet) {
     }
 
     size_t offset = 0;
+    ByteReader reader(packet.body, offset);
     std::string action;
     if (!ReadBodyString(packet, offset, action)) {
         return;
@@ -140,9 +142,9 @@ void ProcessRunCompetitionResponse(const GamePacket& packet) {
         // RunModel.as:316-322：先读 result，紧接着读 checkCode 并存进 KBDataCenter。
         g_runCompetitionCheckCode.store(0);
         if (offset + 4 <= packet.body.size()) {
-            const int result = ReadInt32LE(packet.body.data(), offset);
+            const int result = reader.I32();
             if (result == 0 && offset + 4 <= packet.body.size()) {
-                g_runCompetitionCheckCode.store(ReadInt32LE(packet.body.data(), offset));
+                g_runCompetitionCheckCode.store(reader.I32());
             }
         }
         // 无论成功失败都放行，避免线程空等到超时。

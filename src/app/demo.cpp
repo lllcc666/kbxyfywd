@@ -30,6 +30,7 @@
 // 包含WPE Hook头文件
 #include "managed_thread.h"
 #include "wpe_hook.h"
+#include "app_host.h"
 #include "packet_parser.h"
 #include "utils.h"
 #include "ui_bridge.h"
@@ -75,8 +76,8 @@ typedef void (__stdcall *PFN_INITIALIZESPEEDHACK)(float);
 PFN_INITIALIZESPEEDHACK g_pfnInitializeSpeedhack = nullptr;
 
 // 版本检查相关常量
-// 版本号与窗口标题统一取自 WpeHook::APP_VERSION_W / APP_WINDOW_TITLE_W，避免多处字面量漂移。
-constexpr float CURRENT_VERSION = 1.18f;  // 当前版本：1.18，须与 WpeHook::APP_VERSION_W 保持一致
+// 版本号只有一个真相源：WpeHook::APP_VERSION_NUM / APP_VERSION_W。
+constexpr float CURRENT_VERSION = WpeHook::APP_VERSION_NUM;
 constexpr wchar_t VERSION_CHECK_URL[] = L"https://gitee.com/deepmoutains/kxby-release-detection/raw/master/data.txt";
 constexpr wchar_t UPDATE_DOWNLOAD_URL[] = L"https://wwbov.lanzout.com/b03ancytve";
 
@@ -158,14 +159,15 @@ bool LoadSpeedhackFromMemory() {
 // 游戏静音状态唯一 owner：音频会话快照和当前静音标记由这里统一维护。
 std::atomic<bool> g_isGameMuted{false};
 
-// 音频会话状态结构体
+// 音频会话状态：恢复音量时要用的"静音前"快照。
+// 当前是否静音由 g_isGameMuted 单独维护——这里再存一份就会出现
+// 「两个字段说两套话」的问题（历史上 isMuted 字段从未被读写过）。
 struct ProgramAudioSessionState {
     float originalVolume;  // 原始音量 (0.0 - 1.0)
     bool originalMuted;    // 原始静音状态
-    bool isMuted;          // 当前静音状态
 };
 
-ProgramAudioSessionState g_audioSessionState = { 1.0f, false, false };
+ProgramAudioSessionState g_audioSessionState = { 1.0f, false };
 
 // 封包窗口状态
 bool g_is_packet_window_visible = false;
@@ -310,9 +312,10 @@ bool CollectIECacheEntryUrls(std::vector<std::wstring>& cacheUrls) {
         }
 
         entryInfoSize = 0;
-        if (FindNextUrlCacheEntryW(findHandle, nullptr, &entryInfoSize)) {
-            continue;
-        }
+        // 传 nullptr 探下一次所需长度：按 API 契约这次调用必然返回 FALSE 并置
+        // ERROR_INSUFFICIENT_BUFFER，所以这里不能当"还有下一项"来判断——
+        // 真实的下一次读取在循环头 FindNextUrlCacheEntryW 里。
+        (void)FindNextUrlCacheEntryW(findHandle, nullptr, &entryInfoSize);
 
         DWORD lastError = GetLastError();
         if (lastError == ERROR_NO_MORE_ITEMS) {
@@ -621,13 +624,11 @@ void CheckForUpdatesAsync() {
 
             if (!hRequest) break;
 
-            // 设置安全选项，忽略 SSL 证书错误
-            if (urlComp.nScheme == INTERNET_SCHEME_HTTPS) {
-                DWORD securityFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA |
-                                     SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
-                                     SECURITY_FLAG_IGNORE_CERT_CN_INVALID;
-                WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &securityFlags, sizeof(securityFlags));
-            }
+            // 证书与域名一律按系统信任链校验：这里曾经写过
+            // WINHTTP_OPTION_SECURITY_FLAGS 关掉 UNKNOWN_CA / CERT_DATE_INVALID / CERT_CN_INVALID，
+            // 等于允许任意中间人替换 data.txt，进而伪造版本公告与下载地址（UPDATE_DOWNLOAD_URL
+            // 是跟着公告下发给前端的）。更新检查是唯一会把外部文本变成 UI 文案的通道，
+            // 不能为了「证书过期时也能更新」牺牲它。
 
             // 发送请求
             if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
@@ -728,7 +729,7 @@ void UpdateIEEWindowRegion()
     
     // 使用动态解析的坐标进行打孔
     int hole_x = g_packet_window_rect.left;
-    int hole_y = g_packet_window_rect.top - 32;  // 减去标题栏高度，因为封包窗口在IE控件下方
+    int hole_y = g_packet_window_rect.top - AppHost::kTitleBarHeight;  // 封包窗口在IE控件下方
     int hole_w = g_packet_window_rect.right; // 这里在JS中传的是width
     int hole_h = g_packet_window_rect.bottom; // 这里在JS中传的是height
 
@@ -815,8 +816,8 @@ bool LoadWebView2LoaderFromMemory()
     return true;
 }
 
-// 无边框模式标志
-bool g_isBorderless = true;
+// 无边框模式：本项目只以无边框方式运行，没有切换入口，所以是常量而不是开关。
+constexpr bool kIsBorderless = true;
 
 // 遮罩的创建/销毁成对出现，销毁的实现排在窗口过程之后，
 // 这里先声明，供看门狗分支和 WebView2 各失败分支统一调用。
@@ -1040,7 +1041,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_NCCALCSIZE:
         // 隐藏窗口边框但保留阴影
         // 返回 0 告诉系统不要绘制非客户区
-        if (g_isBorderless && wParam) {
+        if (kIsBorderless && wParam) {
             return 0;
         }
         break;
@@ -1063,9 +1064,14 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             break;
         }
 
+        // 顺序很重要（CleanupWpeHook 的注释里写了硬约束）：
+        // CleanupWpeHook 内部要 StopHorseCompetitionGame()，而赛马主循环可能正阻塞在
+        // 等退房回包上；此时收包链必须还活着，否则它只能干等到 SendPacket 超时。
+        // 而 UninitializeHooks 会 DisableHook + CancelWait + 停收包分发线程，是「断电」动作，
+        // 必须排在最后。StopIntercept 只是关业务开关，不影响收包链，放中间。
+        CleanupWpeHook();
         StopIntercept();
         UninitializeHooks();
-        CleanupWpeHook();
         
         // 恢复 IE 浏览框区域
         if (g_hwnd_webbrowser) {
@@ -1149,7 +1155,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             ScreenToClient(hWnd, &clientPt);
             
             // 标题栏区域：顶部 32 像素
-            const int TITLE_BAR_HEIGHT = 32;
+            const int TITLE_BAR_HEIGHT = AppHost::kTitleBarHeight;
             
             // 检查是否在标题栏区域（排除控制按钮区域）
             if (clientPt.y < TITLE_BAR_HEIGHT && clientPt.y >= 0)
@@ -1368,7 +1374,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     (void)lpCmdLine;
 
     // 注册窗口类 (使用 Unicode 版本)
-    const wchar_t CLASS_NAME[] = L"WebView2DemoWindowClass";
+    const wchar_t* CLASS_NAME = AppHost::kMainWindowClass;
 
     // 从资源文件加载图标
     HICON hAppIcon = LoadIconW(hInstance, MAKEINTRESOURCEW(1));
@@ -1465,7 +1471,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     GetClientRect(g_hWnd, &parentRect);
     
     // 标题栏高度
-    const int TITLE_BAR_HEIGHT = 32;
+    const int TITLE_BAR_HEIGHT = AppHost::kTitleBarHeight;
     
     // 计算WebBrowser控件的位置：固定高度 562px，顶部为标题栏留出空间
     RECT browserRect;
@@ -1569,7 +1575,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 // 导航到指定URL
                 VARIANT vEmpty;
                 VariantInit(&vEmpty);
-                BSTR bstrURL = SysAllocString(L"http://news.4399.com/login/kbxy.html");
+                BSTR bstrURL = SysAllocString(AppHost::kLoginUrl);
                 g_pWebBrowser->Navigate(bstrURL, &vEmpty, &vEmpty, &vEmpty, &vEmpty);
                 SysFreeString(bstrURL);
             }
@@ -1583,11 +1589,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     // 消息循环
-    MSG msg;
-    while (GetMessageW(&msg, nullptr, 0, 0))
+    // GetMessageW 返回 0 = WM_QUIT，返回 -1 = 出错（此时 msg 内容未定义）。
+    // 早先写成 while (GetMessageW(...)) 会把 -1 当假值直接跳出，随后 return msg.wParam
+    // 读的是未初始化栈内存，进程退出码随机。
+    MSG msg = {};
+    BOOL getMessageResult = 0;
+    while ((getMessageResult = GetMessageW(&msg, nullptr, 0, 0)) > 0)
     {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
+    }
+    if (getMessageResult == -1) {
+        msg.wParam = 1;
     }
 
     // 释放资源 (已经在 WM_DESTROY 中处理过了，这里是最后的兜底)

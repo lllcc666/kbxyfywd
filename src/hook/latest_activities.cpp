@@ -1,3 +1,4 @@
+#include "byte_reader.h"
 #include "latest_activities.h"
 
 #include "managed_thread.h"
@@ -15,7 +16,6 @@
 #include "hook_shared.h"
 #include "packet_builder.h"
 #include "ui_bridge.h"
-#include "utils.h"
 #include "wpe_hook.h"
 
 // ============================================================================
@@ -258,7 +258,7 @@ BOOL SendLatestPacket(uint32_t activityId, const std::string& operation,
 
 // 上报每日任务进度。AS3 各活动在结算后用
 // sendMessage(OP_CLIENT_DAILYTASK.send, 3, [3, 4039001, 0]) 上报，
-// 注意其 opcode(1184812) 与 TASK_DAILY_SEND(1184791) 并非同一个协议。
+// 注意其 opcode(1184812) 与 1184791 并非同一个协议。
 void ReportDailyTask() {
     std::vector<BYTE> packet = PacketBuilder()
                                    .SetOpcode(Opcode::TASK_DAILY_REPORT_SEND)
@@ -301,15 +301,9 @@ struct PendingOpGuard {
 };
 
 bool WaitForResponse(LatestActState& state, DWORD timeoutMs) {
-    const auto start = std::chrono::steady_clock::now();
-    while (state.waitingResponse.load()) {
-        const auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count() > timeoutMs) {
-            return false;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
-    return true;
+    // 收包线程把 waitingResponse 置 false 表示回包已到；超时/停止都返回 false。
+    return WaitForCondition([&state]() { return !state.waitingResponse.load(); }, timeoutMs, 50) ==
+           WaitOutcome::Signalled;
 }
 
 // 扫荡门槛——沿用仓库里周活动的统一标准，不要另立一套。
@@ -393,9 +387,9 @@ void AppendZeros(std::vector<int32_t>& body, int count) {
 // ---------------------------------------------------------------------------
 void ParseOpenUI(const LatestActDesc& desc, LatestActState& state,
                  const GamePacket& packet, size_t offset) {
-    const BYTE* body = packet.body.data();
     const size_t size = packet.body.size();
-    auto read = [&]() -> int { return ReadInt32LE(body, offset); };
+    ByteReader reader(packet.body, offset);
+    auto read = [&]() -> int { return reader.I32(); };
 
     switch (desc.id) {
         case LatestAct::ACT_MAZE:
@@ -511,6 +505,7 @@ void ConsumePumpkinMonsterData(LatestActState& state, const BYTE* body, size_t s
     state.pumpkinBonusReady = false;
     state.pumpkinBonus.fill(0);
     state.pumpkinMedal = 0;
+    ByteReader reader(body, size, offset);
     if (offset + 4 > size) {
         return;
     }
@@ -519,16 +514,17 @@ void ConsumePumpkinMonsterData(LatestActState& state, const BYTE* body, size_t s
         if (offset + 4 > size) {
             return;
         }
-        const int len = ReadInt32LE(body, offset);
+        const int len = reader.I32();
         if (len < 0 || offset + static_cast<size_t>(len) * 4 > size) {
             return;
         }
         // AS3 只会消费到第 kills 项，多给的尾巴永远用不上；
         // 表比理论值短就以表长为准（服务端给少了不该越界）。
         const int usable = (len < kPumpkinKillCap[type]) ? len : kPumpkinKillCap[type];
-        size_t cursor = offset;   // ReadInt32LE 会推进游标，尾部未消费的项靠 offset 整体跳过
+        size_t cursor = offset;   // I32() 会推进游标，尾部未消费的项靠 offset 整体跳过
+        ByteReader cursorReader(body, size, cursor);
         for (int i = 0; i < usable; ++i) {
-            const int award = ReadInt32LE(body, cursor);
+            const int award = cursorReader.I32();
             if (award >= 1 && award < 1 + kPumpkinBonusSlots) {
                 ++state.pumpkinBonus[static_cast<std::size_t>(award - 1)];
             }
@@ -557,14 +553,15 @@ void ParseStartGame(const LatestActDesc& desc, LatestActState& state,
                     const GamePacket& packet, size_t offset) {
     const BYTE* body = packet.body.data();
     const size_t size = packet.body.size();
+    ByteReader reader(packet.body, offset);
     if (desc.id == LatestAct::ACT_STAR_PRINCESS) {
         state.startPayloadReady = false;
     }
     if (offset + 4 > size) return;
-    const int result = ReadInt32LE(body, offset);
+    const int result = reader.I32();
     state.lastStartResult = result;
     if (result != 0) return;                      // result != 0 视为开局失败
-    // 注意：ReadInt32LE 内部已经推进 offset，这里不能再无条件补一次。
+    // 注意：reader.I32() 内部已经推进 offset，这里不能再无条件补一次。
     // 此前这里多写了一句 offset += 4，导致非 721 活动的 checkCode 整体后移
     // 4 字节（读到的是紧跟着的那个字段，结算校验位算错 → 服务端判失败），
     // 而 721 因为没有丢弃字段直接越界返回，checkCode 永远是 0 → 判定开局失败、
@@ -579,7 +576,7 @@ void ParseStartGame(const LatestActDesc& desc, LatestActState& state,
         state.huluBoard.fill(0);
         int squares = 0;
         for (; squares < kHuluSquares && offset + 4 <= size; ++squares) {
-            state.huluBoard[static_cast<std::size_t>(squares)] = ReadInt32LE(body, offset);
+            state.huluBoard[static_cast<std::size_t>(squares)] = reader.I32();
         }
         state.huluBoardReady = (squares == kHuluSquares);
         return;
@@ -591,11 +588,11 @@ void ParseStartGame(const LatestActDesc& desc, LatestActState& state,
         offset += 4;                              // 丢弃字段（各活动含义不同）
     }
     if (offset + 4 > size) return;
-    state.checkCode = ReadInt32LE(body, offset);
+    state.checkCode = reader.I32();
 
     // 730 在 checkCode 之后紧跟 hp（ActModel.decodeBeginGame:114-134）。
     if (desc.id == LatestAct::ACT_FIGHT_EVILS && offset + 4 <= size) {
-        state.startHp = ReadInt32LE(body, offset);
+        state.startHp = reader.I32();
     }
 
     // 882 在 checkCode 之后是 gameBonus + 三组掉落表（ActModel.as:114-143）。
@@ -615,13 +612,13 @@ void ParseStartGame(const LatestActDesc& desc, LatestActState& state,
         if (offset + 4 > size) {
             return;
         }
-        const int awardNum = ReadInt32LE(body, offset);
+        const int awardNum = reader.I32();
         if (awardNum < 0 || static_cast<size_t>(awardNum) > (size - offset) / 8) {
             return;
         }
         for (int i = 0; i < awardNum; ++i) {
-            ReadInt32LE(body, offset);  // awardIdx
-            ReadInt32LE(body, offset);  // awardNum
+            reader.I32();  // awardIdx
+            reader.I32();  // awardNum
         }
     }
 }
@@ -630,12 +627,13 @@ void ParseStartGame(const LatestActDesc& desc, LatestActState& state,
 // 先解析到局部变量，避免截断回包将半份结果发布给运行线程。
 bool ReadStarPrincessEndDto(const BYTE* body, size_t size, size_t& offset,
                            int& starCount, int& coin, int& lilian) {
+    ByteReader reader(body, size, offset);
     if (offset > size || size - offset < 12) {
         return false;
     }
-    starCount = ReadInt32LE(body, offset);
-    coin = ReadInt32LE(body, offset);
-    lilian = ReadInt32LE(body, offset);
+    starCount = reader.I32();
+    coin = reader.I32();
+    lilian = reader.I32();
     constexpr int kRewardTypeCount = 10;  // EIdReflect.REFLECT_STRUCT.length
     for (int i = 0; i < kRewardTypeCount; ++i) {
         if (size - offset < 8) {
@@ -646,10 +644,10 @@ bool ReadStarPrincessEndDto(const BYTE* body, size_t size, size_t& offset,
             // 不受影响；本模块也只消费三计数。所以剩余 4 字节为 <=0 的终止符、
             // 或尾部干净截断（0 字节），都按正常收尾放行——三计数才是结算判据。
             return size - offset == 0 ||
-                   (size - offset == 4 && ReadInt32LE(body, offset) <= 0);
+                   (size - offset == 4 && reader.I32() <= 0);
         }
-        const int awardIdx = ReadInt32LE(body, offset);
-        ReadInt32LE(body, offset);  // awardNum
+        const int awardIdx = reader.I32();
+        reader.I32();  // awardNum
         if (awardIdx <= 0) {
             return true;
         }
@@ -665,9 +663,10 @@ void ParseSweepInfo(const LatestActDesc& desc, LatestActState& state,
                     const GamePacket& packet, size_t offset) {
     const BYTE* body = packet.body.data();
     const size_t size = packet.body.size();
+    ByteReader reader(packet.body, offset);
     if (offset + 4 > size) return;
 
-    const int first = ReadInt32LE(body, offset);
+    const int first = reader.I32();
     switch (desc.id) {
         case LatestAct::ACT_FIGHT_EVILS:
             // 730 ActModel.decodeSweepInfo:186-213 没有 result 字段，首字段直接是
@@ -711,12 +710,13 @@ void ParseSweepResult(const LatestActDesc& desc, LatestActState& state,
                       const GamePacket& packet, size_t offset) {
     const BYTE* body = packet.body.data();
     const size_t size = packet.body.size();
+    ByteReader reader(packet.body, offset);
     if (offset + 4 > size) {
         state.sweepReady = false;
         return;
     }
 
-    const int result = ReadInt32LE(body, offset);
+    const int result = reader.I32();
     state.lastSweepResult = result;
     switch (desc.id) {
         case LatestAct::ACT_HULU:
@@ -776,12 +776,13 @@ void ParseEndGame(const LatestActDesc& desc, LatestActState& state,
                   const GamePacket& packet, size_t offset) {
     const BYTE* body = packet.body.data();
     const size_t size = packet.body.size();
+    ByteReader reader(packet.body, offset);
     if (offset + 4 > size) {
         state.lastEndResult = -1;
         state.endSettled = false;
         return;
     }
-    const int result = ReadInt32LE(body, offset);
+    const int result = reader.I32();
     state.lastEndResult = result;
     state.endStarCount = -1;
     state.endCoin = -1;
@@ -1088,15 +1089,15 @@ bool RunPlayProcess(const LatestActDesc& desc, LatestActState& state) {
             const auto waitAckThenGap = [&]() {
                 const uint32_t expect =
                     state.playEventAcks.load(std::memory_order_relaxed) + 1;
-                const auto deadline = std::chrono::steady_clock::now() +
-                                      std::chrono::milliseconds(kAckWaitMs);
-                while (std::chrono::steady_clock::now() < deadline) {
-                    if (state.playEventAcks.load(std::memory_order_relaxed) >= expect) {
-                        break;
-                    }
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(kInterEventMs));
+                // 回音是"锦上添花"：等到就提前走，等不到就按固定间隔继续，
+                // 所以这里只取超时/停止的结果，不区分两者。
+                WaitForCondition(
+                    [&state, expect]() {
+                        return state.playEventAcks.load(std::memory_order_relaxed) >= expect;
+                    },
+                    kAckWaitMs,
+                    10);
+                ManagedThread::SleepCancellable(kInterEventMs);
             };
 
             int starCount = 0;
@@ -1151,7 +1152,9 @@ bool RunPlayProcess(const LatestActDesc& desc, LatestActState& state) {
                 if (!SendLatestPacket(desc.id, "sub_hp")) {
                     return false;
                 }
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                if (!ManagedThread::SleepCancellable(200)) {
+                    return false;
+                }
             }
             return true;
         }
@@ -1250,8 +1253,7 @@ bool SweepRemaining(const LatestActDesc& desc, LatestActState& state, bool probe
             return false;
         }
         if (attempt > 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(2000));
-            if (!g_latestBatchRunning.load()) {
+            if (!ManagedThread::SleepCancellable(2000) || !g_latestBatchRunning.load()) {
                 return false;
             }
             // 上一次 sweep 可能其实已经成功了，只是回包丢了。重发前先查次数：
@@ -1434,7 +1436,9 @@ bool WaitForCooldown(const LatestActDesc& desc, LatestActState& state) {
             return false;
         }
         Notify(desc.id, L"冷却中（剩余 " + std::to_wstring(state.restTime.load()) + L" 秒）...");
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        if (!ManagedThread::SleepCancellable(1000)) {
+            return false;
+        }
         ++waited;
         if (!RefreshOneActivity(desc, state)) {
             return false;
@@ -1493,7 +1497,9 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
             return;
         }
         Notify(activityId, L"等待冷却（剩余 " + std::to_wstring(cd) + L" 秒）...");
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        if (!ManagedThread::SleepCancellable(1000)) {
+            break;
+        }
         if (!RefreshOneActivity(desc, state)) {
             break;
         }

@@ -1,3 +1,4 @@
+#include "byte_reader.h"
 #include "packet_parser.h"
 
 #include "bounded_reader.h"
@@ -6,7 +7,6 @@
 #include "battle_roster.h"
 #include "battle_activity_hooks.h"
 #include "app_host.h"
-#include "iapp_host.h"
 #include "packet_io.h"
 #include "ui_bridge.h"
 #include "utils.h"
@@ -796,12 +796,6 @@ static bool ReadBattleEntityAfterState(BoundedReader& reader, int32_t rawState, 
     return true;
 }
 
-[[maybe_unused]] static bool ReadBattleEntity(BoundedReader& reader, BattleEntity& pet) {
-    int32_t rawState = 0;
-    return reader.ReadI32(rawState) && ReadBattleEntityAfterState(reader, rawState, pet);
-}
-
-
 static bool HttpGet(const wchar_t* url, std::vector<uint8_t>& out) {
     HINTERNET hInternet = InternetOpenW(L"KBWebUILoader", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
     if (!hInternet) return false;
@@ -1183,7 +1177,7 @@ bool PacketParser::UncompressBody(const std::vector<uint8_t>& compressed, std::v
     return false;
 }
 
-bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
+bool PacketParser::ParsePackets(const uint8_t* data, size_t size,
                                 std::vector<GamePacket>& outPackets,
                                 bool* canRewriteInput) {
     outPackets.clear();
@@ -1192,42 +1186,6 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
     }
     if (!data || size == 0) {
         return false;
-    }
-
-    if (bSend) {
-        std::lock_guard<std::mutex> lifecycleLock(g_parserLifecycleMutex);
-        if (size < PacketProtocol::HEADER_SIZE) {
-            return false;
-        }
-
-        size_t offset = 0;
-        const uint16_t magic = ReadInt16LE(data, offset);
-        const uint16_t bodyLength = ReadInt16LE(data, offset);
-        if (magic != PacketProtocol::MAGIC_NORMAL && magic != PacketProtocol::MAGIC_COMPRESSED) {
-            return false;
-        }
-        if (size < PacketProtocol::HEADER_SIZE + bodyLength) {
-            return false;
-        }
-
-        GamePacket packet;
-        packet.magic = magic;
-        packet.length = bodyLength;
-        packet.bSend = bSend;
-        packet.opcode = ReadInt32LE(data, offset);
-        packet.params = ReadInt32LE(data, offset);
-        packet.body.assign(data + offset, data + offset + bodyLength);
-        packet.rawBody = packet.body;
-
-        if (magic == PacketProtocol::MAGIC_COMPRESSED) {
-            std::vector<uint8_t> decompressed;
-            if (UncompressBody(packet.body, decompressed)) {
-                packet.body = std::move(decompressed);
-            }
-        }
-
-        outPackets.push_back(std::move(packet));
-        return true;
     }
 
     struct RawRecvPacket {
@@ -1280,7 +1238,6 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
 
                 RawRecvPacket raw;
                 raw.magic = magic;
-                raw.length = bodyLength;
                 raw.opcode = static_cast<uint32_t>(g_recvBuffer[readOffset + 4]) |
                              (static_cast<uint32_t>(g_recvBuffer[readOffset + 5]) << 8) |
                              (static_cast<uint32_t>(g_recvBuffer[readOffset + 6]) << 16) |
@@ -1310,8 +1267,6 @@ bool PacketParser::ParsePackets(const uint8_t* data, size_t size, BOOL bSend,
     for (auto& raw : rawPackets) {
         GamePacket packet;
         packet.magic = raw.magic;
-        packet.length = raw.length;
-        packet.bSend = FALSE;
         packet.opcode = raw.opcode;
         packet.params = raw.params;
         packet.rawBody = std::move(raw.rawBody);
@@ -1578,7 +1533,8 @@ int32_t ResolveBattleActiveIndex(const std::vector<BattleEntity>& team, int32_t 
 }  // namespace
 
 void PacketParser::UpdateUIBattleData() {
-    if (!AppHost::Instance().GetMainWindow()) {
+    // 没有主窗口就没有 WebView2，后面所有 ExecuteJS 都是空转——直接返回。
+    if (!AppHost::GetMainWindow()) {
         return;
     }
 
@@ -1611,14 +1567,15 @@ void PacketParser::UpdateUIBattleData() {
 }
 
 void PacketParser::ProcessLingyuPacket(const GamePacket& packet) {
-    if (packet.bSend || packet.opcode != Opcode::LINGYU_LIST) return;
+    if (packet.opcode != Opcode::LINGYU_LIST) return;
 
     size_t offset = 0;
+    ByteReader reader(packet.body, offset);
     const uint8_t* data = packet.body.data();
     size_t size = packet.body.size();
 
     if (offset + 4 > size) return;
-    int32_t backFlag = ReadInt32LE(data, offset);
+    int32_t backFlag = reader.I32();
 
     std::vector<LingyuItem> allItems;
     auto mapping = std::unordered_map<int, std::wstring>{
@@ -1626,12 +1583,13 @@ void PacketParser::ProcessLingyuPacket(const GamePacket& packet) {
     };
 
     auto readList = [&](size_t& off) {
+        ByteReader offReader(data, size, off);
         if (off + 4 > size) return;
-        int32_t count = ReadInt32LE(data, off);
+        int32_t count = offReader.I32();
         for (int i = 0; i < count; i++) {
             if (off + 12 > size) break;
             LingyuItem item;
-            item.symmId = ReadInt32LE(data, off);
+            item.symmId = offReader.I32();
             {
                 std::lock_guard<std::mutex> lock(g_dataMapsMutex);
                 auto it = g_toolNames.find(item.symmId);
@@ -1643,26 +1601,26 @@ void PacketParser::ProcessLingyuPacket(const GamePacket& packet) {
                 }
                 item.symmName = name;
             }
-            item.symmIndex = ReadInt32LE(data, off);
-            item.symmFlag = ReadInt32LE(data, off);
+            item.symmIndex = offReader.I32();
+            item.symmFlag = offReader.I32();
 
             if (off + 2 > size) break;
-            uint16_t nameLen = ReadUInt16LE(data, off);
+            uint16_t nameLen = offReader.U16();
             if (off + nameLen > size) break;
             std::string nameUtf8((const char*)(data + off), nameLen);
             item.petName = Utf8ToWide(nameUtf8);
             off += nameLen;
 
             if (off + 4 > size) break;
-            item.symmType = ReadInt32LE(data, off);
+            item.symmType = offReader.I32();
 
             if (off + 4 > size) break;
-            int32_t nativeLen = ReadInt32LE(data, off);
+            int32_t nativeLen = offReader.I32();
             for (int j = 0; j < nativeLen; j++) {
                 if (off + 8 > size) break;
                 LingyuAttribute attr;
-                attr.nativeEnum = ReadInt32LE(data, off);
-                attr.nativeValue = ReadInt32LE(data, off);
+                attr.nativeEnum = offReader.I32();
+                attr.nativeValue = offReader.I32();
                 auto it = mapping.find(attr.nativeEnum);
                 attr.nativeName = (it != mapping.end()) ? it->second : L"未知";
                 item.nativeList.push_back(attr);
@@ -1717,7 +1675,6 @@ void PacketParser::ClearBattleState(bool releaseEntities) {
 }
 
 void PacketParser::ProcessBattlePacketSafe(const GamePacket& packet) {
-    if (packet.bSend) return;
     // 整包串行化：所有分支都是"取快照 → 改 → 写回"，必须原子完成，
     // 否则两条线程交错会把对方刚算出的血量/状态覆盖掉。
     std::lock_guard<std::recursive_mutex> parseLock(g_battleParseMutex);
@@ -2705,41 +2662,28 @@ void PacketParser::ProcessBattlePacket(const GamePacket& packet) {
 }
 
 void PacketParser::ProcessMonsterPacket(const GamePacket& packet) {
-    if (packet.bSend || packet.opcode != Opcode::MONSTER_LIST) return;
+    if (packet.opcode != Opcode::MONSTER_LIST) return;
 
     size_t offset = 0;
-    const uint8_t* data = packet.body.data();
+    ByteReader reader(packet.body, offset);
     size_t size = packet.body.size();
 
     if (offset + 8 > size) return;
     
-    int32_t sn = ReadInt32LE(data, offset);
-    int32_t mcount = ReadInt32LE(data, offset);
+    int32_t sn = reader.I32();
+    int32_t mcount = reader.I32();
 
     std::vector<MonsterItem> monsters;
-
-    // 性格值对应属性映射
-    auto getGeniusName = [](int32_t geniusValue) -> std::pair<std::wstring, int32_t> {
-        // 性格值范围：-2到+2，对应属性加成
-        static const wchar_t* const attrNames[] = {
-            L"攻击", L"防御", L"法术", L"抗性", L"体力", L"速度"
-        };
-        // 简化：根据geniusValue判断主要加成属性
-        int32_t idx = (geniusValue / 10) % 6;
-        if (idx < 0) idx = -idx;
-        int32_t bonus = (geniusValue % 10) * 5;  // 近似值
-        return {attrNames[idx % 6], bonus};
-    };
 
     for (int j = 0; j < mcount && offset + 4 <= size; j++) {
         MonsterItem monster;
         
-        monster.id = ReadInt32LE(data, offset);
+        monster.id = reader.I32();
         if (monster.id == 0) break;
         
         if (offset + 8 > size) break;
-        monster.type_id = ReadInt32LE(data, offset);
-        monster.iid = ReadInt32LE(data, offset);
+        monster.type_id = reader.I32();
+        monster.iid = reader.I32();
         
         // 从名称表获取妖怪名称
         {
@@ -2763,41 +2707,41 @@ void PacketParser::ProcessMonsterPacket(const GamePacket& packet) {
         }
         
         if (offset + 72 > size) break;
-        monster.isfirst = ReadInt32LE(data, offset);
-        monster.level = ReadInt32LE(data, offset);
-        monster.exp = ReadInt32LE(data, offset);
-        ReadInt32LE(data, offset);  // type字段（封包中的type，忽略，使用sprite.xml中的elem）
-        monster.forbitItem = ReadInt32LE(data, offset);
-        monster.attack = ReadInt32LE(data, offset);
-        monster.defence = ReadInt32LE(data, offset);
-        monster.magic = ReadInt32LE(data, offset);
-        monster.resistance = ReadInt32LE(data, offset);
-        monster.strength = ReadInt32LE(data, offset);
-        monster.hp = ReadInt32LE(data, offset);
-        monster.speed = ReadInt32LE(data, offset);
-        monster.mold = ReadInt32LE(data, offset);
-        monster.state = ReadInt32LE(data, offset);
-        monster.needExp = ReadInt32LE(data, offset);
-        monster.timetxt = ReadInt32LE(data, offset);
-        monster.sex = ReadInt32LE(data, offset);
+        monster.isfirst = reader.I32();
+        monster.level = reader.I32();
+        monster.exp = reader.I32();
+        reader.I32();  // type字段（封包中的type，忽略，使用sprite.xml中的elem）
+        monster.forbitItem = reader.I32();
+        monster.attack = reader.I32();
+        monster.defence = reader.I32();
+        monster.magic = reader.I32();
+        monster.resistance = reader.I32();
+        monster.strength = reader.I32();
+        monster.hp = reader.I32();
+        monster.speed = reader.I32();
+        monster.mold = reader.I32();
+        monster.state = reader.I32();
+        monster.needExp = reader.I32();
+        monster.timetxt = reader.I32();
+        monster.sex = reader.I32();
         
         // 学习力
         if (offset + 24 > size) break;
-        ReadInt32LE(data, offset); // attackLearnValue
-        ReadInt32LE(data, offset); // defenceLearnValue
-        ReadInt32LE(data, offset); // magicLearnValue
-        ReadInt32LE(data, offset); // resistanceLearnValue
-        ReadInt32LE(data, offset); // hpLearnValue
-        ReadInt32LE(data, offset); // speedLearnVale
+        reader.I32(); // attackLearnValue
+        reader.I32(); // defenceLearnValue
+        reader.I32(); // magicLearnValue
+        reader.I32(); // resistanceLearnValue
+        reader.I32(); // hpLearnValue
+        reader.I32(); // speedLearnVale
         
         // 资质原始值（0-31范围）
         if (offset + 24 > size) break;
-        int32_t attackGeniusValue = ReadInt32LE(data, offset);
-        int32_t defenceGeniusValue = ReadInt32LE(data, offset);
-        int32_t magicGeniusValue = ReadInt32LE(data, offset);
-        int32_t resistanceGeniusValue = ReadInt32LE(data, offset);
-        int32_t hpGeniusValue = ReadInt32LE(data, offset);
-        int32_t speedGeniusValue = ReadInt32LE(data, offset);
+        int32_t attackGeniusValue = reader.I32();
+        int32_t defenceGeniusValue = reader.I32();
+        int32_t magicGeniusValue = reader.I32();
+        int32_t resistanceGeniusValue = reader.I32();
+        int32_t hpGeniusValue = reader.I32();
+        int32_t speedGeniusValue = reader.I32();
         
         // 资质等级计算函数（根据SpiritGenius.cheakGenius）
         auto checkGenius = [](int32_t value) -> int {
@@ -2869,20 +2813,20 @@ void PacketParser::ProcessMonsterPacket(const GamePacket& packet) {
         
         // 绝学
         if (offset + 12 > size) break;
-        ReadInt32LE(data, offset); // peerlessId
-        ReadInt32LE(data, offset); // peerlessStatus
-        ReadInt32LE(data, offset); // tempPeerlessNum
+        reader.I32(); // peerlessId
+        reader.I32(); // peerlessStatus
+        reader.I32(); // tempPeerlessNum
         
         // 技能数量
         if (offset + 4 > size) break;
-        int32_t skillcount = ReadInt32LE(data, offset);
+        int32_t skillcount = reader.I32();
         
         // 读取技能列表
         for (int i = 0; i < skillcount && offset + 12 <= size; i++) {
             MonsterSkill skill;
-            skill.id = ReadInt32LE(data, offset);
-            int32_t skillPp = ReadInt32LE(data, offset);
-            skill.maxPp = ReadInt32LE(data, offset);
+            skill.id = reader.I32();
+            int32_t skillPp = reader.I32();
+            skill.maxPp = reader.I32();
             skill.pp = skillPp;
             {
                 std::lock_guard<std::mutex> lock(g_dataMapsMutex);
@@ -2895,42 +2839,42 @@ void PacketParser::ProcessMonsterPacket(const GamePacket& packet) {
         // 读取额外技能列表（以0结尾）
         int32_t tempskillid = 1;
         while (tempskillid != 0 && offset + 4 <= size) {
-            tempskillid = ReadInt32LE(data, offset);
+            tempskillid = reader.I32();
             // 跳过，不处理额外技能
         }
         
         // 不可用技能数量
         if (offset + 4 > size) break;
-        (void)ReadInt32LE(data, offset);
+        (void)reader.I32();
         // 跳过不可用技能
         
         // 灵玉数量
         if (offset + 4 > size) break;
-        int32_t symmLength = ReadInt32LE(data, offset);
+        int32_t symmLength = reader.I32();
         
         // 读取灵玉列表
         for (int z = 0; z < symmLength && offset + 12 <= size; z++) {
             MonsterSymm symm;
-            symm.place = ReadInt32LE(data, offset);
-            symm.id = ReadInt32LE(data, offset);
-            symm.index = ReadInt32LE(data, offset);
+            symm.place = reader.I32();
+            symm.id = reader.I32();
+            symm.index = reader.I32();
             symm.name = L"";  // 灵玉名称需要另外查询
             monster.symmList.push_back(symm);
         }
         
         // 读取额外技能列表（以-1或0结尾）
         if (offset + 4 <= size) {
-            tempskillid = ReadInt32LE(data, offset);
+            tempskillid = reader.I32();
             while (tempskillid != -1 && tempskillid != 0 && offset + 4 <= size) {
-                tempskillid = ReadInt32LE(data, offset);
+                tempskillid = reader.I32();
             }
         }
         
         // 读取另一组额外技能列表（以-1或0结尾）
         if (offset + 4 <= size) {
-            tempskillid = ReadInt32LE(data, offset);
+            tempskillid = reader.I32();
             while (tempskillid != -1 && tempskillid != 0 && offset + 4 <= size) {
-                tempskillid = ReadInt32LE(data, offset);
+                tempskillid = reader.I32();
             }
         }
         

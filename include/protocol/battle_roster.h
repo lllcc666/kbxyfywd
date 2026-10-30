@@ -156,8 +156,6 @@ struct SwitchPlan {
     Side side = Side::Unknown;
     /// 进场妖怪应该落在哪个槽位；kNoSlot 表示名册里没有它、也没有占位槽，需要追加。
     int32_t slot = kNoSlot;
-    /// slot 就是当前出战的那一只（同一只的数据刷新，而不是换人）。
-    bool refresh = false;
 };
 
 /**
@@ -175,21 +173,10 @@ inline SwitchPlan PlanSwitch(const BattleData& battle, Side side, int32_t enteri
     if (slot == kNoSlot) slot = FindPlaceholderSlot(*team);
 
     plan.slot = slot;
-    plan.refresh = (slot != kNoSlot) && (slot == ActiveIndexOf(battle, side));
     return plan;
 }
 
 
-struct SwitchResult {
-    bool applied = false;
-    Side side = Side::Unknown;
-    int32_t leavingSlot = kNoSlot;
-    int32_t enteringSlot = kNoSlot;
-    /// 进场槽就是离场槽：这是同一只的数据刷新，不是换人。
-    bool sameSlotRefresh = false;
-    /// 名册里原本没有这只，已经追加到队尾。
-    bool appended = false;
-};
 
 /**
  * @brief 执行一次换宠，把 AS3 dealChangeSpirit 的副作用落到名册上。
@@ -204,12 +191,10 @@ struct SwitchResult {
  *   - 出战索引只指向进场的那个槽位；原出战槽位（若换到了别的槽）收成 state = 0。
  *   - 阵营判不出来（side == Unknown）时什么都不做。
  */
-inline SwitchResult ApplySwitch(BattleData& battle, Side side, int32_t leavingSid,
-                               int32_t enteringUniqueId, const BattleEntity* enteringEntity) {
-    SwitchResult result;
-    result.side = side;
+inline void ApplySwitch(BattleData& battle, Side side, int32_t leavingSid,
+                        int32_t enteringUniqueId, const BattleEntity* enteringEntity) {
     std::vector<BattleEntity>* team = SelectTeam(battle, side);
-    if (!team) return result;
+    if (!team) return;
 
     SwitchPlan plan = PlanSwitch(battle, side, enteringUniqueId);
     // 兜底去重：uniqueId 匹配不上时（首发包缺 uniqueId，或换宠包的 uniqueid
@@ -223,23 +208,17 @@ inline SwitchResult ApplySwitch(BattleData& battle, Side side, int32_t leavingSi
         const int32_t byUnique = FindSlotByUniqueId(*team, enteringEntity->uniqueId);
         if (byUnique != kNoSlot) {
             plan.slot = byUnique;
-            plan.refresh = (byUnique == ActiveIndexOf(battle, side));
         }
     }
     if (plan.slot == kNoSlot && enteringEntity != nullptr && enteringEntity->sid != 0) {
         const int32_t bySid = FindSlotBySid(*team, enteringEntity->sid);
         if (bySid != kNoSlot) {
             plan.slot = bySid;
-            plan.refresh = (bySid == ActiveIndexOf(battle, side));
         }
     }
     int32_t& activeIndex = ActiveIndexOf(battle, side);
     const int32_t previousActive = activeIndex;
     const int32_t leavingSlot = FindSlotBySid(*team, leavingSid);
-
-    result.leavingSlot = leavingSlot;
-    result.enteringSlot = plan.slot;
-    result.sameSlotRefresh = (plan.slot != kNoSlot) && (plan.slot == leavingSlot);
 
     // 离场那只：state 归零并清空状态栏（换人不继承对方的状态）。
     if (leavingSlot != kNoSlot && leavingSlot != plan.slot) {
@@ -257,8 +236,6 @@ inline SwitchResult ApplySwitch(BattleData& battle, Side side, int32_t leavingSi
         if (plan.slot == kNoSlot) {
             team->push_back(std::move(entering));
             activeIndex = static_cast<int32_t>(team->size()) - 1;
-            result.enteringSlot = activeIndex;
-            result.appended = true;
         } else {
             BattleEntity& target = (*team)[static_cast<size_t>(plan.slot)];
             // AS3 的权威语义（BattleView.as:890-895）：换宠包里的实体只在
@@ -285,7 +262,7 @@ inline SwitchResult ApplySwitch(BattleData& battle, Side side, int32_t leavingSi
         (*team)[static_cast<size_t>(plan.slot)].state = 1;
         activeIndex = plan.slot;
     } else {
-        return result;
+        return;
     }
     // 原出战槽位收成 state = 0（不碰其他槽位，避免把未揭示的一方搞乱）。
     if (previousActive != kNoSlot && previousActive != activeIndex &&
@@ -293,8 +270,7 @@ inline SwitchResult ApplySwitch(BattleData& battle, Side side, int32_t leavingSi
         (*team)[static_cast<size_t>(previousActive)].state = 0;
     }
 
-    result.applied = true;
-    return result;
+    return;
 }
 
 }  // namespace BattleRoster

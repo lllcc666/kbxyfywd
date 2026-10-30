@@ -117,7 +117,6 @@ target_link_libraries(WebView2Demo PRIVATE
     ws2_32.lib
     ole32.lib
     shell32.lib
-    shlwapi.lib
     uuid.lib
     user32.lib
     advapi32.lib

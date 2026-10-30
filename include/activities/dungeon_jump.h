@@ -36,13 +36,17 @@ namespace DungeonJump {
 }
 
 struct DungeonJumpState {
-    bool isRunning = false;
+    // isRunning 跨线程读（UI 线程读、跳层线程写），必须原子；
+    // 早先它是裸 bool，StopDungeonJump 的写入对工作线程不保证可见。
+    std::atomic<bool> isRunning{false};
+    // 线程体退出时置位。StopDungeonJump 靠它等线程真正收尾，
+    // 而不是设个标志就返回、把还在发包的线程丢在后面。
+    std::atomic<bool> threadFinished{true};
     int targetLayer = 1;
     std::vector<MonsterItem> highLevelMonsters;
     int originalFirstSpiritId = 0;
     std::atomic<bool> monsterDataReceived{false};  ///< 收包线程写、跳层线程等，必须原子
     int storedMonsterCount = 0;
-    int retrievedMonsterCount = 0;
 
     void Reset() {
         isRunning = false;
@@ -51,7 +55,6 @@ struct DungeonJumpState {
         originalFirstSpiritId = 0;
         monsterDataReceived = false;
         storedMonsterCount = 0;
-        retrievedMonsterCount = 0;
     }
 };
 
