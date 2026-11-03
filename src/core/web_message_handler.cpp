@@ -498,16 +498,18 @@ void HandleStopHorseCompetitionCommand() {
 }
 
 void HandleStartHeavenFuruiCommand(const std::wstring& msg) {
-    int maxBoxes = 30;
+    // 上限就是服务端每天允许的开箱次数，超过它的输入只会被服务端拒绝。
+    int maxBoxes = HeavenFurui::DAILY_OPEN_LIMIT;
     const std::wstring maxBoxesStr = GetTrimmedJsonValue(msg, L"maxBoxes");
     if (!maxBoxesStr.empty()) {
-        TryParseIntInRangeLocal(maxBoxesStr, 1, 9999, 30, maxBoxes);
+        TryParseIntInRangeLocal(maxBoxesStr, 1, HeavenFurui::DAILY_OPEN_LIMIT,
+                                HeavenFurui::DAILY_OPEN_LIMIT, maxBoxes);
     }
     HandleBoolResultCommand(
         [maxBoxes]() {
             return StartOneKeyHeavenFuruiPacket(maxBoxes);
         },
-        L"福瑞宝箱：开始遍历地图查找宝箱...",
+        L"福瑞宝箱：开始查找并开箱（每次开箱消耗铜钱）...",
         L"福瑞宝箱启动失败");
 }
 
