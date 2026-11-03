@@ -88,9 +88,11 @@
                 radial-gradient(circle at 80% 16%, rgba(0, 120, 212, 0.07), transparent 22%),
                 radial-gradient(circle at 82% 78%, rgba(16, 110, 190, 0.06), transparent 24%),
                 radial-gradient(circle at 14% 84%, rgba(0, 120, 212, 0.05), transparent 20%);
+            /* 大半径模糊只光栅化一次即可。
+               原先还挂了 18s infinite alternate 的位移动画，等于让整块模糊层
+               每帧重新离屏渲染，界面完全静止时也持续占用 GPU。 */
             filter: blur(18px);
             opacity: 0.72;
-            animation: ambientDrift 18s ease-in-out infinite alternate;
         }
         
         /* 自定义标题栏样式 *//* 自定义标题栏样式 - 浅色主题 */
@@ -208,7 +210,7 @@
         /* 辅助提示文本 */
         .helper-text {
             flex: 1;
-            transition: all 0.2s ease;
+            transition: color 0.2s ease, opacity 0.2s ease;
             min-width: 0;
         }
         
@@ -235,7 +237,7 @@
             border-radius: 50%;
             background: var(--color-primary);
             cursor: pointer;
-            transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.2s ease;
             box-shadow: 0 0 2px rgba(0, 0, 0, 0.2);
         }
 
@@ -301,7 +303,7 @@
         }
         .tabs::-webkit-scrollbar { height: 6px; }
         .tabs::-webkit-scrollbar-track { background: var(--color-background); }
-        .tabs::-webkit-scrollbar-thumb { background: var(--color-border-hover); border-radius: var(--radius-full); transition: all var(--duration-normal) var(--easing-standard); }
+        .tabs::-webkit-scrollbar-thumb { background: var(--color-border-hover); border-radius: var(--radius-full); transition: background-color var(--duration-normal) var(--easing-standard); }
         .tabs::-webkit-scrollbar-thumb:hover { background: var(--color-primary); box-shadow: var(--shadow-sm); }
         
         /* 右侧图标按钮容器 */
@@ -503,7 +505,7 @@
             display: none; 
             opacity: 0; 
             transform: translateY(3px); 
-            transition: all var(--duration-normal) var(--easing-standard); 
+            transition: opacity var(--duration-normal) var(--easing-standard), transform var(--duration-normal) var(--easing-standard); 
             flex: 1;
             flex-direction: column;
             overflow-y: auto;
@@ -528,10 +530,10 @@
         .section-title { font-size: 14px; font-weight: 400; color: var(--color-text-primary); margin-bottom: var(--spacing-md); opacity: 0; transform: translateY(5px); animation: fadeInUp var(--duration-normal) var(--easing-enter) forwards; } /* 减小字体大小和间距 */
         .control-group { margin-bottom: var(--spacing-md); opacity: 0; transform: translateY(5px); animation: fadeInUp var(--duration-normal) var(--easing-enter) forwards; } /* 减小间距 */
         .label { display: block; font-size: 11px; font-weight: 400; color: var(--color-text-primary); margin-bottom: var(--spacing-xs); } /* 减小字体大小和间距 */
-        .input { width: 100%; padding: var(--spacing-xs) var(--spacing-sm); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 11px; background: var(--color-background); color: var(--color-text-primary); transition: all var(--duration-fast) var(--easing-standard); opacity: 0; transform: translateY(5px); animation: fadeInUp var(--duration-normal) var(--easing-enter) forwards; box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.05); } /* 减小字体大小和内边距 */
-        .btn { padding: var(--spacing-xs) var(--spacing-md); border: 1px solid transparent; border-radius: var(--radius-sm); font-size: 11px; font-weight: 400; cursor: pointer; transition: all var(--duration-fast) var(--easing-standard); margin-right: var(--spacing-xs); margin-bottom: var(--spacing-xs); opacity: 0; transform: translateY(5px); animation: fadeInUp var(--duration-normal) var(--easing-enter) forwards; box-shadow: none; } /* 减小字体大小、内边距和外边距 */
+        .input { width: 100%; padding: var(--spacing-xs) var(--spacing-sm); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 11px; background: var(--color-background); color: var(--color-text-primary); transition: border-color var(--duration-fast) var(--easing-standard), background-color var(--duration-fast) var(--easing-standard), box-shadow var(--duration-fast) var(--easing-standard); opacity: 0; transform: translateY(5px); animation: fadeInUp var(--duration-normal) var(--easing-enter) forwards; box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.05); } /* 减小字体大小和内边距 */
+        .btn { padding: var(--spacing-xs) var(--spacing-md); border: 1px solid transparent; border-radius: var(--radius-sm); font-size: 11px; font-weight: 400; cursor: pointer; transition: background-color var(--duration-fast) var(--easing-standard), border-color var(--duration-fast) var(--easing-standard), color var(--duration-fast) var(--easing-standard), box-shadow var(--duration-fast) var(--easing-standard), transform var(--duration-fast) var(--easing-standard); margin-right: var(--spacing-xs); margin-bottom: var(--spacing-xs); opacity: 0; transform: translateY(5px); animation: fadeInUp var(--duration-normal) var(--easing-enter) forwards; box-shadow: none; } /* 减小字体大小、内边距和外边距 */
         .list-view { border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow: hidden; background: var(--color-background); opacity: 0; transform: translateY(5px); animation: fadeInUp var(--duration-normal) var(--easing-enter) forwards; box-shadow: none; } /* 调整动画 */
-        .list-item { padding: var(--spacing-sm) var(--spacing-md); border-bottom: 1px solid var(--color-border); transition: all var(--duration-fast) var(--easing-standard); cursor: pointer; display: flex; justify-content: space-between; align-items: center; opacity: 0; transform: translateX(-6px); animation: fadeInLeft var(--duration-normal) var(--easing-enter) forwards; } /* 减小内边距和动画 */
+        .list-item { padding: var(--spacing-sm) var(--spacing-md); border-bottom: 1px solid var(--color-border); transition: background-color var(--duration-fast) var(--easing-standard), transform var(--duration-fast) var(--easing-standard); cursor: pointer; display: flex; justify-content: space-between; align-items: center; opacity: 0; transform: translateX(-6px); animation: fadeInLeft var(--duration-normal) var(--easing-enter) forwards; } /* 减小内边距和动画 */
         .list-item:last-child { border-bottom: none; }
         .list-item:hover { background: var(--color-background-hover); transform: translateX(0); box-shadow: none; } /* 更微妙的悬停效果 */
         .list-item-content { flex: 1; }
@@ -591,7 +593,9 @@
         
         /* 聚焦效果 - 线性缓动特效 */
         .input {
-            transition: all 0.2s linear; /* 线性缓动特效 */
+            /* 只过渡 border-color 与 box-shadow：聚焦时真正变的就这两项，
+               写 all 会让任何属性变化都进过渡计算。 */
+            transition: border-color 0.2s linear, box-shadow 0.2s linear;
         }
         .input:focus { 
             outline: none; 
@@ -1149,7 +1153,7 @@
             font-size: 10px;
             font-weight: 400;
             cursor: pointer;
-            transition: all var(--duration-fast) var(--easing-standard);
+            transition: background-color var(--duration-fast) var(--easing-standard), color var(--duration-fast) var(--easing-standard), border-color var(--duration-fast) var(--easing-standard);
             border-radius: var(--radius-sm);
         }
         
@@ -1409,13 +1413,11 @@
         .tab-action-button {
             position: relative;
             overflow: hidden;
-            will-change: transform, box-shadow, background-color, border-color;
+            /* 不要再叠 will-change：translateZ(0) 已经建立合成层，
+               再声明 box-shadow 这类无法合成的属性只会白占显存。 */
             transform: translateZ(0);
         }
 
-        .tab-button {
-            will-change: transform, box-shadow, background-color, border-color;
-        }
 
         .btn:hover,
         .sub-tab-button:hover,
@@ -1882,7 +1884,7 @@
             padding: 3px 6px;
             border: 1px solid var(--color-border);
             border-radius: var(--radius-sm);
-            transition: all 0.2s linear;
+            transition: border-color 0.2s linear, box-shadow 0.2s linear;
         }
         
         .packet-hex-input:focus {
@@ -1899,7 +1901,7 @@
             border: none;
             border-radius: var(--radius-sm);
             cursor: pointer;
-            transition: all 0.2s linear;
+            transition: background-color 0.2s linear;
         }
         
         .send-packet-btn:hover {
@@ -2036,7 +2038,6 @@
         .btn {
             position: relative;
             overflow: hidden;
-            will-change: transform, box-shadow, background-color, border-color;
         }
 
         .tab-button:hover,
@@ -2299,21 +2300,19 @@
 
         #wpe button {
             position: relative;
-            will-change: transform, box-shadow, filter;
             transform: translateZ(0);
-            transition: transform var(--duration-fast) var(--easing-standard), box-shadow var(--duration-fast) var(--easing-standard), filter var(--duration-fast) var(--easing-standard);
+            /* filter 变化会让元素重新光栅化，hover 只用位移和阴影。 */
+            transition: transform var(--duration-fast) var(--easing-standard), box-shadow var(--duration-fast) var(--easing-standard);
         }
 
         #wpe button:hover {
             transform: translateY(-1px);
             box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
-            filter: brightness(1.02);
         }
 
         #wpe button:active {
             transform: translateY(0);
             box-shadow: none;
-            filter: brightness(0.98);
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -3723,64 +3722,134 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             }, 1800);
         };
         
-        // 定义全局函数，确保 C++ 端可以随时调用
-        window.addPacketToList = function(index, direction, hex, time, label) {
-            var pListItems = document.getElementById('packet-list-items');
-            if (pListItems) {
-                var packetItem = document.createElement('div');
-                packetItem.className = 'packet-item';
-                packetItem.setAttribute('data-hex', hex);
-                packetItem.setAttribute('data-index', index - 1);  // 修改：使用从0开始的数组索引
+        // ==================== 封包列表渲染 ====================
+        // 封包是高频事件：一次批量刷新可能有几十上百条。旧实现逐条
+        // createElement + innerHTML + scrollTop，等于每包一次 HTML 解析
+        // 和一次强制同步布局（读 scrollHeight 会让浏览器立刻重排），
+        // 累积成 O(n^2)。这里改成「拼一次字符串 + 一次插入 + 一帧滚动」。
 
-                // 确保direction是简短的形式
-                var displayDirection = (direction === '发送包' || direction === '发送') ? '发送' : '接收';
-                var isSend = displayDirection === '发送';
+        // 渲染行数上限，与 C++ 侧 kPacketUiRenderLimit 保持一致。
+        window.packetRenderLimit = 800;
 
-                packetItem.innerHTML = `
-                    <div style="padding: 6px 8px; border-bottom: 1px solid var(--color-border-hover); cursor: pointer; transition: background 0.15s ease;">
-                        <!-- 第一排：序号、类型、时间、标签 -->
-                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                            <div style="width: 25px; flex-shrink: 0; font-weight: 600; color: var(--color-text-secondary); font-size: 9px; text-align: center;">
-                                ${index}.
-                            </div>
-                            <div style="width: 30px; flex-shrink: 0; font-weight: 600; color: ${isSend ? '#0078d4' : '#2e7d32'}; font-size: 9px; background: ${isSend ? 'rgba(0, 120, 212, 0.08)' : 'rgba(46, 125, 50, 0.08)'}; padding: 2px 4px; border-radius: 2px; text-align: center;">
-                                ${displayDirection}
-                            </div>
-                            <div style="width: 50px; flex-shrink: 0; color: var(--color-text-secondary); font-size: 8px; font-family: 'Consolas', monospace;">
-                                ${time}
-                            </div>
-                            <div style="flex: 1; min-width: 0; color: var(--color-primary); font-size: 8px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                                ${label || '-'}
-                            </div>
-                        </div>
-                        <!-- 第二排：封包数据 -->
-                        <div style="color: var(--color-text-primary); font-family: 'Consolas', monospace; font-size: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px;">
-                            ${hex}
-                        </div>
-                    </div>
-                `;
+        window.__escapePacketHtml = function(value) {
+            return String(value === undefined || value === null ? '' : value).replace(/[&<>"']/g, function(ch) {
+                if (ch === '&') return '&amp;';
+                if (ch === '<') return '&lt;';
+                if (ch === '>') return '&gt;';
+                if (ch === '"') return '&quot;';
+                return '&#39;';
+            });
+        };
 
-                // 添加点击事件
-                packetItem.addEventListener('click', function() {
-                    // 移除其他选中状态
-                    var allItems = pListItems.querySelectorAll('.packet-item');
-                    allItems.forEach(function(item) {
-                        item.style.background = '';
-                        item.style.borderLeft = '';
-                    });
-                    // 设置当前选中状态
-                    packetItem.style.background = 'rgba(0, 120, 212, 0.08)';
-                    packetItem.style.borderLeft = '2.1px solid #0078d4';
-                    // 填充到输入框
-                    var hexInput = document.getElementById('packet-hex-input');
-                    if (hexInput) {
-                        hexInput.value = hex;
-                    }
-                });
+        // 一条记录 = [序号(1基), 是否发送(1/0), hex, 时间, 标签]
+        window.__buildPacketRowHtml = function(item) {
+            var index = item[0];
+            var isSend = item[1] === 1;
+            var displayDirection = isSend ? '发送' : '接收';
+            var hex = window.__escapePacketHtml(item[2]);
+            var time = window.__escapePacketHtml(item[3]);
+            var label = window.__escapePacketHtml(item[4] || '-');
+            var dirColor = isSend ? '#0078d4' : '#2e7d32';
+            var dirBg = isSend ? 'rgba(0, 120, 212, 0.08)' : 'rgba(46, 125, 50, 0.08)';
 
-                pListItems.appendChild(packetItem);
-                pListItems.scrollTop = pListItems.scrollHeight; // 自动滚动到底底
+            // 整行只做一次字符串拼接，由调用方一次插入；不再逐行 innerHTML。
+            return '<div class="packet-item" data-index="' + (index - 1) + '">'
+                + '<div style="padding: 6px 8px; border-bottom: 1px solid var(--color-border-hover); cursor: pointer;">'
+                +   '<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">'
+                +     '<div style="width: 25px; flex-shrink: 0; font-weight: 600; color: var(--color-text-secondary); font-size: 9px; text-align: center;">' + index + '.</div>'
+                +     '<div style="width: 30px; flex-shrink: 0; font-weight: 600; color: ' + dirColor + '; font-size: 9px; background: ' + dirBg + '; padding: 2px 4px; border-radius: 2px; text-align: center;">' + displayDirection + '</div>'
+                +     '<div style="width: 50px; flex-shrink: 0; color: var(--color-text-secondary); font-size: 8px; font-family: \'Consolas\', monospace;">' + time + '</div>'
+                +     '<div style="flex: 1; min-width: 0; color: var(--color-primary); font-size: 8px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + label + '</div>'
+                +   '</div>'
+                +   '<div class="packet-hex" style="color: var(--color-text-primary); font-family: \'Consolas\', monospace; font-size: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px;">' + hex + '</div>'
+                + '</div>'
+                + '</div>';
+        };
+
+        // 列表世代号：整表重建时递增。已经投递出去、但晚于重建执行的
+        // 增量批次带的是旧世代号，直接丢弃，否则新表尾部会被旧行串色。
+        window.__packetGeneration = 0;
+
+        // 合并到下一帧再滚：每次插入都读 scrollHeight 会强制同步布局。
+        window.__packetScrollPending = false;
+        window.__packetScrollNearBottom = true;
+        window.schedulePacketListScroll = function(nearBottom) {
+            if (typeof nearBottom === 'boolean') {
+                window.__packetScrollNearBottom = nearBottom;
             }
+            if (window.__packetScrollPending) return;
+            window.__packetScrollPending = true;
+
+            var run = function() {
+                window.__packetScrollPending = false;
+                var el = document.getElementById('packet-list-items');
+                if (el && window.__packetScrollNearBottom) {
+                    el.scrollTop = el.scrollHeight;
+                }
+            };
+            if (window.requestAnimationFrame) {
+                window.requestAnimationFrame(run);
+            } else {
+                window.setTimeout(run, 16);
+            }
+        };
+
+        // C++ 端批量刷新入口：items 是所有新增行，total 是内存列表里的真实条数。
+        window.addPacketsToList = function(items, total, generation) {
+            var pListItems = document.getElementById('packet-list-items');
+            if (!pListItems || !items || !items.length) return;
+            if (typeof generation === 'number' && generation !== window.__packetGeneration) {
+                return;  // 属于上一世代的批次，整表已经重建过了
+            }
+
+            // 先判断用户是否停在底部：插入之后 scrollHeight 已经变了，再判断就晚了。
+            var nearBottom = (pListItems.scrollHeight - pListItems.scrollTop - pListItems.clientHeight) < 48;
+
+            var html = '';
+            for (var i = 0; i < items.length; i++) {
+                html += window.__buildPacketRowHtml(items[i]);
+            }
+            pListItems.insertAdjacentHTML('beforeend', html);
+
+            // 行数封顶：只留最近若干行，更早的仍留在 C++ 内存列表里可删。
+            var overflow = pListItems.children.length - window.packetRenderLimit;
+            for (var j = 0; j < overflow; j++) {
+                if (!pListItems.firstElementChild) break;
+                pListItems.removeChild(pListItems.firstElementChild);
+            }
+
+            if (typeof total === 'number') {
+                window.updatePacketCount(total);
+            }
+            window.schedulePacketListScroll(nearBottom);
+        };
+
+        // 整表重建入口：一次 innerHTML 替换，替代原先的「清空 + n 次 ExecuteScript」。
+        window.replacePacketList = function(items, total, generation) {
+            var pListItems = document.getElementById('packet-list-items');
+            if (!pListItems) return;
+            if (typeof generation === 'number') {
+                window.__packetGeneration = generation;
+            }
+
+            var html = '';
+            if (items && items.length) {
+                for (var i = 0; i < items.length; i++) {
+                    html += window.__buildPacketRowHtml(items[i]);
+                }
+            }
+            pListItems.innerHTML = html;
+
+            if (typeof total === 'number') {
+                window.updatePacketCount(total);
+            }
+            window.schedulePacketListScroll(true);
+        };
+
+        // 单条入口保留，供旧的调用点与调试时使用。
+        window.addPacketToList = function(index, direction, hex, time, label) {
+            var isSend = (direction === '发送包' || direction === '发送') ? 1 : 0;
+            window.addPacketsToList([[index, isSend, hex, time, label]]);
         };
         window.addPacketToUI = window.addPacketToList; // 兼容性别名
 
@@ -5086,6 +5155,9 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
 
         // 辅助日志管理
         window.helperLogData = [];
+        // 日志最多保留 1000 条，超出后一次丢弃最早的 200 条（减少裁剪频率）。
+        window.helperLogLimit = 1000;
+        window.helperLogTrimStep = 200;
 
         // 自动滚到底部：合并到下一帧，避免每条日志都触发一次强制同步布局
         // （日志列表是滚动容器，逐条读 scrollHeight 会累积成 O(n^2)）
@@ -5162,6 +5234,21 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 content: text
             };
             window.helperLogData.push(logItem);
+
+            // 长时间挂机时日志只增不减，DOM 行和数组都会无限增长。
+            // 超过上限后按块丢弃最早的行（数据与 DOM 一起丢），保持两边的对应关系。
+            if (window.helperLogData.length > window.helperLogLimit) {
+                window.helperLogData.splice(0, window.helperLogTrimStep);
+                for (var trim = 0; trim < window.helperLogTrimStep; trim++) {
+                    var oldest = logList.querySelector('.log-row');
+                    if (!oldest) break;
+                    logList.removeChild(oldest);
+                }
+                // 只在真正裁剪后重编号，避免每条日志都遍历一遍数组。
+                for (var renumber = 0; renumber < window.helperLogData.length; renumber++) {
+                    window.helperLogData[renumber].index = renumber + 1;
+                }
+            }
 
             // 添加到UI：用 textContent 填充内容，避免日志文本破坏表格布局
             var logDiv = document.createElement('div');
@@ -5574,23 +5661,22 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
             packetList.addEventListener('click', function(e) {
                 var pListItems = document.getElementById('packet-list-items');
                 if (!pListItems) return;
-                
+
                 var clickedItem = e.target.closest('.packet-item');
-                if (clickedItem) {
-                    // 移除之前的选中状态
-                    var allItems = pListItems.querySelectorAll('.packet-item');
-                    allItems.forEach(function(item) {
-                        item.classList.remove('selected');
-                    });
-                    
-                    // 添加当前项的选中状态
-                    clickedItem.classList.add('selected');
-                    
-                    // 将16进制字符串显示到编辑框
-                    var hexData = clickedItem.getAttribute('data-hex');
-                    if (packetHexInput) {
-                        packetHexInput.value = hexData;
-                    }
+                if (!clickedItem) return;
+
+                // 只改上一个选中行：旧实现遍历全部行逐个 remove class，行数一多就是 O(n)。
+                var previous = pListItems.querySelector('.packet-item.selected');
+                if (previous && previous !== clickedItem) {
+                    previous.classList.remove('selected');
+                }
+                clickedItem.classList.add('selected');
+
+                // hex 直接从行内文本读，不再每行额外存一份 data-hex 属性
+                // （2 万行时那是双份内存）。
+                var hexCell = clickedItem.querySelector('.packet-hex');
+                if (packetHexInput && hexCell) {
+                    packetHexInput.value = hexCell.textContent;
                 }
             });
         }
@@ -5633,9 +5719,11 @@ justify-content:center;background:#eef3fa;border-bottom:1px solid #e0e0e0;color:
                 var selectedItems = pListItems.querySelectorAll('.packet-item.selected');
                 var indices = [];
                 selectedItems.forEach(function(item) {
+                    // data-index 已经是 0 基下标，直接回传；
+                    // 原先这里又减了 1，删除选中项时总删到上一行。
                     var index = parseInt(item.getAttribute('data-index'), 10);
                     if (!isNaN(index)) {
-                        indices.push(index - 1);
+                        indices.push(index);
                     }
                     item.remove();
                 });

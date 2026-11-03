@@ -551,12 +551,14 @@ namespace {
 std::mutex g_packetUiMutex;
 }
 
-// 生成"往列表追加一行"的 JS。hex、方向、时间、标签全部从封包本身算，
-// 让整表重建与增量追加两条路径输出的 DOM 完全一致。
-static std::wstring BuildPacketListEntryJs(const BYTE* pData, DWORD dwSize, BOOL bSend,
-                                           DWORD dwTime, size_t displayIndex) {
-    const std::wstring direction = bSend ? L"发送包" : L"接收包";
-    const std::wstring wideHex = Utf8ToWide(HexToString(pData, dwSize));
+// 把一条封包整理成 UI 需要的字段。hex 与标签的解析只在这里做一次，
+// 增量追加与整表重建共用，两条路径显示出来的内容因此完全一致。
+static UIBridge::PacketUiEntry MakePacketUiEntry(const BYTE* pData, DWORD dwSize, BOOL bSend,
+                                                 DWORD dwTime, size_t displayIndex) {
+    UIBridge::PacketUiEntry entry;
+    entry.index = displayIndex;
+    entry.bSend = bSend != FALSE;
+    entry.hex = Utf8ToWide(HexToString(pData, dwSize));
 
     std::string labelUtf8;
     if (dwSize >= PacketProtocol::HEADER_SIZE) {
@@ -569,14 +571,31 @@ static std::wstring BuildPacketListEntryJs(const BYTE* pData, DWORD dwSize, BOOL
             labelUtf8 = GetPacketLabel(opcode, bSend);
         }
     }
+    entry.label = Utf8ToWide(labelUtf8);
 
     wchar_t timeStr[64];
     FormatPacketClock(dwTime, timeStr, _countof(timeStr));
+    entry.time = timeStr;
 
-    return L"if(window.addPacketToList) { window.addPacketToList("
-        + std::to_wstring(displayIndex) + L", '" + UIBridge::EscapeJsonString(direction) + L"', '"
-        + UIBridge::EscapeJsonString(wideHex) + L"', '" + UIBridge::EscapeJsonString(timeStr) + L"', '"
-        + UIBridge::EscapeJsonString(Utf8ToWide(labelUtf8)) + L"'); }";
+    return entry;
+}
+
+// 拼成 JS 数组项：[序号, 是否发送(1/0), hex, 时间, 标签]。
+// 用定长数组而不是对象字面量：每包省下几十个字节的键名，2 万包就是几十 KB。
+static std::wstring BuildPacketEntryLiteral(const UIBridge::PacketUiEntry& entry) {
+    std::wstring item;
+    item.reserve(entry.hex.size() + entry.label.size() + 48);
+    item += L'[';
+    item += std::to_wstring(entry.index);
+    item += entry.bSend ? L",1," : L",0,";
+    item += L"'";
+    item += UIBridge::EscapeJsonString(entry.hex);
+    item += L"','";
+    item += UIBridge::EscapeJsonString(entry.time);
+    item += L"','";
+    item += UIBridge::EscapeJsonString(entry.label);
+    item += L"'],";
+    return item;
 }
 
 void SyncPacketsToUI() {
@@ -586,47 +605,47 @@ void SyncPacketsToUI() {
 
     std::lock_guard<std::mutex> uiLock(g_packetUiMutex);
 
-    // 深拷贝快照：锁外继续使用封包内容，避免别的线程清列表后读到已释放的内存。
-    const std::vector<PacketSnapshot> packetsCopy = SnapshotPacketList();
-    if (packetsCopy.empty()) {
-        return;
-    }
+    // 整表重建之前先丢弃排队中的增量行：否则重建完成后这批旧行会被追加到
+    // 新列表末尾，行序和内存里的 g_PacketList 就对不上了。
+    UIBridge::Instance().ClearPendingPacketEntries();
 
-    // 检查窗口句柄有效性
     if (!IsWindow(g_hWnd)) {
         return;
     }
-    
-    // 清空UI列表项
-    {
-        std::wstring jsClear = 
-            L"(function(){"
-            L" var pList=document.getElementById('packet-list');"
-            L" if(pList){"
-            L"   var pListItems=document.getElementById('packet-list-items');"
-            L"   if(pListItems){ pListItems.innerHTML=''; }"
-            L" }"
-            L"})();";
-        
-        UIBridge::Instance().ExecuteJS(jsClear);
-    }
-    
-    // 批量同步封包
-    for (size_t i = 0; i < packetsCopy.size(); ++i) {
-        const auto& packet = packetsCopy[i];
+
+    // 只拷贝尾部若干条：整表重建只需要渲染最近几十屏，
+    // 在临界区里深拷贝上万个包会反过来卡住游戏 socket 线程。
+    const std::vector<PacketSnapshot> packetsCopy = SnapshotRecentPacketList(kPacketUiRenderLimit);
+    // 总数取内存列表的真实长度，不能用「最后一条下标 + 1」：
+    // 尾部若夹着空包，那样算出来的数会偏小。
+    const size_t totalCount = GetPacketCount();
+    const unsigned int generation = UIBridge::Instance().PacketListGeneration();
+
+    std::wstring items;
+    items.reserve(packetsCopy.size() * 192);
+    for (const auto& packet : packetsCopy) {
         if (packet.data.empty()) continue;
-        // 序号取封包在原列表里的下标，列表里若有空包被跳过也不会错行。
-        UIBridge::Instance().ExecuteJS(BuildPacketListEntryJs(
+        // 序号取封包在原列表里的下标，尾部渲染下也仍从 1 连续计数。
+        items += BuildPacketEntryLiteral(MakePacketUiEntry(
             packet.data.data(), static_cast<DWORD>(packet.data.size()),
             packet.bSend ? TRUE : FALSE, packet.dwTime, packet.index + 1));
     }
-    
-    // 在最后统一更新一次计数
-    std::wstring jsUpdateCount = 
-        L"if(window.updatePacketCount) { window.updatePacketCount(" 
-        + std::to_wstring(packetsCopy.size()) + L"); }";
-    
-    UIBridge::Instance().ExecuteJS(jsUpdateCount);
+    if (!items.empty() && items.back() == L',') {
+        items.pop_back();
+    }
+
+    // 整表重建只下发一次脚本：清空、逐行插入、更新计数都在 JS 侧完成。
+    std::wstring script;
+    script.reserve(items.size() + 96);
+    script += L"if(window.replacePacketList){window.replacePacketList([";
+    script += items;
+    script += L"],";
+    script += std::to_wstring(totalCount);
+    script += L",";
+    script += std::to_wstring(generation);
+    script += L");}";
+
+    UIBridge::Instance().ExecuteJS(script);
 }
 
 void AppendPacketAndShow(const PACKET& packet) {
@@ -658,22 +677,19 @@ void AppendPacketAndShow(const PACKET& packet) {
         displayIndex = g_PacketList.size();
     }
 
+    // 只在面板可见时才往 UI 送：面板隐藏时计数由 HandlePacketWindowVisibilityChanged
+    // 在打开/关闭的那一刻同步一次，不必每包都发。
     if (AppHost::IsPacketWindowVisible()) {
         if (evicted) {
             // 淘汰了队首后，内存里的下标整体前移，增量追加已对不上，整表重建一次。
             // 重建自带 g_packetUiMutex，和窗口切换触发的重建互斥。
             SyncPacketsToUI();
         } else {
-            UIBridge::Instance().ExecuteJS(BuildPacketListEntryJs(
+            // 入队而不是直接下发脚本：真正的 ExecuteScript 由 UI 线程按批合并。
+            UIBridge::Instance().QueuePacketEntry(MakePacketUiEntry(
                 packet.pData, packet.dwSize, packet.bSend, packet.dwTime, displayIndex));
         }
     }
-
-    // 计数在窗口关闭时也要更新。
-    const std::wstring jsCountCode =
-        L"if(window.updatePacketCount) { window.updatePacketCount("
-        + std::to_wstring(displayIndex) + L"); }";
-    UIBridge::Instance().ExecuteJS(jsCountCode);
 }
 
 // ============================================================================

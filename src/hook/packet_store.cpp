@@ -232,6 +232,31 @@ std::vector<PacketSnapshot> SnapshotPacketList() {
     return snapshot;
 }
 
+std::vector<PacketSnapshot> SnapshotRecentPacketList(std::size_t limit) {
+    std::vector<PacketSnapshot> snapshot;
+    CriticalSectionLock lock(g_packetListCS.Get());
+
+    const std::size_t total = g_PacketList.size();
+    const std::size_t begin = total > limit ? total - limit : 0;
+    snapshot.reserve(total - begin);
+
+    for (std::size_t i = begin; i < total; ++i) {
+        const auto& packet = g_PacketList[i];
+        if (!packet.pData || packet.dwSize == 0) {
+            continue;
+        }
+        PacketSnapshot item;
+        // 序号取原列表下标：UI 删除选中项时按下标回传，
+        // 只渲染尾部时行号仍要与内存列表对得上。
+        item.index = i;
+        item.bSend = packet.bSend != FALSE;
+        item.dwTime = packet.dwTime;
+        item.data.assign(packet.pData, packet.pData + packet.dwSize);
+        snapshot.push_back(std::move(item));
+    }
+    return snapshot;
+}
+
 VOID ClearPacketList() {
     if (!IsWpeHookInitialized()) return;
     

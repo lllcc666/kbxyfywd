@@ -23,7 +23,14 @@ BOOL SendPacketBytes(const std::vector<BYTE>& packet, uint32_t expectedOpcode,
 VOID ClearPacketList();
 VOID DeleteSelectedPackets(const std::vector<DWORD>& indices);
 DWORD GetPacketCount();
-constexpr std::size_t kMaxPacketListSize = 20000;
+// 内存里保留的封包数。UI 只渲染最后 kPacketUiRenderLimit 条，
+// 但内存容量仍决定「往回翻」能否删除更早的包，故不宜过小。
+constexpr std::size_t kMaxPacketListSize = 5000;
+
+// 封包列表一次最多渲染的行数。
+// 列表是「边收边看」的滚动窗，2 万行 DOM 带来的重排/内存开销远大于收益；
+// 超出部分只保留在内存列表里，由 C++ 侧的序号继续累加。
+constexpr std::size_t kPacketUiRenderLimit = 800;
 
 struct PacketSnapshot {
     std::size_t index;
@@ -34,6 +41,11 @@ struct PacketSnapshot {
 
 void FormatPacketClock(DWORD tick, wchar_t* out, std::size_t outCount);
 std::vector<PacketSnapshot> SnapshotPacketList();
+
+/// 只深拷贝列表尾部 limit 条。
+/// 整表重建只需要渲染最近若干条，全量快照会让 UI 线程在临界区里
+/// 拷贝上万个包的字节数组，反过来卡住游戏 socket 线程。
+std::vector<PacketSnapshot> SnapshotRecentPacketList(std::size_t limit);
 std::string HexToString(const BYTE* pData, DWORD dwSize, bool spaced = true);
 std::vector<BYTE> StringToHex(const std::string& str);
 void AppendPacketAndShow(const PACKET& packet);

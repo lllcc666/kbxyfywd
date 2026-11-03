@@ -1119,6 +1119,10 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             delete[] script;
         }
         break;
+    case AppMessage::kFlushPacketEntries:
+        // 封包批量刷新：socket 线程只入队，这里一次性拼成一整段脚本下发。
+        UIBridge::Instance().FlushPacketEntries();
+        break;
     case AppMessage::kDecomposeComplete:
         // 在UI线程中安全地调用分解完成的JavaScript回调
         ExecuteScriptInWebView2(L"if(window.onDecomposeComplete) window.onDecomposeComplete();");

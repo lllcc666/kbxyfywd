@@ -9,6 +9,8 @@
 #pragma once
 
 #include <windows.h>
+#include <cstddef>
+#include <mutex>
 #include <string>
 
 /**
@@ -63,6 +65,53 @@ public:
     void ExecuteJS(const std::wstring& script);
 
     // ================================
+    // 封包列表批量投递
+    // ================================
+
+    /**
+     * @brief 一条待显示的封包记录（不含 JS，只描述数据）。
+     *
+     * 由 wpe_hook 侧填好后入队，UIBridge 负责拼成一次批量脚本。
+     * 字段保持纯数据，避免把封包语义泄漏进 UI 桥接层。
+     */
+    struct PacketUiEntry {
+        std::size_t index = 0;    ///< 1 基序号，同时作为列表显示序号
+        bool bSend = false;
+        std::wstring hex;
+        std::wstring time;
+        std::wstring label;
+    };
+
+    /**
+     * @brief 入队一条封包记录（任意线程调用）。
+     *
+     * 只在队列为空且无待处理刷新时才 PostMessage 唤醒 UI 线程，
+     * 因此高频调用下每次只付出一次字符串拼接的成本。
+     */
+    void QueuePacketEntry(PacketUiEntry entry);
+
+    /**
+     * @brief UI 线程收到 kFlushPacketEntries 后调用：把已入队的记录合成一次脚本下发。
+     */
+    void FlushPacketEntries();
+
+    /**
+     * @brief 丢弃尚未下发的封包记录，并递增列表世代号。
+     *
+     * 整表重建（切换窗口 / 删除 / 淘汰）之前必须调用，
+     * 否则重建后的新列表会被残留的旧行追加，导致行序与内存列表错位。
+     */
+    void ClearPendingPacketEntries();
+
+    /**
+     * @brief 当前封包列表世代号。
+     *
+     * 已经投递但还没执行的增量脚本带的是旧世代号，JS 侧会把它丢掉，
+     * 保证「重建之后到达的旧批次」不会污染新列表。
+     */
+    unsigned int PacketListGeneration();
+
+    // ================================
     // 辅助方法
     // ================================
 
@@ -82,6 +131,12 @@ private:
     UIBridge& operator=(const UIBridge&) = delete;
 
     HWND m_hwnd = nullptr;  ///< 主窗口句柄
+
+    std::mutex m_queueMutex;                     ///< 保护下面三个字段
+    std::wstring m_pendingEntries;               ///< 已拼好的 JS 数组项，项间以逗号分隔
+    std::size_t m_pendingLastIndex = 0;          ///< 待下发批次里最后一条的序号，用作列表总数
+    bool m_flushPosted = false;                  ///< 是否已投递刷新消息，避免每包一次 PostMessage
+    unsigned int m_packetGeneration = 0;         ///< 封包列表世代号，整表重建时递增
 };
 
 // ================================

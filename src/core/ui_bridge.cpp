@@ -64,6 +64,92 @@ void UIBridge::ExecuteJS(const std::wstring& script) {
 }
 
 // ============================================================================
+// 封包列表批量投递
+// ============================================================================
+
+void UIBridge::QueuePacketEntry(PacketUiEntry entry) {
+    if (!m_hwnd) return;
+
+    // 在调用线程里先把本条拼成 JS 数组项：hex 可能有几 KB，
+    // 拼装成本属于产生封包的线程，不该挪到 UI 线程逐条做。
+    std::wstring item;
+    item.reserve(entry.hex.size() + entry.label.size() + 48);
+    item += L'[';
+    item += std::to_wstring(entry.index);
+    item += (entry.bSend ? L",1," : L",0,");
+    item += L"'";
+    item += EscapeJsonString(entry.hex);
+    item += L"','";
+    item += EscapeJsonString(entry.time);
+    item += L"','";
+    item += EscapeJsonString(entry.label);
+    item += L"'],";
+
+    bool needPost = false;
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        m_pendingEntries += item;
+        m_pendingLastIndex = entry.index;
+        if (!m_flushPosted) {
+            m_flushPosted = true;
+            needPost = true;
+        }
+    }
+
+    // 只有「队列从空变为非空」时投递一次。UI 线程处理消息的间隙里
+    // socket 线程塞进来的封包会被自动合并进同一批。
+    if (needPost && !PostMessage(m_hwnd, AppMessage::kFlushPacketEntries, 0, 0)) {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        m_flushPosted = false;
+    }
+}
+
+void UIBridge::FlushPacketEntries() {
+    std::wstring items;
+    std::size_t total = 0;
+    unsigned int generation = 0;
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        m_flushPosted = false;
+        items.swap(m_pendingEntries);
+        total = m_pendingLastIndex;
+        generation = m_packetGeneration;
+    }
+
+    if (items.empty()) return;
+    if (items.back() == L',') items.pop_back();
+
+    std::wstring script;
+    script.reserve(items.size() + 96);
+    script += L"if(window.addPacketsToList){window.addPacketsToList([";
+    script += items;
+    script += L"],";
+    script += std::to_wstring(total);
+    script += L",";
+    script += std::to_wstring(generation);
+    script += L");}";
+
+    // 走 ExecuteJS 而不是直接 ExecuteScriptInWebView2：本函数虽然只从
+    // 主窗口过程调用，但仍让脚本经由 UI 线程消息统一下发，避免将来误用
+    // 时在非 UI 线程直接摸 WebView2。
+    ExecuteJS(script);
+}
+
+void UIBridge::ClearPendingPacketEntries() {
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    m_pendingEntries.clear();
+    m_pendingLastIndex = 0;
+    // 世代号 +1：已经投递出去、但还没被 UI 线程执行的那批脚本带的是旧世代号，
+    // JS 侧据此丢弃，避免重建后的新列表被旧行追加。
+    ++m_packetGeneration;
+}
+
+unsigned int UIBridge::PacketListGeneration() {
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    return m_packetGeneration;
+}
+
+// ============================================================================
 // 辅助方法
 // ============================================================================
 
