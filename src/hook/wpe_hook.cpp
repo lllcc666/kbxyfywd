@@ -1659,19 +1659,12 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerParams(Opcode::HORSE_COMPETITION_BACK, Opcode::HORSE_COMPETITION_ACT_ID, ProcessHorseCompetitionResponse);
 
     // 最新活动（周活动小游戏）：按活动 ID 路由到统一处理器
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_MAZE, ProcessLatestActivityResponse);
-    registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_HULU, ProcessLatestActivityResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_STAR_PRINCESS, ProcessLatestActivityResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_FIND_CORNEL, ProcessLatestActivityResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_FIGHT_EVILS, ProcessLatestActivityResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_TREASURE, ProcessLatestActivityResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_PUMPKINS_PK, ProcessLatestActivityResponse);
-
-    // 742 守护葫芦藤的结算包走 OP_CLIENT_LUA_ACTIVITY_V3.send(1185432)
-    // （KBHuluSendAction.as:61），回包因此可能落在 1316503 而不是 1316501。
-    // AS3 的 KBHuluModel 只监听了 1316501，说明服务端两条都发或按 params 归并；
-    // 这里两条都注册，哪条先到都能结算，避免 endSettled 永远等不到。
-    registerParams(Opcode::ACTIVITY_LUA_V3_BACK, LatestAct::ACT_HULU, ProcessLatestActivityResponse);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_QIAO, ProcessLatestActivityResponse);
 
     registerParams(Opcode::HEAVEN_FURUI_BACK, HeavenFurui::ACTIVITY_ID, ProcessHeavenFuruiResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, HeavenFurui::ACTIVITY_ID, ProcessHeavenFuruiResponse);

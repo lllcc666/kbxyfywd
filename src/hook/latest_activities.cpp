@@ -7,7 +7,6 @@
 #include <atomic>
 #include <chrono>
 #include <fstream>
-#include <map>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -40,30 +39,18 @@ struct LatestActDesc {
     const char* openUiOp;   ///< 进入活动操作串：多数 "open_ui"，730 为 "game_info"
     int targetScore;        ///< 走游戏流程时提交的目标分（= 各自满分）
     /// 扫荡门槛用的「上限最高分」，与历史统一标准 ShouldAutoSweep(bestScore, passScore)
-    /// 的第二个参数同义：历史成绩达到它才允许直接扫荡。0 表示该活动没有分数概念
-    /// （742 守护葫芦藤按棋盘格计奖，open_ui 里也没有成绩字段），只能先打一局。
+    /// 的第二个参数同义：历史成绩达到它才允许直接扫荡。0 表示该活动没有上限最高分
+    /// 常量，门槛退化为进入包里的「今天成功打完过一局」标志位（882/808）。
     int passScore;
     bool reportsDailyTask;  ///< 结算后是否上报每日任务（721/730 有）
     /// 本地是否有可自动化的游戏循环。全部收录活动都必须是 true：
     /// 只有「完整打完一局」和「扫荡」两条路径，没有第三条。
     bool playable;
-    /// open_ui / game_info 回包里是否自带「能不能扫荡」的本地判据，用来在开局决定
-    /// 要不要先打一局。不能靠发 sweep_info 去问——那是「预览本次扫荡奖励」的包，
-    /// 不是「有没有历史成绩」的查询，拿它当门槛会在开局先扣掉一次真实扫荡。
-    ///
-    ///   true  + passScore > 0 ：回包带历史最好成绩，门槛 ShouldAutoSweep(成绩, 满分)。
-    ///   true  + passScore == 0：回包带「今天成功打完过一局」标志位（bestFlag），
-    ///                           门槛 bestFlag > 0。882 南瓜VS南瓜王属于这一档。
-    ///   false                 ：进入包只有次数与冷却（742 守护葫芦藤
-    ///                           KBHuluModel.as:71-85），本地无从判断，只能问服务端。
-    bool scoreInOpenUi;
 };
 
-// 列：id, name, openUiOp, targetScore, passScore, reportsDailyTask, playable, scoreInOpenUi
+// 列：id, name, openUiOp, targetScore, passScore, reportsDailyTask, playable
 //
 // passScore 一律取 AS3 里那个「显示给玩家看的上限最高分」常量，不要自己估：
-//   647 突破迷阵    data/MazeAward.as:19            maxScore = 180
-//   742 守护葫芦藤  无分数概念（按棋盘格计奖）        = 0
 //   721 采菊东篱下  enum/EDataType.as:79            MAX_SCORE = 400
 //   877 寻找七色茱萸 emun/EType.as:92               max_score = 10
 //   730 智斗恶灵    enum/EDataType.as:123           MAX_SCORE = 160
@@ -75,24 +62,28 @@ struct LatestActDesc {
 //                    EType.as 的 AWARD_MAX_CHANGE 是奖励索引上限，不是勋章上限。
 //                    勋章上限只在服务端、客户端不显示，所以不判「成绩是否满分」；
 //                    但 open_ui 的 bestFlag 明确是「今天成功打完过一局」，用它当门槛。）
+//   808 欢乐跷跷板  无上限常量（KBQiaoData.as:96 的 max_score = 55 只是
+//                    KBBatttleView.init:172 写进文本框的展示值，服务端按它生成
+//                    掉落表；本局提交的是真实捡到的分，所以 targetScore = 0）；
+//                    门槛同样退化为 open_ui 的 historyBestScore > 0。
 //
 // 扫荡次数：全部活动的 AS3 扫荡窗口一律把次数一次交上去——
-//   647 NewSweepUI.as:78        [GET_SWEEP, _curCnt]
-//   742 SweepView.as:80         [GET_SWEEP, _curCnt]
 //   721 ActSweepWin.as:84       [SWEEP, _curCnt]
 //   877 ActSweepWin.as:77       [SWEEP, _curCnt]
 //   730 Act730SweepWin.as:79    [SWEEP, _curCnt]
 //   880 SweepUI.as:80           [GET_SWEEP, _curCnt]
 //   882 ActSweepWin.as:61       [SWEEP, int(_changePanel.text)]
+//   808 Act808SweepWin.as:77    [SWEEP, this._curCnt]（updateSweepUI:124-125 把
+//                               _curCnt 预置成全部剩余次数，一次扫完）
 // 所以 sweep 一律带次数、一次发完，没有「无参 sweep 逐次发」那种活动。
 const LatestActDesc kActivities[] = {
-    {LatestAct::ACT_MAZE, L"突破迷阵", "open_ui", 180, 180, false, true, true},
-    {LatestAct::ACT_HULU, L"守护葫芦藤", "open_ui", 0, 0, false, true, false},
-    {LatestAct::ACT_STAR_PRINCESS, L"采菊东篱下", "open_ui", 400, 400, true, true, true},
-    {LatestAct::ACT_FIND_CORNEL, L"寻找七色茱萸", "open_ui", 10, 10, false, true, true},
-    {LatestAct::ACT_FIGHT_EVILS, L"智斗恶灵", "game_info", 160, 160, true, true, true},
-    {LatestAct::ACT_TREASURE, L"夺宝行动", "open_ui", 55, 55, false, true, true},
-    {LatestAct::ACT_PUMPKINS_PK, L"南瓜VS南瓜王", "open_ui", 0, 0, false, true, true},
+    {LatestAct::ACT_STAR_PRINCESS, L"采菊东篱下", "open_ui", 400, 400, true, true},
+    {LatestAct::ACT_FIND_CORNEL, L"寻找七色茱萸", "open_ui", 10, 10, false, true},
+    {LatestAct::ACT_FIGHT_EVILS, L"智斗恶灵", "game_info", 160, 160, true, true},
+    {LatestAct::ACT_TREASURE, L"夺宝行动", "open_ui", 55, 55, false, true},
+    {LatestAct::ACT_PUMPKINS_PK, L"南瓜VS南瓜王", "open_ui", 0, 0, false, true},
+    // 808 的 sendEndGame:75 顺带上报每日任务 [3, 4039001, 0]，与 882 一致。
+    {LatestAct::ACT_QIAO, L"欢乐跷跷板", "open_ui", 0, 0, true, true},
 };
 
 constexpr int kActivityNum = static_cast<int>(sizeof(kActivities) / sizeof(kActivities[0]));
@@ -117,9 +108,18 @@ constexpr DWORD kWaitMarginMs = 1000;
 // （ActivityGame.onReqEndGame:226）。
 constexpr int kFindCornelAwardSlots = 16;
 
-// 742 守护葫芦藤：start_game 回包固定下发 165 格棋盘（KBHuluModel.as:95 的 for 循环上限），
-// 结算时要把「打到了哪些格」按 {格号: 次数} 的 JSON 交回去。
-constexpr int kHuluSquares = 165;
+// 808 欢乐跷跷板：start_game 回包固定下发 180 项掉落表（KBQiaoModel.decodeStartGame:138-141
+// 的 for 循环上限），每项是一次掉落物的类型 id。整局由 KBTimeUtil 每秒 tick 一次、
+// 每两个 tick 调 createAI(4)（KBBatttleView.updateTool:63-73），45 × 4 = 180，正好把整张表
+// 消费完。结算时只回传按类型累计的计数器与总分，所以这里存下来就够，不必保留表本身。
+constexpr int kQiaoDrops = 180;
+constexpr int kQiaoTypeSlots = 15;   ///< awardNumArr / scoreArr / ACTIVE_TOOL_TOOL_NUM 长度
+constexpr int kQiaoScoreType = 15;   ///< 计分类型：只有它让 scoreArr[14] 自增（KBPerker.as:130-142）
+constexpr int kQiaoBoltType = 30;    ///< 闪电：只扣 HP，不进 scoreArr/awardNumArr，也不发 gameing
+                                     ///< （KBPerker.as:105-117）
+// 808 过程包间隔。整局最多 180 条 gameing，按 AS3 的 90 秒铺开是纯浪费；300ms 是
+// 本模块实测能稳定结算的档位（与 730 的 200ms 同一量级），跑通后可以再往下压。
+constexpr DWORD kQiaoPacketGapMs = 300;
 
 // 882 南瓜VS南瓜王：局内掉落表的消费口径。
 //
@@ -182,13 +182,25 @@ struct LatestActState {
     /// 读到未更新的 checkCode/sweepReady，既可能误判扫荡放行，也可能误判执行失败。
     std::atomic<uint32_t> pendingOp{0};  ///< 0 = 未在等待
 
-    /// 742 专用：start_game 回包下发的 165 格棋盘原始 award id
-    /// （KBHuluModel.as:95-105）。本地对局就是按 levIndex 顺序把每一格记进
-    /// rewardObj，结算时 JSON.stringify 回传。
-    std::array<int, kHuluSquares> huluBoard{};
-    /// 棋盘是否已完整收到。写棋盘在前、置位在后（release），读侧先读它再读棋盘，
-    /// 保证响应线程写的 165 个 int 不会被一键线程读到半截。
-    std::atomic<bool> huluBoardReady{false};
+    /// 808 专用：start_game 回包下发的 180 项掉落表原始类型 id
+    /// （KBQiaoModel.decodeStartGame:138-141）。整局把整张表按类型累计成计数器，
+    /// 结算时回传（KBQiaoControl.sendEndGame:68-73）。
+    std::array<int, kQiaoDrops> qiaoDrops{};
+    /// 掉落表是否已完整读到。写表在前、置位在后（release），读侧先读它再读表，
+    /// 保证响应线程写的 180 个 int 不会被一键线程读到半截。
+    std::atomic<bool> qiaoDropReady{false};
+    /// 808 专用：结算要回传的 15 项奖励计数（KBPerker.as:149-153 每次命中 ++）。
+    /// 只有一键线程写（RunPlayProcess 里按掉落表累计）与读（BuildEndGameBody），
+    /// 不在响应线程里碰，所以不需要原子；qiaoAwardReady 置位后才可信。
+    std::array<int, kQiaoTypeSlots> qiaoAwardNum{};
+    std::atomic<bool> qiaoAwardReady{false};
+    /// 808 专用：本局上报分 = 接到多少只计分怪（KBPerker.as:130-142 的 scoreArr[14]）。
+    std::atomic<int> qiaoScore{0};
+    /// 808 专用：start_game 下发的 randomCode（decodeStartGame:132）。
+    /// 它算 checkCode 用的是乘法 randomCode * (uid % 1000) * (checkCode + 1)
+    /// （KBQiaoControl.sendGaming:53-60），与其它活动的 & 掩码变换不同，
+    /// 所以必须把原值留下来，不能只留变换后的结果。
+    std::atomic<int> qiaoRandomCode{0};
 
     /// 730 专用：start_game 下发的初始生命值（ActModel.decodeBeginGame 的 hp）。
     /// sub_hp 表示「角色挨了一下」，服务端回 leftLife；连发到 0 会把这一局打死，
@@ -313,7 +325,7 @@ bool WaitForResponse(LatestActState& state, DWORD timeoutMs) {
 //       if (bestScore <= 0) { return false; }
 //       return bestScore >= flowScore;
 //   }
-// 全部 8 个旧周活动（822/826/827/641/684/631/808…）都是这一句判的：
+// 全部旧周活动（822/826/827/641/684/631…）都是这一句判的：
 // 「有成绩，且成绩不低于满分」才允许直接扫荡；否则必须先完整打一局。
 //
 // 这里的 flowScore 就是各活动的上限最高分（LatestActDesc::passScore）。
@@ -327,7 +339,8 @@ bool ShouldAutoSweep(int bestScore, int flowScore) {
 }
 
 // 发一次 sweep_info，等回包里的 sweepReady。它是「这次扫荡给什么奖」的预览包，
-// 不扣次数；只有 742 那种进入包里没有判据的活动才把它当门槛（CanSweepDirectly ③）。
+// 不扣次数，也不该拿它当「有没有历史成绩」的门槛——门槛一律读进入包里的本地字段
+// （CanSweepDirectly）。
 bool ProbeSweepReady(const LatestActDesc& desc, LatestActState& state);
 
 // 重查一次活动信息（次数/冷却/成绩），定义在后面；扫荡重试要用它防重复扫荡。
@@ -336,36 +349,27 @@ bool RefreshOneActivity(const LatestActDesc& desc, LatestActState& state);
 // 本活动当前是否可以「直接扫荡」——就是用户流程里的第一步判据。
 //
 // 判据只有一条，与旧周活动完全一致：ShouldAutoSweep(历史最好成绩, 上限最高分)。
-// 唯一的分叉是「成绩从哪读」：
-//   ① open_ui / game_info 回包里带成绩字段的活动（647/721/877/730/880）：
-//      直接读 state.bestScore，不走网络。
-//   ② 回包里只有「今天成功打完过一局」标志位的活动（882）：没有上限最高分可比，
-//      门槛退化为「标志位 > 0」，同样直接读 state.bestScore，不走网络。
-//   ③ 进入包只有次数与冷却的活动（742 守护葫芦藤）：本地无从判断，才问服务端。
+// 成绩一律读 open_ui / game_info 回包里已经解析好的 state.bestScore，不走网络。
+// 唯一的分叉是「有没有上限最高分可比」：
+//   ① 有上限最高分常量的活动（721/877/730/880）：直接 ShouldAutoSweep。
+//   ② 没有上限最高分、回包只给「今天成功打完过一局」标志位的活动
+//      （882 的 bestFlag、808 的 historyBestScore）：门槛退化为「标志位 > 0」。
 //
-// ②③ 的区别是这次修掉的 bug：882 的 open_ui 第 7 个 int 就是 bestFlag
-// （ActModel.as:80/84），本来就在手里；此前把它当成「SWF 里没人读的死字段」，
-// 于是 882 掉进 ③，开局先发一包 sweep_info。sweep_info 是「预览这次扫荡给什么奖」
-// 的包，不是「有没有历史成绩」的查询，服务端在没有成绩时也会按 type 正常回包，
-// 探针据此放行，紧接着就发真实 sweep，白扣一次次数——这正是「开局先扫荡一次、
-// 发现没成绩、再正常打一局」的成因。
+// 这条判据必须留在本地，不能改成发 sweep_info 问服务端：sweep_info 是「预览这次
+// 扫荡给什么奖」的包，不是「有没有历史成绩」的查询，服务端在没有成绩时也会按
+// type 正常回包，探针据此放行，紧接着就发真实 sweep，白扣一次次数——这正是
+// 「开局先扫荡一次、发现没成绩、再正常打一局」的成因（882 早期版本就这么错过）。
 //
-// 注意这里不看「本进程内刚打完一局」这种旁证：那是执行历史，与「服务端上有没有
+// 注意这里也不看「本进程内刚打完一局」这种旁证：那是执行历史，与「服务端上有没有
 // 满分成绩」是两件事。混用会让成绩没到上限的活动也直接扫，按低分发奖还白扣次数。
 bool CanSweepDirectly(const LatestActDesc& desc, LatestActState& state) {
-    if (desc.scoreInOpenUi) {
-        if (desc.passScore > 0) {
-            return ShouldAutoSweep(state.bestScore.load(), desc.passScore);
-        }
-        // 无上限最高分，但回包带了「今天成功打完过一局」标志（bestFlag）。
-        // 语义与 730 ActivityData.bestFlag 一致：ActEnterView.as:153 用它决定
-        // 放不放行扫荡，否则弹「需要成功进行一局游戏才可以扫荡哦！」。
-        return state.bestScore.load() > 0;
+    if (desc.passScore > 0) {
+        return ShouldAutoSweep(state.bestScore.load(), desc.passScore);
     }
-    // 进入包只有次数与冷却的活动（742 守护葫芦藤）：只能问服务端放不放行
-    // （KBHuluModel.as:178-217 result==0）。这类活动没有成绩概念，探针不是判成绩，
-    // 是判「服务端有没有这个活动的可扫状态」，与 882 的情形不同。
-    return ProbeSweepReady(desc, state);
+    // 无上限最高分，回包带的是「今天成功打完过一局」标志（bestFlag）。
+    // 语义与 730 ActivityData.bestFlag 一致：ActEnterView.as:153 用它决定
+    // 放不放行扫荡，否则弹「需要成功进行一局游戏才可以扫荡哦！」。
+    return state.bestScore.load() > 0;
 }
 
 // 各活动通用的 checkCode 变换：checkCode & (uid % checkCode)
@@ -375,6 +379,22 @@ int MaskedCheckCode(int seed) {
     }
     const uint32_t userId = g_userId.load();
     return seed & static_cast<int>(userId % static_cast<uint32_t>(seed));
+}
+
+// 808 的 checkCode 不走 & 掩码，而是连乘：
+//   randomCode * (uid % 1000) * (checkCode + 1)
+// （KBQiaoControl.sendGaming:58 与 sendEndGame:67 是同一个式子）。
+// AS3 的 int 乘法按 32 位回绕，这里用 uint32_t 算完再转回 int，语义一致。
+// randomCode 为 0（没开局成功）时结果必为 0，服务端会判校验失败，
+// 所以调用方要先确认 randomCode 非 0。
+int QiaoCheckCode(int randomCode, int seed) {
+    const uint32_t userId = g_userId.load();
+    if (randomCode <= 0 || userId == 0) {
+        return 0;
+    }
+    const uint32_t value = static_cast<uint32_t>(randomCode) * (userId % 1000u) *
+                           static_cast<uint32_t>(seed + 1);
+    return static_cast<int>(value);
 }
 
 // 在 body 末尾补 n 个 0（877 的 awardNumList 初值都是全 0）。
@@ -392,22 +412,18 @@ void ParseOpenUI(const LatestActDesc& desc, LatestActState& state,
     auto read = [&]() -> int { return reader.I32(); };
 
     switch (desc.id) {
-        case LatestAct::ACT_MAZE:
-            // restPlayCount, restCdTime, buyPlayCount, totalBadgeNum, awardFlag,
-            // bestRecord, ignored, isExchangeEvo, itemNum, ...
-            if (offset + 24 > size) return;
-            state.playCount = read();
-            state.restTime = read();
-            offset += 12;                 // buyPlayCount/totalBadgeNum/awardFlag
-            state.bestScore = read();
-            break;
-
-        case LatestAct::ACT_HULU:
-            // restPlayCount, restCdTime, totalBadgeNum, catchId, catchList[2]
-            // （KBHuluModel.as:71-85）
-            if (offset + 8 > size) return;
-            state.playCount = read();
-            state.restTime = read();
+        case LatestAct::ACT_QIAO:
+            // playCount, restCdTime, medalNum, historyBestScore, catchNum,
+            // isBuy, maxNum, isPop（KBQiaoModel.decodeOpenUI:101-121）
+            if (offset + 32 > size) return;
+            state.playCount = read();     // playCount
+            state.restTime = read();      // restCdTime
+            offset += 4;                  // medalNum（勋章数，本流程不消费）
+            state.bestScore = read();     // historyBestScore -> 扫荡门槛
+            offset += 4;                  // catchNum
+            offset += 4;                  // isBuy
+            offset += 4;                  // maxNum
+            state.ruleFlag = read();      // isPop -> start_game 的参数
             break;
 
         case LatestAct::ACT_STAR_PRINCESS:
@@ -539,14 +555,15 @@ void ConsumePumpkinMonsterData(LatestActState& state, const BYTE* body, size_t s
 
 // start_game 响应：result, <丢弃字段>, checkCode
 //
-// 除 721 外，本模块所有活动的回包都是「先 result、再一个被丢弃的字段、然后才是
+// 除 721/808 外，本模块所有活动的回包都是「先 result、再一个被丢弃的字段、然后才是
 // checkCode」，已逐个用 FFDec 反编译核对：
-//   647 MazeModel.START_GAME          : result, readInt(), checkCode
 //   877 ActModel.as:118-146           : result, playCount, checkcode, num, rewardList[num]
 //   730 ActModel.as:114-134           : result, playCount, check_code, hp, ActAwardDto
 //   880 TreasureModel.as:58-78        : result, readInt(), checkCode
 //   882 ActModel.as:114-118           : result, playCount, check_code, gameBonus, ...
 //   721 ActModel.decodeBeginGame:127  : result, ActStartInfoDto{checkCode, ...}  <- 无丢弃字段
+//   808 KBQiaoModel.decodeStartGame   : result, playCount, randomCode, checkcode, 180 项掉落表
+//                                       <- 三个字段，且 randomCode 必须留住（见下面分支）
 // 该字段不能被当作 checkCode 使用；漏跳会让 checkCode 整体前移 4 字节，
 // end_game 的校验式全错，服务端只扣次数不下发奖励。
 void ParseStartGame(const LatestActDesc& desc, LatestActState& state,
@@ -567,18 +584,24 @@ void ParseStartGame(const LatestActDesc& desc, LatestActState& state,
     // 而 721 因为没有丢弃字段直接越界返回，checkCode 永远是 0 → 判定开局失败、
     // 整局被跳过直接去扫荡。丢弃字段只在下面各分支里跳，且只跳一次。
 
-    // 742 的 start_game 回包没有 checkCode：result, <丢弃>, 165 格棋盘
-    // （KBHuluModel.as:86-111）。它的结算走 OP_CLIENT_LUA_ACTIVITY_V3 + JSON，
-    // 不需要校验种子，因此这里直接把棋盘读进来就返回。
-    if (desc.id == LatestAct::ACT_HULU) {
-        offset += 4;                              // 丢弃字段
-        state.huluBoardReady = false;
-        state.huluBoard.fill(0);
-        int squares = 0;
-        for (; squares < kHuluSquares && offset + 4 <= size; ++squares) {
-            state.huluBoard[static_cast<std::size_t>(squares)] = reader.I32();
+    // 808 的 start_game 回包不是「result + 一个丢弃字段 + checkCode」那种形状：
+    // KBQiaoModel.decodeStartGame:123-149 是 result, playCount, randomCode,
+    // checkcode，然后跟 180 项掉落表。走出去下面的通用分支会把 randomCode 当成
+    // checkCode——结算校验式是 randomCode * (uid % 1000) * (checkCode + 1)
+    // （KBQiaoControl.sendGaming:53-60），拿错就是每一局都被判校验失败。
+    // 掉落表必须整张读进来（结算要按类型报计数器），所以开局成功以读满 180 项为准。
+    if (desc.id == LatestAct::ACT_QIAO) {
+        if (offset + 12 > size) return;
+        state.playCount = reader.I32();           // playCount
+        state.qiaoRandomCode = reader.I32();      // randomCode
+        state.checkCode = reader.I32();           // checkcode
+        state.qiaoDropReady = false;
+        state.qiaoDrops.fill(0);
+        int drops = 0;
+        for (; drops < kQiaoDrops && offset + 4 <= size; ++drops) {
+            state.qiaoDrops[static_cast<std::size_t>(drops)] = reader.I32();
         }
-        state.huluBoardReady = (squares == kHuluSquares);
+        state.qiaoDropReady = (drops == kQiaoDrops);
         return;
     }
 
@@ -673,8 +696,10 @@ void ParseSweepInfo(const LatestActDesc& desc, LatestActState& state,
             // medal，AS3 收到就开扫荡窗口。这里同样无条件放行，成败交给 sweep 回包判定。
             state.sweepReady = true;
             break;
-        case LatestAct::ACT_HULU:
-            // 742 KBHuluModel.as:178-217 result = readInt(); if (result == 0)。
+        case LatestAct::ACT_QIAO:
+            // 808 KBQiaoModel.decodeSweepInfo:152-171：首字段就是 result，
+            // result == 0 才读 medal/exp/coin/rewardNum 与奖励对。1 = 还没成功
+            // 打完一局、2 = 次数不足、3 = 冷却中（Act808ErrorCode.errorCodeSweep）。
             state.sweepReady = (first == 0);
             break;
         case LatestAct::ACT_FIND_CORNEL:
@@ -696,10 +721,9 @@ void ParseSweepInfo(const LatestActDesc& desc, LatestActState& state,
             // 派发 SWEEP_INFO，其余（1 = 还没成功打完一局）只弹提示。
             state.sweepReady = (first == 0 || first == 4);
             break;
-        case LatestAct::ACT_MAZE:
         case LatestAct::ACT_TREASURE:
         default:
-            // 647 MazeModel.as:257-258、880 TreasureModel.as:307-356：result != 3。
+            // 880 TreasureModel.as:307-356：result != 3。
             state.sweepReady = (first != 3);
             break;
     }
@@ -719,8 +743,9 @@ void ParseSweepResult(const LatestActDesc& desc, LatestActState& state,
     const int result = reader.I32();
     state.lastSweepResult = result;
     switch (desc.id) {
-        case LatestAct::ACT_HULU:
-            // 742 KBHuluModel.as:129-177 if (result == 0 || result == 4) 才读奖励。
+        case LatestAct::ACT_QIAO:
+            // 808 Act808SweepWin.as:104-118 / Act808ErrorCode.errorCodeSweep：
+            // result == 0 是扫荡成功，4 是「奖励已发完但仍算成功」。
             state.sweepReady = (result == 0 || result == 4);
             break;
         case LatestAct::ACT_STAR_PRINCESS: {
@@ -742,11 +767,10 @@ void ParseSweepResult(const LatestActDesc& desc, LatestActState& state,
         case LatestAct::ACT_PUMPKINS_PK:
             // 882 ActModel.decodeSweepInfo:195-227 是 SWF 里唯一判断扫荡结果的地方：
             // 只有 type == 0 || type == 4 才读奖励，其余只弹提示、等于没扫。
-            // 它没有像 647/880 那样用「!= 3」的宽松判据，这里也不能放宽——
+            // 它没有像 880 那样用「!= 3」的宽松判据，这里也不能放宽——
             // 否则 1（还没成功打完一局）/2（次数不足）/3（冷却中）都会被当成扫成功。
             state.sweepReady = (result == 0 || result == 4);
             break;
-        case LatestAct::ACT_MAZE:
         case LatestAct::ACT_FIND_CORNEL:
         case LatestAct::ACT_FIGHT_EVILS:
         case LatestAct::ACT_TREASURE:
@@ -755,8 +779,8 @@ void ParseSweepResult(const LatestActDesc& desc, LatestActState& state,
             // （ad5143f^:src/hook/activity_minigames.cpp:242
             //  `if (waitForResponse() && ACT685_STATE.endResult.load() != 3)`）。
             // AS3 各 Model 也都是 `if (params.result != 3)` 才读奖励：
-            // MazeModel.as:155、ActModel.as:294-347（721/877）、
-            // ActModel.as:215-240（730）、TreasureModel.as:79-136（880）。
+            // ActModel.as:294-347（721/877）、ActModel.as:215-240（730）、
+            // TreasureModel.as:79-136（880）。
             // 注意 11（冷却中）、12（次数不足）也会被这条宽松判据当成成功——
             // 所以调用方必须在扫荡前把冷却等干净（WaitForCooldown），
             // 不能靠结果码去兜。
@@ -767,11 +791,11 @@ void ParseSweepResult(const LatestActDesc& desc, LatestActState& state,
 
 // end_game 响应：确认这一局真的被服务端结算了，而不是「包发出去了」就算完。
 // 各活动首个字段都是结果码（名称不同：result / resultType），但语义不完全一样：
-//   647 MazeModel.as:151-168、880 TreasureModel.as:137-146：result != 3 才读结算字段
-//   （3 = 校验失败/未通过）；882 ActModel.as:161-193 同样只有 type == 3 是数据异常。
+//   880 TreasureModel.as:137-146：result != 3 才读结算字段（3 = 校验失败/未通过）；
+//   882 ActModel.as:161-193 同样只有 type == 3 是数据异常。
 //   730 ActModel.decodeEndGame:142-167：resultType == 4 表示通关（isPass），其余仍会结算。
-//   721/877 的 AS3 不判结果码，直接读结算字段。
-// 因此这里只把「明确的失败码」判成失败：647/880/882 的 3。
+//   721/877/808 的 AS3 不判结果码，直接读结算字段。
+// 因此这里只把「明确的失败码」判成失败：880/882 的 3。
 void ParseEndGame(const LatestActDesc& desc, LatestActState& state,
                   const GamePacket& packet, size_t offset) {
     const BYTE* body = packet.body.data();
@@ -788,15 +812,9 @@ void ParseEndGame(const LatestActDesc& desc, LatestActState& state,
     state.endCoin = -1;
     state.endLilian = -1;
     switch (desc.id) {
-        case LatestAct::ACT_MAZE:
         case LatestAct::ACT_TREASURE:
         case LatestAct::ACT_PUMPKINS_PK:
             state.endSettled = (result != 3);
-            break;
-        case LatestAct::ACT_HULU:
-            // 742 KBHuluModel.as:129-177：只有 result == 0 || result == 4 才读奖励并派发
-            // GAME_END_BACK，其余分支只是补发一次 open_ui，等于这一局没结算。
-            state.endSettled = (result == 0 || result == 4);
             break;
         case LatestAct::ACT_STAR_PRINCESS: {
             // ActModel.decodeEndGame:154-160：resultType, playCount, frozenTime, DTO。
@@ -818,7 +836,8 @@ void ParseEndGame(const LatestActDesc& desc, LatestActState& state,
         }
         default:
             // 730 的 resultType 只是「是否通关」，不是「是否结算」，非 4 也可能正常发奖；
-            // 877 的 AS3 完全不看这个字段。收到回包即视为已结算。
+            // 877/808 的 AS3 完全不看这个字段（KBQiaoModel.decodeEndGame:175-183）。
+            // 收到回包即视为已结算。
             state.endSettled = true;
             break;
     }
@@ -838,16 +857,6 @@ std::vector<int32_t> BuildEndGameBody(const LatestActDesc& desc, int seed,
     const int score = desc.targetScore;
 
     switch (desc.id) {
-        case LatestAct::ACT_MAZE:
-            // [end_game, score, checkCode, isPass]
-            return {score, MaskedCheckCode(seed), 1};
-
-        case LatestAct::ACT_HULU:
-            // 742 的结算包不是 int32 列表，而是一段 JSON 字符串，走
-            // OP_CLIENT_LUA_ACTIVITY_V3（见 SendHuluEndGame）。这里只在
-            // CloseStaleSession 里被当作「关会话用的空结算」使用。
-            return {};
-
         case LatestAct::ACT_STAR_PRINCESS:
             // [end_game] —— 721 的结算包不带任何参数
             // （ActMainView.as:284 与 :416 都只发操作串）。星级完全靠游戏内
@@ -906,6 +915,24 @@ std::vector<int32_t> BuildEndGameBody(const LatestActDesc& desc, int seed,
             return body;
         }
 
+        case LatestAct::ACT_QIAO: {
+            // [end_game, 0, checkCode, score, 15 项奖励计数]
+            // KBQiaoControl.sendEndGame:62-76：list = [END_GAME, 0, checkCode, score]，
+            // 再把 awardNumArr 的 15 项逐个接上；checkCode 是乘法变换（见 QiaoCheckCode）。
+            // score 传的是 scoreArr[14]（KBBatttleView.as:491），也就是本次接到的计分怪
+            // 数量，不是 desc.targetScore——808 的 max_score = 55 只是展示值。
+            // state 为空（关残留会话）时按「0 分 + 15 项 0」这个合法空局发，shape 仍要完整：
+            // 服务端按定长字段解包，缺字段的包会被当成坏包丢弃，关不掉残留会话。
+            std::vector<int32_t> body{0, QiaoCheckCode(state ? state->qiaoRandomCode.load() : 0, seed)};
+            body.push_back(state ? state->qiaoScore.load() : 0);
+            if (state != nullptr && state->qiaoAwardReady.load()) {
+                body.insert(body.end(), state->qiaoAwardNum.begin(), state->qiaoAwardNum.end());
+            } else {
+                AppendZeros(body, kQiaoTypeSlots);
+            }
+            return body;
+        }
+
         default:
             return {score};
     }
@@ -916,8 +943,6 @@ std::vector<int32_t> BuildEndGameBody(const LatestActDesc& desc, int seed,
 // ---------------------------------------------------------------------------
 std::vector<int32_t> BuildStartGameBody(const LatestActDesc& desc, LatestActState& state) {
     switch (desc.id) {
-        case LatestAct::ACT_MAZE:
-            return {0, 0};                      // [start_game, 0, 0]
         case LatestAct::ACT_STAR_PRINCESS:
             return {1};                         // [start_game, 1]
         case LatestAct::ACT_FIND_CORNEL:
@@ -934,6 +959,10 @@ std::vector<int32_t> BuildStartGameBody(const LatestActDesc& desc, LatestActStat
             // mcCheckBox 是「是否使用道具/加成」的勾选框，initView:143 固定
             // gotoAndStop(2)，即默认不勾。恒送 0 与真实客户端默认行为一致。
             return {0};
+        case LatestAct::ACT_QIAO:
+            // [start_game, popRule]，KBQiaoControl.sendStartGame:47-51：
+            //   popRule = KBDataCenter.instance.isPop = open_ui 的第 8 个 int。
+            return {state.ruleFlag.load()};
         default:
             return {};
     }
@@ -943,6 +972,7 @@ std::vector<int32_t> BuildStartGameBody(const LatestActDesc& desc, LatestActStat
 // 各活动的拒绝码不是同一套，只能逐活动翻译已核对过的部分：
 //   721 ActModel.decodeBeginGame:127-148  → 1 次数用光 / 2 冷却中 / 3 还在游戏中
 //   730 Act730ErrorCode.errorCodeStartGame → 10 游戏中 / 11 在冷却 / 12 没次数了 / 13 支付中
+//   808 Act808ErrorCode.errorCodeStartGame → 与 882 完全相同的 10/11/12/13
 // 其余活动没有可引用的枚举，原样回显数字，别把猜测写成结论。
 std::wstring StartFailureText(const LatestActDesc& desc, int result) {
     if (desc.id == LatestAct::ACT_FIGHT_EVILS) {
@@ -960,8 +990,10 @@ std::wstring StartFailureText(const LatestActDesc& desc, int result) {
             case 3: return L"result=3 还在游戏中";
             default: break;
         }
-    } else if (desc.id == LatestAct::ACT_PUMPKINS_PK) {
-        // Act882ErrorCode.errorCodeStartGame:13-40
+    } else if (desc.id == LatestAct::ACT_PUMPKINS_PK || desc.id == LatestAct::ACT_QIAO) {
+        // 882 Act882ErrorCode.errorCodeStartGame:13-40 与 808
+        // Act808ErrorCode.errorCodeStartGame 是同一套数字：
+        // 10 游戏中 / 11 在冷却 / 12 没次数了 / 13 支付中。
         switch (result) {
             case 10: return L"result=10 还在游戏中";
             case 11: return L"result=11 还在冷却中";
@@ -974,75 +1006,20 @@ std::wstring StartFailureText(const LatestActDesc& desc, int result) {
 }
 
 // ---------------------------------------------------------------------------
-// 742 守护葫芦藤的结算包
-//
-// AS3 的发送处是 control/KBHuluSendAction.as:57-62：
-//   jsonStr = JSON.stringify(KBDataCenter.instance.rewardObj);
-//   sendMessage(OP_CLIENT_LUA_ACTIVITY_V3.send, 742, [END_GAME, jsonStr]);
-// rewardObj 的键来自 toSend3（:41-55）：awardIdx = int(event.data) + 1，命中一格就
-// ++rewardObj[awardIdx]；而 createInsect（KBBatttleView.as:485-514）给每只虫子的
-// awardId 是 awardArr[levIndex++] - 1，所以键就是棋盘上的原始 award id。
-// dx < 0（即棋盘格为 0）的格子 AS3 直接 return，不计入。
-// 回包仍然从 ACTIVITY_QINGYANG_NEW.back(1316501) 回来——KBHuluModel.as:36 只监听这一条，
-// 与坐骑大赛(665) 走 HORSE_GAME_CMD_SEND 却在 HORSE_COMPETITION_BACK 收包是同一形状。
-// ---------------------------------------------------------------------------
-std::string BuildHuluRewardJson(const LatestActState& state) {
-    std::map<int, int> counts;
-    for (int i = 0; i < kHuluSquares; ++i) {
-        const int raw = state.huluBoard[static_cast<std::size_t>(i)];
-        if (raw < 1) {
-            continue;
-        }
-        ++counts[raw];
-    }
-
-    std::string json = "{";
-    bool first = true;
-    for (const auto& entry : counts) {
-        if (!first) {
-            json += ',';
-        }
-        json += '"';
-        json += std::to_string(entry.first);
-        json += "\":";
-        json += std::to_string(entry.second);
-        first = false;
-    }
-    json += '}';
-    return json;
-}
-
-BOOL SendHuluEndGame(uint32_t activityId, const std::string& json) {
-    // body = [u16 长度 + "end_game"][u16 长度 + JSON]，与 CmdPacket.build 对 String
-    // 的处理一致（org/green/server/data/CmdPacket.as:22-65，String 走 writeUTF）。
-    std::vector<BYTE> body;
-    auto appendString = [&body](const std::string& text) {
-        const uint16_t len = static_cast<uint16_t>(text.size());
-        body.push_back(static_cast<uint8_t>(len & 0xFF));
-        body.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
-        body.insert(body.end(), text.begin(), text.end());
-    };
-    appendString("end_game");
-    appendString(json);
-
-    std::vector<BYTE> packet = PacketBuilder()
-                                   .SetOpcode(Opcode::ACTIVITY_LUA_V3_SEND)
-                                   .SetParams(activityId)
-                                   .WriteBytes(body)
-                                   .Build();
-    if (packet.empty()) {
-        return FALSE;
-    }
-    return SendPacketBytes(packet);
-}
-
-// ---------------------------------------------------------------------------
 // 一局游戏的过程包
 //
 // 只有真正需要在游戏过程中上报的活动才有内容；其余活动的过程全在本地（分数、
 // 金币、星级都在客户端累计，结算时一次性回传），AS3 本身就不发中间包，这里也不该
 // 凭空造包。凡是 AS3 有过程包的，必须逐条补上——start_game 直接接 end_game 等于
 // 跳过整局，服务端算出来的成绩是空的。
+//
+// 节拍：包数包序照 AS3，间隔不照 AS3。全部旧周活动与本模块的实测结论一致——只有
+// 极少数活动真的卡 AS3 时序，绝大多数活动把多个过程包按 200~300ms 连发就能正常
+// 结算（730 分支就是这个档位）。所以默认 200~300ms，不要为了「逼真」把一局铺满 AS3
+// 的游戏时长：照抄 AS3 逐秒重放会让每局白等几十秒，整批活动拖成几十分钟，而服务端
+// 并不会因此多认一分。升档的唯一依据是实测——跑完对 trace，结算分 < 本地上报分或
+// 结算被拒，才逐档放慢并重测。目前唯一实测证明必须卡的是 721（见该分支注释），那是
+// 特例，新接活动没有实测依据时一律从 200~300ms 起步。
 // ---------------------------------------------------------------------------
 bool RunPlayProcess(const LatestActDesc& desc, LatestActState& state) {
     auto running = []() { return g_latestBatchRunning.load(); };
@@ -1050,6 +1027,8 @@ bool RunPlayProcess(const LatestActDesc& desc, LatestActState& state) {
     switch (desc.id) {
         case LatestAct::ACT_STAR_PRINCESS: {
             // 721 采菊东篱下：过程包必须复现 AS3 真实一局的三类特征。
+            // 这是全模块唯一实测证明必须卡 AS3 时序的分支，属于特例而非通则（节拍
+            // 通则见函数头）。新接活动不要照抄这里的 90 秒。
             // 此前按「120ms × 400 包」的最小路径 48 秒打完一局且从不发飞星事件，
             // 与真实客户端的行为画像对不上（时长只有 GAME_TIME 的一半多、事件频率
             // 是真客户端的 8 倍、满 400 分里最多 270 分来自飞星却一条标记包没有），
@@ -1061,7 +1040,9 @@ bool RunPlayProcess(const LatestActDesc& desc, LatestActState& state) {
             //      （_starTimer % 10 == 0），checkCollesion:611-629 接住后
             //      _starCount += 30 并发 _starCount + 10000 标记包；
             //   ③ 时长：ActMainViewBase.as:21     GAME_TIME = 90，
-            //      onTimer:416 计时走完才发 end_game，整局必须撑满 90 秒。
+            //      onTimer:416 计时走完才发 end_game。721 的服务端会按实时长核账
+            //      （48 秒那版结算分只有上报的一半多），所以这一支必须撑满 90 秒；
+            //      这是实测结论，不是所有活动的通用要求。
             //
             // start_game 的 ActStartInfoDto.awardList 在 721 客户端没有任何
             // 消费者（全仓库 grep 无读取点），不是计分脚本，不能拿它当账本。
@@ -1159,9 +1140,68 @@ bool RunPlayProcess(const LatestActDesc& desc, LatestActState& state) {
             return true;
         }
 
+        case LatestAct::ACT_QIAO: {
+            // 808 欢乐跷跷板：过程包是 [gameing, 类型 id, checkCode]，每接到一只怪发一条
+            // （KBPerker.render:100-153 —— 命中后 sendGaming(this.type)，且只有非闪电类型
+            // 才累加 awardNumArr）。
+            //
+            // 整局能接到什么完全由 start_game 下发的 180 项掉落表决定：
+            //   KBBatttleView.updateTool:63-73  每 2 tick 调一次 createAI(4)，
+            //                                   90 秒共 45 次 × 4 = 180，正好消费完整张表；
+            //   createAI:144-167                按顺序取表项，type == 0 只消费不生成怪。
+            // 所以这里严格按表顺序逐项发，表项为 0 的那一次没有怪、也就没有包。
+            //
+            // 闪电（type == kQiaoBoltType）由 createBolt 单独生成、不在掉落表里，它只扣血、
+            // 不进 scoreArr/awardNumArr、也不发包（KBPerker.as:105-117）。表里真出现也必须
+            // 跳过：awardNum 只有 kQiaoTypeSlots 格，30 会直接越界写。
+            //
+            // 结算只回传 awardNumArr 与 scoreArr[14]（KBQiaoControl.sendEndGame:68-73），
+            // 因此本地只需两个累计量：每命中一只 ++awardNum[type-1]；只有计分类型才 +1 分。
+            // 同一只怪被两名玩家同帧撞上时 AS3 会给 +2（KBPerker.as:132-141），本地无从
+            // 复现是谁撞的，一律按 +1 报——宁可少报也不能虚报，虚报会被服务端判校验失败。
+            if (!state.qiaoDropReady.load()) {
+                Notify(desc.id, L"start_game 回包的 180 项掉落表没读全，无法复现过程包");
+                return false;
+            }
+            const int seed = state.checkCode.load();
+            const int randomCode = state.qiaoRandomCode.load();
+            if (QiaoCheckCode(randomCode, seed) == 0) {
+                // randomCode 为 0 时校验位恒为 0，每一条 gameing 都会被判校验失败。
+                Notify(desc.id, L"没有拿到本局的 randomCode，过程包校验位无法计算");
+                return false;
+            }
+
+            state.qiaoAwardNum.fill(0);
+            state.qiaoAwardReady = false;
+            int score = 0;
+            for (int i = 0; i < kQiaoDrops; ++i) {
+                if (!running() || ManagedThread::StopRequested()) {
+                    return false;
+                }
+                const int type = state.qiaoDrops[static_cast<std::size_t>(i)];
+                if (type <= 0 || type == kQiaoBoltType || type > kQiaoTypeSlots) {
+                    continue;
+                }
+                if (!SendLatestPacket(desc.id, "gameing", {type, QiaoCheckCode(randomCode, seed)})) {
+                    return false;
+                }
+                ++state.qiaoAwardNum[static_cast<std::size_t>(type - 1)];
+                if (type == kQiaoScoreType) {
+                    ++score;
+                }
+                if (!ManagedThread::SleepCancellable(kQiaoPacketGapMs)) {
+                    return false;
+                }
+            }
+            state.qiaoScore = score;
+            // 顺序不能反：awardNum 先写满，ready 后置（release），结算侧才不会拿到半份表。
+            state.qiaoAwardReady = true;
+            return true;
+        }
+
         default:
-            // 647/877/880/742/882：AS3 整局都不发中间包，分数与奖励全在本地累计，
-            // 结算时一次性回传（880 的金币、742 的 rewardObj、882 的 gameGetBonusList…）。
+            // 877/880/882：AS3 整局都不发中间包，分数与奖励全在本地累计，
+            // 结算时一次性回传（880 的金币、882 的 gameGetBonusList…）。
             return true;
     }
 }
@@ -1181,11 +1221,8 @@ bool CloseStaleSession(const LatestActDesc& desc, LatestActState& state) {
     bool answered = false;
     {
         PendingOpGuard guard(state, PendingOp::EndGame);
-        // 742 的结算包是 JSON 字符串（LUA_ACTIVITY_V3），关会话时交一个空对局即可。
-        const bool sent = (desc.id == LatestAct::ACT_HULU)
-                              ? SendHuluEndGame(desc.id, "{}")
-                              : SendLatestPacket(desc.id, "end_game",
-                                                 BuildEndGameBody(desc, 0, nullptr));
+        const bool sent =
+            SendLatestPacket(desc.id, "end_game", BuildEndGameBody(desc, 0, nullptr));
         if (sent && WaitForResponse(state, kActionTimeoutMs + kWaitMarginMs)) {
             answered = true;
         }
@@ -1197,9 +1234,10 @@ bool CloseStaleSession(const LatestActDesc& desc, LatestActState& state) {
 }
 
 // 扫荡：sweep_info 预览 -> sweep 执行（失败则由调用方退回游戏流程）
-// 发一次 sweep_info，问服务端「这个活动有没有可扫荡的历史成绩」。
-// 返回 true 表示放行。与旧周活动 Act822ThreadProc 里
-// 「SendAct822SweepInfoPacket(); WaitForAct822Response() && g_act822SweepAvailable」同一形状。
+// 发一次 sweep_info 拿本次扫荡的奖励预览，与旧周活动 Act822ThreadProc 里
+// 「SendAct822SweepInfoPacket(); WaitForAct822Response() && g_act822SweepAvailable」
+// 同一形状。返回值只反映服务端对「预览」的态度，不扣次数，
+// 不能当「有没有历史成绩」的判据——那个判据在 CanSweepDirectly 里本地算。
 bool ProbeSweepReady(const LatestActDesc& desc, LatestActState& state) {
     state.sweepReady = false;
     PendingOpGuard guard(state, PendingOp::SweepInfo);
@@ -1213,8 +1251,6 @@ bool ProbeSweepReady(const LatestActDesc& desc, LatestActState& state) {
 // 把剩余次数一次扫完，不能只扫一次就收工。
 // 各活动的 AS3 扫荡窗口一律把剩余次数一次交上去（_curCnt / cnt / _playTime），
 // 服务端自己结算多局，客户端不再 for 循环逐次发：
-//   647 NewSweepUI.as:78              [GET_SWEEP, _curCnt]
-//   742 SweepView.as:80               [GET_SWEEP, _curCnt]
 //   721 ActSweepWin.as:84             [SWEEP, _curCnt]
 //   877 ActSweepWin.as:77             [SWEEP, _curCnt]
 //   730 Act730SweepWin.as:79          [SWEEP, _curCnt]
@@ -1222,13 +1258,10 @@ bool ProbeSweepReady(const LatestActDesc& desc, LatestActState& state) {
 //   882 ActSweepWin.as:61             [SWEEP, int(_changePanel.text)]
 // 所以这里恒发一包、带次数，只等一次回包。
 //
-// probeFirst = false 时跳过前置的 sweep_info：调用方刚刚探过，不再多发一次。
+// 本函数只管「发 sweep + 等回包」，不负责前置的 sweep_info：两条调用路径都已经
+// 各自按 AS3 顺序探过一次（③ 直接扫荡前探、④ 打完一局后探），再探一次纯属多发。
 // 返回 true 表示这次扫荡被服务端接受（回包 result 表明 sweepReady）。
-bool SweepRemaining(const LatestActDesc& desc, LatestActState& state, bool probeFirst = true) {
-    if (probeFirst && !ProbeSweepReady(desc, state)) {
-        return false;   // 尚无历史成绩，调用方应先走一局
-    }
-
+bool SweepRemaining(const LatestActDesc& desc, LatestActState& state) {
     const int count = state.playCount.load() > 0 ? state.playCount.load() : 1;
     if (!g_latestBatchRunning.load()) {
         return false;
@@ -1239,12 +1272,14 @@ bool SweepRemaining(const LatestActDesc& desc, LatestActState& state, bool probe
     // 冷却秒数不可靠，唯一稳的做法是重试：隔 2 秒再发，最多 3 次。
     // 12（次数不足）与 3（校验失败）不重试，重试也只会再被拒一次。
     //
-    // 冷却码有两套：730 一族（含 647/880）是 11，而 721 与 882 是另一套——
-    // 721 Act721ErrorCode.errorCodeSweep 与 882 Act882ErrorCode.errorCodeSweep:117-140
-    // 都是 3 = 冷却中、1 = 还没成功打完一局、2 = 次数不足。
-    // 721/882 按 11 去重试等于永远不重试，冷却一过就整段放弃。
-    const bool sweepErrorCodeSetB =
-        (desc.id == LatestAct::ACT_STAR_PRINCESS || desc.id == LatestAct::ACT_PUMPKINS_PK);
+    // 冷却码有两套：730 一族（含 880）是 11，而 721 / 882 / 808 是另一套——
+    // 721 Act721ErrorCode.errorCodeSweep、882 Act882ErrorCode.errorCodeSweep:117-140
+    // 与 808 Act808ErrorCode.errorCodeSweep:307-330 都是
+    // 3 = 冷却中、1 = 还没成功打完一局、2 = 次数不足。
+    // 这套活动按 11 去重试等于永远不重试，冷却一过就整段放弃。
+    const bool sweepErrorCodeSetB = (desc.id == LatestAct::ACT_STAR_PRINCESS ||
+                                     desc.id == LatestAct::ACT_PUMPKINS_PK ||
+                                     desc.id == LatestAct::ACT_QIAO);
     const int cooldownCode = sweepErrorCodeSetB ? 3 : 11;
     constexpr int kSweepAttempts = 3;
     int sentCount = count;
@@ -1308,7 +1343,10 @@ bool TryPlayOnce(const LatestActDesc& desc, LatestActState& state) {
     auto attemptStart = [&]() -> bool {
         state.checkCode = 0;
         state.startPayloadReady = false;
-        state.huluBoardReady = false;
+        state.qiaoDropReady = false;
+        state.qiaoAwardReady = false;
+        state.qiaoScore = 0;
+        state.qiaoRandomCode = 0;
         state.startHp = 0;
         state.pumpkinBonusReady = false;
         state.pumpkinBonus.fill(0);
@@ -1320,10 +1358,6 @@ bool TryPlayOnce(const LatestActDesc& desc, LatestActState& state) {
                 !WaitForResponse(state, kActionTimeoutMs + kWaitMarginMs)) {
                 return false;
             }
-        }
-        // 742 的 start_game 回包不带校验种子，开没开成看 165 格棋盘有没有到齐。
-        if (desc.id == LatestAct::ACT_HULU) {
-            return state.huluBoardReady.load();
         }
         // 721 的成功条件是 result == 0 且 ActStartInfoDto 已完整读完；
         // checkCode 允许为 0，不能把它当成开局失败。
@@ -1363,10 +1397,9 @@ bool TryPlayOnce(const LatestActDesc& desc, LatestActState& state) {
     bool endSettled = false;
     {
         PendingOpGuard guard(state, PendingOp::EndGame);
-        const bool sent = (desc.id == LatestAct::ACT_HULU)
-                              ? SendHuluEndGame(desc.id, BuildHuluRewardJson(state))
-                              : SendLatestPacket(desc.id, "end_game",
-                                                 BuildEndGameBody(desc, state.checkCode.load(), &state));
+        const bool sent =
+            SendLatestPacket(desc.id, "end_game",
+                             BuildEndGameBody(desc, state.checkCode.load(), &state));
         if (sent && WaitForResponse(state, kActionTimeoutMs + kWaitMarginMs)) {
             endSettled = true;
         }
@@ -1375,7 +1408,7 @@ bool TryPlayOnce(const LatestActDesc& desc, LatestActState& state) {
         return false;
     }
 
-    // 回包到了不等于服务端认了这一局：647/880/882 用 result == 3 表示校验失败，
+    // 回包到了不等于服务端认了这一局：880/882 用 result == 3 表示校验失败，
     // 那种情况下只扣次数不发奖。
     if (!state.endSettled.load()) {
         Notify(desc.id, L"结算被拒绝（result=" +
@@ -1509,7 +1542,7 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
     }
 
     // ------------------------------------------------------------------
-    // 统一标准流程——与仓库里全部旧周活动（822/826/827/641/684/631/808…）同一条线，
+    // 统一标准流程——与仓库里全部旧周活动（822/826/827/641/684/631…）同一条线，
     // 逐字对应 Act822ThreadProc：
     //
     //   ① open_ui / game_info：拿剩余次数、冷却、历史最好成绩
@@ -1530,13 +1563,13 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
         } else {
             Notify(activityId, L"今天已成功打完过一局，直接扫荡");
         }
-        // 闸门在本地判的（scoreInOpenUi=true）这时还没发过 sweep_info，按 AS3 顺序
-        // 补一包：ActEnterView.onSweep 先发 SWEEP_INFO 拿奖励预览，再开扫荡窗点确认。
-        // 注意这一包只是预览，不扣次数，也不要再拿它的结果当「有没有成绩」的判据；
-        // 742 的闸门本身就是这次探针，才不重复发。
-        const bool probeFirst = desc.scoreInOpenUi;
+        // 按 AS3 顺序补一包 sweep_info：各活动入口的扫荡按钮都是先发 SWEEP_INFO 拿
+        // 奖励预览、再开扫荡窗点确认（如 882 ActEnterView.onSweep）。
+        // 这一包只是预览、不扣次数，返回值**不能**当「有没有成绩」的判据——闸门已经由
+        // open_ui 的权威字段给过了，这里只是照抄客户端的发包顺序。
+        ProbeSweepReady(desc, state);
         const int before = state.playCount.load();
-        const bool swept = SweepRemaining(desc, state, probeFirst);
+        const bool swept = SweepRemaining(desc, state);
         const bool refreshed = RefreshOneActivity(desc, state);
         const int after = refreshed ? state.playCount.load() : -1;
         if (swept && after >= 0 && after < before) {
@@ -1568,9 +1601,8 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
         return;
     }
 
-    // 打一局 -> 扫荡剩余。正常只需一轮；但有的活动（742 守护葫芦藤）本来就没有
-    // 「历史成绩」这个概念，扫荡永远不放行，这时只能一局一局打到底，
-    // 不能打一局就放弃，剩下的次数会白白浪费。
+    // 打一局 -> 扫荡剩余。正常只需一轮；但扫荡可能被服务端按冷却/次数不足拒掉，
+    // 这时只能一局一局打到底——不能打一局就放弃，剩下的次数会白白浪费。
     constexpr int kMaxPlayRounds = 20;
     for (int round = 0; round < kMaxPlayRounds; ++round) {
         if (!g_latestBatchRunning.load()) {
@@ -1592,16 +1624,14 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
         } else if (desc.passScore > 0) {
             Notify(activityId, L"成绩未达上限最高分（" + std::to_wstring(state.bestScore.load()) + L"/" +
                                    std::to_wstring(desc.passScore) + L"），完整打一局...");
-        } else if (desc.scoreInOpenUi) {
-            // 882：bestFlag 由 open_ui 回包给出，0 = 今天还没成功打完过一局。
-            // 打成一局后 bestFlag 变 1，此时再进循环只能是扫荡没成功。
+        } else {
+            // 882 的 bestFlag / 808 的 historyBestScore 都是 open_ui 直接给出的权威值，
+            // 0 = 今天还没成功打完过一局。打成一局后它变正数，此时再进循环只能是扫荡没成功。
             if (state.bestScore.load() > 0) {
                 Notify(activityId, L"扫荡未成功，继续完整打一局...");
             } else {
-                Notify(activityId, L"今天还没有成功打完过一局（bestFlag=0），完整打一局...");
+                Notify(activityId, L"今天还没有成功打完过一局（bestScore=0），完整打一局...");
             }
-        } else {
-            Notify(activityId, L"没有可扫荡成绩，完整打一局...");
         }
         if (!TryPlayOnce(desc, state)) {
             // 开局被拒 / 结算被拒 / 回包没来 是三件完全不同的事，分开说。
@@ -1692,7 +1722,7 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
 
         Notify(activityId, L"扫荡剩余 " + std::to_wstring(state.playCount.load()) + L" 次...");
         const int beforeSweep = state.playCount.load();
-        const bool swept = SweepRemaining(desc, state, false);
+        const bool swept = SweepRemaining(desc, state);
 
         // 活动退出时执行最终刷新，确保前端 UI 永远展示最新的权威次数
         if (!RefreshOneActivity(desc, state)) {
@@ -1714,10 +1744,11 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
         // 直接 return 会把当天剩余次数全部浪费。
         const int sweepResult = state.lastSweepResult.load();
         // 「次数不足」不该再打一局：start_game 一样会被拒，白等两个超时。
-        // 721/882 用 2（Act721ErrorCode / Act882ErrorCode 的 errorCodeSweep），
-        // 730 一族（含 647/880）用 12。
-        const bool errSetB =
-            (desc.id == LatestAct::ACT_STAR_PRINCESS || desc.id == LatestAct::ACT_PUMPKINS_PK);
+        // 721/882/808 用 2（Act721ErrorCode / Act882ErrorCode / Act808ErrorCode
+        // 的 errorCodeSweep），730 一族（含 880）用 12。
+        const bool errSetB = (desc.id == LatestAct::ACT_STAR_PRINCESS ||
+                              desc.id == LatestAct::ACT_PUMPKINS_PK ||
+                              desc.id == LatestAct::ACT_QIAO);
         const int noCountCode = errSetB ? 2 : 12;
         if (sweepResult == noCountCode) {
             Notify(activityId, L"扫荡被回「次数不足」，今日已无剩余次数");
