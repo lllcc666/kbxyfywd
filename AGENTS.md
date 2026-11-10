@@ -7,9 +7,12 @@
 
 ## 构建
 
-```bash
-cd "D:/AItrace/CE/.trae/kbwebui" && env -u NO_PROXY -u no_proxy -u HTTP_PROXY -u http_proxy \
-  -u HTTPS_PROXY -u https_proxy cmd //c "cmake --build build_new --config Release --target WebView2Demo"
+```powershell
+cd "D:/AItrace/CE/.trae/kbwebui"
+# 先删掉全部 *proxy* 变量（pwsh 里没有 env 命令，`env -u ...` 会报「术语 'env' 不会被识别」）
+Get-ChildItem Env: | Where-Object { $_.Name -match '^(?i)(no|http|https)_proxy$' } |
+  ForEach-Object { Remove-Item -Path ("Env:" + $_.Name) -ErrorAction SilentlyContinue }
+cmake --build build_new --config Release --target WebView2Demo
 ```
 
 必须剥掉成对的大小写重复环境变量，否则 MSBuild 报

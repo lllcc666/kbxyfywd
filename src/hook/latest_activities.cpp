@@ -1015,11 +1015,11 @@ std::wstring StartFailureText(const LatestActDesc& desc, int result) {
 //
 // 节拍：包数包序照 AS3，间隔不照 AS3。全部旧周活动与本模块的实测结论一致——只有
 // 极少数活动真的卡 AS3 时序，绝大多数活动把多个过程包按 200~300ms 连发就能正常
-// 结算（730 分支就是这个档位）。所以默认 200~300ms，不要为了「逼真」把一局铺满 AS3
-// 的游戏时长：照抄 AS3 逐秒重放会让每局白等几十秒，整批活动拖成几十分钟，而服务端
-// 并不会因此多认一分。升档的唯一依据是实测——跑完对 trace，结算分 < 本地上报分或
-// 结算被拒，才逐档放慢并重测。目前唯一实测证明必须卡的是 721（见该分支注释），那是
-// 特例，新接活动没有实测依据时一律从 200~300ms 起步。
+// 结算（730 用 200ms、808 用 300ms，都是这个档位）。所以默认 200~300ms，不要为了
+// 「逼真」把一局铺满 AS3 的游戏时长：照抄 AS3 逐秒重放会让每局白等几十秒，整批活动
+// 拖成几十分钟，而服务端并不会因此多认一分。升档的唯一依据是实测——跑完对 trace，
+// 结算分 < 本地上报分或结算被拒，才逐档放慢并重测。目前唯一实测证明必须卡的是 721
+// （见该分支注释），那是特例，新接活动没有实测依据时一律从 200~300ms 起步。
 // ---------------------------------------------------------------------------
 bool RunPlayProcess(const LatestActDesc& desc, LatestActState& state) {
     auto running = []() { return g_latestBatchRunning.load(); };
@@ -1234,8 +1234,9 @@ bool CloseStaleSession(const LatestActDesc& desc, LatestActState& state) {
 }
 
 // 扫荡：sweep_info 预览 -> sweep 执行（失败则由调用方退回游戏流程）
-// 发一次 sweep_info 拿本次扫荡的奖励预览，与旧周活动 Act822ThreadProc 里
-// 「SendAct822SweepInfoPacket(); WaitForAct822Response() && g_act822SweepAvailable」
+// 发一次 sweep_info 拿本次扫荡的奖励预览，与已下线的旧周活动 Act822ThreadProc
+// （ad5143f^:src/hook/activity_minigames.cpp:841-842
+//  「SendAct822SweepInfoPacket(); WaitForAct822Response() && g_act822SweepAvailable」）
 // 同一形状。返回值只反映服务端对「预览」的态度，不扣次数，
 // 不能当「有没有历史成绩」的判据——那个判据在 CanSweepDirectly 里本地算。
 bool ProbeSweepReady(const LatestActDesc& desc, LatestActState& state) {
@@ -1542,12 +1543,15 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
     }
 
     // ------------------------------------------------------------------
-    // 统一标准流程——与仓库里全部旧周活动（822/826/827/641/684/631…）同一条线，
-    // 逐字对应 Act822ThreadProc：
+    // 统一标准流程——与历史周活动（822/826/827/641/684/631…，均已下线）同一条线，
+    // 逐字对应 ad5143f^:src/hook/activity_minigames.cpp 里的 Act822ThreadProc：
     //
     //   ① open_ui / game_info：拿剩余次数、冷却、历史最好成绩
     //   ② 次数用完 -> 停；冷却中 -> 停
-    //   ③ ShouldAutoSweep(最好成绩, 上限最高分) 成立 -> 直接扫荡，一次扫完剩余次数
+    //   ③ CanSweepDirectly 成立 -> 直接扫荡，一次扫完剩余次数。两档判据，都在本地判、
+    //      不发包：有上限最高分常量 -> ShouldAutoSweep(最好成绩, 上限分)；没有上限分、
+    //      回包只给「今天成功打完过一局」标志位 -> 标志位 > 0。sweep_info 的返回值
+    //      一律不当闸门（服务端没成绩时也照常回包，拿它放行会白扣一次次数）。
     //   ④ 不成立 -> 完整打完一局（过程包一条不少，打到满分）-> 再扫荡剩余次数
     //
     // 只有一条主线和一次扫荡，不逐轮试探。逐轮「先扫一次再说」会把成绩不够的
@@ -1713,8 +1717,12 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
         }
 
         // 扫荡前按 AS3 顺序发一包 sweep_info 拿奖励预览（不扣次数）。
-        // 这一包不是成绩查询，别拿它的结果当门槛——882 的「有没有成绩」一律看
-        // open_ui 的 bestFlag（上面 RefreshOneActivity 刚刷成权威值）。
+        //
+        // 这里的返回值**可以**当门槛，但问的已经不是同一个问题：走到这里说明本进程
+        // 刚打完一整局，要确认的是「服务端有没有把这局记上账」，而不是「历史上有没有
+        // 成绩」——后者由 CanSweepDirectly 在开局本地判完，从不问服务端。此时若服务端
+        // 说没成绩，真发 sweep 会白扣一次次数，所以退回继续打一局是对的。
+        // 反面用法（开局就拿这一包当闸门）见 CanSweepDirectly 的注释。
         if (!ProbeSweepReady(desc, state)) {
             Notify(activityId, L"服务端暂无可扫荡成绩，继续打下一局");
             continue;
