@@ -16,6 +16,10 @@ BOOL SendPacket(SOCKET s, const BYTE* pData, DWORD dwSize,
                 uint32_t expectedOpcode = 0, DWORD timeoutMs = 0,
                 uint32_t expectedParams = 0, bool matchExpectedParams = false);
 BOOL SendPacketBytes(const std::vector<BYTE>& packet);
+// 副作用请求只尝试一次，避免底层错误导致重复提交。
+BOOL SendPacketBytesOnce(const std::vector<BYTE>& packet);
+// 仅用于恢复已确认的业务会话：停止后允许单次提交，不自动重试。
+BOOL SendPacketBytesForCleanup(const std::vector<BYTE>& packet);
 BOOL SendPacketBytes(const std::vector<BYTE>& packet, uint32_t expectedOpcode,
                      DWORD timeoutMs, uint32_t expectedParams = 0,
                      bool matchExpectedParams = false);

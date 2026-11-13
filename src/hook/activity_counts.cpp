@@ -19,9 +19,9 @@
 // 各活动 open_ui 响应会把剩余次数解析进各自状态的 playCount。这里逐个下发
 // open_ui 探针并回填前端：
 //   - 有响应且解析出次数：按 playCount 回填（0 表示次数已用完，前端禁用该行）。
-//   - 有响应但未解析出次数：按 0（不可用）处理。
-//   - 无响应（活动已过期/服务端不再下发）：按 0（不可用）处理并禁用该行。
-//   - 未连接游戏：上报 -1，前端显示“--”且保持可勾选，避免误禁用。
+//   - 常规活动无响应或未解析出次数：按 0（不可用）处理。
+//   - 883 的响应不完整、超时或发送失败：按未知（-1）处理，保持可勾选。
+//   - 未连接游戏：上报 -1；活动保持可勾选，避免误禁用。
 //
 // 探针使用比常规流程更短的超时：过期活动不会响应，若沿用 3s 超时，9 个活动会
 // 让刷新静默挂起近半分钟。刷新过程中回显进度，结束时给出汇总，避免一直停留在
@@ -49,6 +49,7 @@ const ActivityCountTarget kActivityCountTargets[] = {
     {LatestAct::ACT_TREASURE, L"夺宝行动"},
     {LatestAct::ACT_PUMPKINS_PK, L"南瓜VS南瓜王"},
     {LatestAct::ACT_QIAO, L"欢乐跷跷板"},
+    {LatestAct::ACT_ADVENTURE, L"风焰神殿大冒险"},
 };
 
 constexpr int kActivityCountTargetNum =
@@ -93,8 +94,10 @@ void QueryActivityCountsAsync() {
 
     // 走受管线程：退出时能收住，不再是一条没人等的线程。
     const bool threadStarted = StartManagedThreadOnce(L"activity_counts", [](LPVOID) -> DWORD {
+        struct RefreshGuard {
+            ~RefreshGuard() { g_activityCountRefreshing = false; }
+        } refreshGuard;
         if (!IsWpeHookInitialized()) {
-            g_activityCountRefreshing = false;
             return 0;
         }
 
@@ -104,7 +107,6 @@ void QueryActivityCountsAsync() {
                 ReportActivityCount(target.activityId, -1);
             }
             UIBridge::Instance().UpdateHelperText(L"未连接游戏，无法获取活动次数");
-            g_activityCountRefreshing = false;
             return 0;
         }
 
@@ -135,13 +137,28 @@ void QueryActivityCountsAsync() {
                 continue;
             }
 
+            struct ProbeGuard {
+                uint32_t id;
+                bool held;
+                void Release() {
+                    if (held) EndLatestActivityProbe(id);
+                    held = false;
+                }
+                ~ProbeGuard() { Release(); }
+            } probeGuard{activityId, needProbeLock};
+
+            if (activityId == LatestAct::ACT_ADVENTURE) {
+                QueryAdventureActivityCount(kActivityCountProbeTimeoutMs);
+                probeGuard.Release();
+                ManagedThread::SleepCancellable(120);
+                continue;
+            }
+
             if (!ProbeActivityOpenUI(activityId)) {
                 // 无响应：活动已过期或服务端不再下发，按不可用（0）处理。
                 ReportActivityCount(activityId, 0);
                 ++unavailableCount;
-                if (needProbeLock) {
-                    EndLatestActivityProbe(activityId);
-                }
+                probeGuard.Release();
                 ManagedThread::SleepCancellable(120);
                 continue;
             }
@@ -159,21 +176,18 @@ void QueryActivityCountsAsync() {
                 ++availableCount;
             }
 
-            if (needProbeLock) {
-                EndLatestActivityProbe(activityId);
-            }
+            probeGuard.Release();
             ManagedThread::SleepCancellable(120);
         }
 
         wchar_t summary[160];
         swprintf_s(
             summary,
-            L"刷新完成：可用 %d 个，不可用/已过期 %d 个",
+            L"刷新完成：其他活动查询成功 %d 个，未取得次数 %d 个；风焰神殿次数见列表",
             availableCount,
             unavailableCount);
         UIBridge::Instance().UpdateHelperText(summary);
 
-        g_activityCountRefreshing = false;
         return 0;
     }, nullptr);
 

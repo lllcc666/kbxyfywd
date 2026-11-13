@@ -22,11 +22,12 @@
 //   880 夺宝行动        （Active20140619Treasure，26101902）
 //   882 南瓜VS南瓜王    （Active20131024PumpkinsPk，26102604）
 //   808 欢乐跷跷板      （act_2026/Act808，26103002）
+//   883 风焰神殿大冒险  （Activity20131017Adventure，26103001）
 //
-// 按 skill 约定，只接主流程：进入活动查次数 -> 扫荡或走一局 -> 回填次数；
-// 不展开兑换、礼包、买宠等入口。
+// 只接主流程：进入活动查次数 -> 扫荡或走一局 -> 回填次数；
+// 883 使用专用逐局流程，不展开兑换、礼包、买宠等入口。
 //
-// 统一标准（与历史周活动同一条线，逐字对应 ad5143f^:src/hook/activity_minigames.cpp:141
+// 常规活动统一标准（不含 883；与历史周活动同一条线，逐字对应 ad5143f^:src/hook/activity_minigames.cpp:141
 // 的 ShouldAutoSweep；那批活动已下线，这里是唯一还在用的实现）：
 //   ① 进入活动查次数、冷却、历史最好成绩
 //   ② 次数用完 -> 停；冷却中 -> 等或停
@@ -40,12 +41,13 @@
 //   - 过程包（game_event / sub_hp 之类）的包数、包序照 AS3 一条不少，但间隔默认
 //     200~300ms，不照抄 AS3 节拍：实测只有极少数活动卡时序，绝大多数 200~300ms 连发
 //     就能正常结算（730 即 200ms）。721 是唯一实测证明必须撑满 90 秒的特例。
-//   - 730 的"进入活动"操作串是 "game_info"，其余为 "open_ui"。
+//   - 730/883 的"进入活动"操作串是 "game_info"，其余为 "open_ui"。
 //   - 721 的 end_game 不带任何参数（body 只有操作串），与其他活动差异最大。
 //
-// 收录范围只限「本地能完整打完一局的周活动小游戏」：Define 里有
-// start_game/end_game/game_event，且 start_game 回包下发 checkCode。
-// 挑战类（combat/combat_end、无 checkCode，如 867 月色下的血脉觉醒）、
+// 常规小游戏统一流程要求有 start_game、本地 end_game、开局回包下发 checkCode，
+// 且目标成绩能够在本地构造。883 由服务端逐题计分，走专用逐局流程，
+// 不按猜测的满分判断扫荡。
+// 挑战类（combat/combat_end，如 867 月色下的血脉觉醒、881 蛇影迷踪）、
 // 兑换/签到/超进化/场景入口一律不进来——它们没有可验证的对局链路。
 // ============================================================================
 
@@ -56,13 +58,14 @@ constexpr int ACT_FIGHT_EVILS = 730;    ///< 智斗恶灵
 constexpr int ACT_TREASURE = 880;       ///< 夺宝行动
 constexpr int ACT_PUMPKINS_PK = 882;    ///< 南瓜VS南瓜王
 constexpr int ACT_QIAO = 808;           ///< 欢乐跷跷板
+constexpr int ACT_ADVENTURE = 883;      ///< 风焰神殿大冒险
 
 }  // namespace LatestAct
 
 /// 该活动是否由本模块负责（供次数查询/UI 通道判断）。
 bool IsLatestActivity(uint32_t activityId);
 
-/// 该活动"进入活动"操作串：多数为 "open_ui"，730 为 "game_info"。
+/// 该活动"进入活动"操作串：多数为 "open_ui"，730/883 为 "game_info"。
 /// 非本模块活动返回 "open_ui"。
 const char* GetLatestActivityOpenUIOperation(uint32_t activityId);
 
@@ -74,12 +77,23 @@ void EndLatestActivityProbe(uint32_t activityId);
 /// 单个活动的剩余次数；< 0 表示未知/未获取。
 int GetLatestActivityPlayCount(uint32_t activityId);
 
+/// 调用前须持有 883 的探针占用；由响应处理器回填 UI，失败时显示未知。
+void QueryAdventureActivityCount(DWORD timeoutMs);
+
 /// 批量一键执行：单线程顺序处理，每个活动循环到次数耗尽（或冷却/失败）为止，
 /// 每轮结束自动把剩余次数回填前端，无需手动刷新。
 BOOL StartOneKeyLatestActivitiesPacket(const std::vector<uint32_t>& activityIds);
 
-/// 停止一键执行：中断批量循环与单活动执行。
+/// 异步请求停止；工作线程收尾前不允许启动新批次。
+void RequestStopLatestActivities();
+/// 请求停止并等待工作线程完成收尾；不得在 UI 消息线程调用。
 void StopLatestActivities();
 
 /// 响应处理器：由 ACTIVITY_QUERY_BACK + activityId 路由进来。
 void ProcessLatestActivityResponse(const GamePacket& packet);
+
+/// 将883手动/自动操作的最终socket收发实时写入程序日志；不采集其他活动/账号包。
+/// 独立锁保护，调用点可能仍持有883请求锁，不能反向获取请求锁。
+void RecordAdventurePacketSend(const BYTE* data, size_t size, int sentBytes,
+                               bool nativeRequest, uintptr_t socketId, const wchar_t* outcome);
+void RecordAdventurePacketReceive(const GamePacket& packet, uintptr_t socketId);

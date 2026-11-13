@@ -3,11 +3,14 @@
 
 #include "managed_thread.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <fstream>
 #include <mutex>
+#include <random>
 #include <string>
 #include <thread>
 #include <vector>
@@ -43,8 +46,7 @@ struct LatestActDesc {
     /// 常量，门槛退化为进入包里的「今天成功打完过一局」标志位（882/808）。
     int passScore;
     bool reportsDailyTask;  ///< 结算后是否上报每日任务（721/730 有）
-    /// 本地是否有可自动化的游戏循环。全部收录活动都必须是 true：
-    /// 只有「完整打完一局」和「扫荡」两条路径，没有第三条。
+    /// 是否满足自动执行的准入条件；false 时仅保留只读次数查询。
     bool playable;
 };
 
@@ -66,6 +68,7 @@ struct LatestActDesc {
 //                    KBBatttleView.init:172 写进文本框的展示值，服务端按它生成
 //                    掉落表；本局提交的是真实捡到的分，所以 targetScore = 0）；
 //                    门槛同样退化为 open_ui 的 historyBestScore > 0。
+//   883 风焰神殿大冒险 使用服务端逐题计分，走专用流程，不按猜测的成绩扫荡。
 //
 // 扫荡次数：全部活动的 AS3 扫荡窗口一律把次数一次交上去——
 //   721 ActSweepWin.as:84       [SWEEP, _curCnt]
@@ -75,6 +78,8 @@ struct LatestActDesc {
 //   882 ActSweepWin.as:61       [SWEEP, int(_changePanel.text)]
 //   808 Act808SweepWin.as:77    [SWEEP, this._curCnt]（updateSweepUI:124-125 把
 //                               _curCnt 预置成全部剩余次数，一次扫完）
+//   883 SweepPage.as:73         [GET_SWEEP, int(this._changePanel.text)]，
+//                               _changePanel.max = KBDataCenter.restCount（:49）
 // 所以 sweep 一律带次数、一次发完，没有「无参 sweep 逐次发」那种活动。
 const LatestActDesc kActivities[] = {
     {LatestAct::ACT_STAR_PRINCESS, L"采菊东篱下", "open_ui", 400, 400, true, true},
@@ -84,6 +89,8 @@ const LatestActDesc kActivities[] = {
     {LatestAct::ACT_PUMPKINS_PK, L"南瓜VS南瓜王", "open_ui", 0, 0, false, true},
     // 808 的 sendEndGame:75 顺带上报每日任务 [3, 4039001, 0]，与 882 一致。
     {LatestAct::ACT_QIAO, L"欢乐跷跷板", "open_ui", 0, 0, true, true},
+    // 883 的成绩由服务端逐题累计，使用专用走棋和结算流程。
+    {LatestAct::ACT_ADVENTURE, L"风焰神殿大冒险", "game_info", 0, 0, false, true},
 };
 
 constexpr int kActivityNum = static_cast<int>(sizeof(kActivities) / sizeof(kActivities[0]));
@@ -135,9 +142,44 @@ constexpr int kPumpkinKillCap[kPumpkinMonsterTypes] = {38, 38, 11};
 constexpr int kPumpkinBonusSlots = 12;   ///< ActivityData.gameGetBonusList 长度
 constexpr int kPumpkinMedalAward = 23;   ///< award == 23 只进 gameMedal
 
+// 883 风焰神殿大冒险：棋盘是 m0..m9 十个机关格（KBRankView.init:265-283），
+// 三种机关类型共用这块十格棋盘，只是可见/可点的格子不同。
+constexpr int kAdvBoardSlots = 10;
+// 类型 2 的下排候选数：m5..m9 共 5 个（awardArr[1..5]）。
+constexpr int kAdvMatchCandidates = 5;
+// 类型 3 的行宽：上排 m0..m4 是目标顺序，下排 m5..m9 可交换。
+constexpr int kAdvRowSlots = 5;
+// 883 没有已确认的满分或可用于提前结束的奖励上限。
+// KBTimeUtil 从 120 倒计时，计数小于 0 后才弹出结束确认。
+// 从开局回包开始计时；结束仍发送 end_game,0，不上报本地成绩。
+constexpr DWORD kAdvRoundDurationMs = 122000;
+// 按用户指定的约 3 秒节奏随机等待；这不是对未知 result=3 原因的判定。
+constexpr int kAdvMoveGapMinMs = 2700;
+constexpr int kAdvMoveGapMaxMs = 3300;
+constexpr DWORD kAdvWaitSliceMs = 50;
+constexpr DWORD kAdvCleanupWaitMs = 2000;
+// 结算回包后，AS3 还会异步刷新 game_info；给服务端写入次数留出几次重试。
+constexpr int kAdvSettlementRefreshAttempts = 3;
+constexpr DWORD kAdvSettlementRefreshGapMs = 1000;
+// 不限制单局题数；AS3 由计时、生命耗尽或完成条件结束。这里的余量只防止
+// 服务端计数异常导致无限开局，不把它当作正常结束条件。
+constexpr int kAdvSafetyRunMargin = 2;
+// 三种机关题面（KBDataCenter.iType，KBRankView.initGameByType:285-336 按它分派）。
+constexpr int kAdvTypeOddOneOut = 1;  ///< 找出下列机关不同的图案
+constexpr int kAdvTypeMatch = 2;      ///< 在下面一行找出与上面相同的图案
+constexpr int kAdvTypeArrange = 3;    ///< 移动下面一行机关的位置使顺序与上排一致
+
 // ---------------------------------------------------------------------------
 // 每活动运行时状态
 // ---------------------------------------------------------------------------
+struct AdventureBoard {
+    std::array<int, kAdvBoardSlots> tiles{};
+    int type = 0;
+    int score = 0;
+    int hp = 0;
+    bool ready = false;
+};
+
 struct LatestActState {
     std::atomic<int> playCount{-1};  ///< 剩余次数；-1 未知
     std::atomic<int> restTime{0};    ///< 冷却剩余秒
@@ -216,6 +258,18 @@ struct LatestActState {
     /// pumpkinBonus，保证结算线程不会拿到半份表算出来的计数。
     std::atomic<bool> pumpkinBonusReady{false};
 
+    /// 响应线程和执行线程必须在同一把锁下读写完整棋盘快照。
+    std::mutex advMutex;
+    AdventureBoard advBoard;
+    std::atomic<bool> advInterference{false};
+    std::atomic<int> advEndScore{-1};
+    // end_game 可在走子期间独立到达；收到不等于结算成功，但必须先停走子。
+    std::atomic<bool> advEndReceived{false};
+    std::atomic<bool> advClosing{false};
+    // 首个未确认结果整局保留，不能被后续收尾成功覆盖。
+    std::atomic<bool> advAbortRound{false};
+    std::atomic<int> advAbortResult{-1};
+
     /// 占用标记：0 空闲，1 一键流程，2 次数探针。
     /// 二者共用 (ACTIVITY_QUERY_BACK, activityId) 路由到同一个响应处理器，而该处理器
     /// 会无条件清除 waitingResponse；若并发，探针的响应会提前清掉一键流程的等待标志，
@@ -225,8 +279,58 @@ struct LatestActState {
 
 LatestActState g_state[kActivityNum];
 
+// 883 的只读探针必须等 game_info 完整解析，不能由同族的手动对局回包唤醒。
+// 此锁也保证 UI 中的次数与手动操作引起的失效通知按处理顺序投递。
+std::mutex g_adventureProbeMutex;
+std::condition_variable g_adventureResponse;
+bool g_adventureProbePending = false;
+
+// 手动原客户端和自动流程都记录883；独立锁保证收发日志按投递顺序排列。
+// 请求发送时可能持有探针锁，不能反向获取请求锁或同步调用UI。
+constexpr size_t kAdvTraceBytes = 256;
+std::mutex g_advTraceMutex;
+const auto g_advTraceStarted = std::chrono::steady_clock::now();
+
+void AppendAdventureTraceLocked(const std::wstring& label, const BYTE* data, size_t size) {
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - g_advTraceStarted).count();
+    std::wstring text = L"+" + std::to_wstring(elapsed) + L"ms " + label +
+                        L" bytes=" + std::to_wstring(size) + L" hex=";
+    constexpr wchar_t digits[] = L"0123456789ABCDEF";
+    const size_t count = (std::min)(size, kAdvTraceBytes);
+    for (size_t i = 0; i < count; ++i) {
+        if (i != 0) text += L' ';
+        text += digits[data[i] >> 4];
+        text += digits[data[i] & 0x0F];
+    }
+    if (count != size) text += L" …";
+    // UpdateHelperText只通过PostMessage投递，不在socket线程同步执行UI。
+    UIBridge::Instance().UpdateHelperText(L"风焰神殿抓包：" + text);
+}
+
 /// 批量一键执行是否在进行：整批活动串行跑，同一时刻只允许一个 worker。
 std::atomic<bool> g_latestBatchRunning{false};
+// 停止只清 running，active 要等旧线程收尾后才释放，避免快速重启复活旧线程。
+std::mutex g_latestBatchMutex;
+std::condition_variable g_latestBatchStopped;
+bool g_latestBatchActive = false;
+uint64_t g_latestBatchGeneration = 0;
+uint64_t g_latestBatchCompleted = 0;
+
+struct LatestBatchCompletion {
+    ~LatestBatchCompletion() {
+        {
+            std::lock_guard<std::mutex> lock(g_latestBatchMutex);
+            g_latestBatchRunning = false;
+            g_latestBatchActive = false;
+            g_latestBatchCompleted = g_latestBatchGeneration;
+        }
+        g_latestBatchStopped.notify_all();
+    }
+};
+
+// 只由当前批次 worker 读写。
+bool g_latestBatchHadErrors = false;
 
 LatestActState* StateOf(uint32_t activityId) {
     const LatestActDesc* desc = FindDesc(activityId);
@@ -251,16 +355,9 @@ bool ReadBodyString(const BYTE* body, size_t bodySize, size_t& offset, std::stri
 // ---------------------------------------------------------------------------
 // 发包
 // ---------------------------------------------------------------------------
-// 只发一次，不交给 SendPacket 去等回包。
-//
-// SendPacket 的 expectedOpcode 路径在等不到回包时会**自动重发同一个包**（最多 3 次）。
-// 对 start_game 来说重发等于连开三局：服务端最后一次建局会把 checkCode 换掉，
-// 本地手里那个就作废了，随后 end_game 的校验位算不对，服务端只扣次数不发奖
-// （历史上那次 result=3 就是这个形状）。旧活动模块 activity_bus.cpp 的做法一直是
-// 「发一次 + 自己等标志位」，这里对齐它：发一次，然后由 WaitForResponse 等处理器放行。
-//
-// 过程包（AS3 的 play_game / game_event）同样走这里：它们也是发完即走，
-// 调用方本就不传 expectedOpcode，没有「等 / 不等」两种模式可分。
+// 发包与业务响应等待分开：由响应处理器解析完整数据后放行等待方，
+// 避免仅凭 opcode 和活动 ID 唤醒后读到尚未解析的旧状态。
+// SendPacketBytes 在发送错误时可能重试；成功发送后的等待超时不会触发重发。
 // ---------------------------------------------------------------------------
 BOOL SendLatestPacket(uint32_t activityId, const std::string& operation,
                       const std::vector<int32_t>& bodyValues = {}) {
@@ -294,6 +391,10 @@ enum class PendingOp : uint32_t {
     SweepInfo,
     Sweep,
     EndGame,
+    /// 883 的局内走子。其余活动的过程包（721 game_event、808 gameing）服务端
+    /// 不回包或回包无意义，所以从来不在等待表里；883 的每一步都要读回包里的新棋盘，
+    /// 必须像动作包一样排队等待，否则下一步会拿旧棋盘算走法。
+    PlayGame,
 };
 
 /// 等待守卫：置位等待标志并登记期望回包，离开作用域时一并撤销，
@@ -301,10 +402,14 @@ enum class PendingOp : uint32_t {
 struct PendingOpGuard {
     LatestActState& state;
     PendingOpGuard(LatestActState& s, PendingOp op) : state(s) {
+        std::unique_lock<std::mutex> lock(g_adventureProbeMutex, std::defer_lock);
+        if (&state == StateOf(LatestAct::ACT_ADVENTURE)) lock.lock();
         state.pendingOp = static_cast<uint32_t>(op);
         state.waitingResponse = true;
     }
     ~PendingOpGuard() {
+        std::unique_lock<std::mutex> lock(g_adventureProbeMutex, std::defer_lock);
+        if (&state == StateOf(LatestAct::ACT_ADVENTURE)) lock.lock();
         state.pendingOp = static_cast<uint32_t>(PendingOp::None);
         state.waitingResponse = false;
     }
@@ -312,10 +417,47 @@ struct PendingOpGuard {
     PendingOpGuard& operator=(const PendingOpGuard&) = delete;
 };
 
+// 发送调用不等待回包；持锁覆盖最后的干扰检查、登记等待与发包。
+// 接收线程可在发送返回后进入，不会在此锁内等待服务端响应。
+struct AdventureRequest {
+    LatestActState& state;
+    bool sent = false;
+    AdventureRequest(LatestActState& s, PendingOp op, const char* operation,
+                     const std::vector<int32_t>& values, bool cleanup = false) : state(s) {
+        std::lock_guard<std::mutex> lock(g_adventureProbeMutex);
+        if (state.advInterference.load() ||
+            (!cleanup && (!g_latestBatchRunning.load() || ManagedThread::StopRequested()))) return;
+        // 与回包处理器同锁：终局到达后不能再发下一步，也不能重复提交已确认结算。
+        if ((op == PendingOp::PlayGame &&
+             (state.advEndReceived.load() || state.advClosing.load())) ||
+            (op == PendingOp::EndGame && state.advEndReceived.load())) return;
+        state.pendingOp = static_cast<uint32_t>(op);
+        state.waitingResponse = true;
+        if (op == PendingOp::StartGame || op == PendingOp::EndGame) {
+            state.playCount = -1;
+            ReportActivityCount(LatestAct::ACT_ADVENTURE, -1);
+        }
+        if (op == PendingOp::OpenUi) {
+            sent = SendLatestPacket(LatestAct::ACT_ADVENTURE, operation, values) != FALSE;
+        } else {
+            const auto packet = BuildActivityPacket(Opcode::ACTIVITY_QINGYANG_NEW_SEND,
+                                                    LatestAct::ACT_ADVENTURE, operation, values);
+            sent = (cleanup ? SendPacketBytesForCleanup(packet) : SendPacketBytesOnce(packet)) != FALSE;
+        }
+    }
+    ~AdventureRequest() {
+        std::lock_guard<std::mutex> lock(g_adventureProbeMutex);
+        state.pendingOp = static_cast<uint32_t>(PendingOp::None);
+        state.waitingResponse = false;
+    }
+    AdventureRequest(const AdventureRequest&) = delete;
+    AdventureRequest& operator=(const AdventureRequest&) = delete;
+};
+
 bool WaitForResponse(LatestActState& state, DWORD timeoutMs) {
-    // 收包线程把 waitingResponse 置 false 表示回包已到；超时/停止都返回 false。
-    return WaitForCondition([&state]() { return !state.waitingResponse.load(); }, timeoutMs, 50) ==
-           WaitOutcome::Signalled;
+    return WaitForConditionEx([&state]() { return !state.waitingResponse.load(); },
+                              []() { return !g_latestBatchRunning.load(); }, timeoutMs, 50) ==
+           WaitOutcome::Signalled && g_latestBatchRunning.load() && !ManagedThread::StopRequested();
 }
 
 // 扫荡门槛——沿用仓库里周活动的统一标准，不要另立一套。
@@ -498,6 +640,24 @@ void ParseOpenUI(const LatestActDesc& desc, LatestActState& state,
             state.bestScore = read();     // bestFlag（今天成功打完过一局 > 0）
             break;
 
+        case LatestAct::ACT_ADVENTURE:
+            // result, playCount, coolTimeLeft, bestScore, isPop
+            // （KBAdventureModel.decodeOpenUI:244-256，共 5 个 int，后面没有别的字段）
+            // AS3 自己不判 result，照抄：次数为 0 时由流程层按「今日次数已用完」收尾。
+            {
+                read();                   // result（AS3 未使用）
+                const int count = read(); // playCount -> restCount
+                const int cooldown = read();
+                const int bestScore = read();
+                const int ruleFlag = read();
+                if (!reader.ok() || count < 0) return;
+                state.playCount = count;
+                state.restTime = cooldown;
+                state.bestScore = bestScore;
+                state.ruleFlag = ruleFlag;
+            }
+            break;
+
         default:
             break;
     }
@@ -566,6 +726,12 @@ void ConsumePumpkinMonsterData(LatestActState& state, const BYTE* body, size_t s
 //                                       <- 三个字段，且 randomCode 必须留住（见下面分支）
 // 该字段不能被当作 checkCode 使用；漏跳会让 checkCode 整体前移 4 字节，
 // end_game 的校验式全错，服务端只扣次数不下发奖励。
+bool IsValidAdvBoard(int type, int length) {
+    if (type == kAdvTypeOddOneOut || type == kAdvTypeArrange) return length == kAdvBoardSlots;
+    if (type == kAdvTypeMatch) return length >= kAdvMatchCandidates + 1 && length <= kAdvBoardSlots;
+    return false;
+}
+
 void ParseStartGame(const LatestActDesc& desc, LatestActState& state,
                     const GamePacket& packet, size_t offset) {
     const BYTE* body = packet.body.data();
@@ -602,6 +768,30 @@ void ParseStartGame(const LatestActDesc& desc, LatestActState& state,
             state.qiaoDrops[static_cast<std::size_t>(drops)] = reader.I32();
         }
         state.qiaoDropReady = (drops == kQiaoDrops);
+        return;
+    }
+
+    // 883 的开局棋盘由服务端直接下发，没有 checkCode。
+    if (desc.id == LatestAct::ACT_ADVENTURE) {
+        AdventureBoard board;
+        const int count = reader.I32();
+        board.score = reader.I32();
+        board.hp = reader.I32();
+        board.type = reader.I32();
+        const int boardLen = reader.I32();
+        if (!reader.ok() || count < 0 || board.hp < 0 ||
+            !IsValidAdvBoard(board.type, boardLen) ||
+            static_cast<size_t>(boardLen) > reader.Remaining() / sizeof(int32_t)) return;
+        for (int i = 0; i < boardLen; ++i) {
+            board.tiles[static_cast<std::size_t>(i)] = reader.I32();
+        }
+        if (!reader.ok()) return;
+        board.ready = true;
+        {
+            std::lock_guard<std::mutex> lock(state.advMutex);
+            state.advBoard = board;
+        }
+        state.playCount = count;
         return;
     }
 
@@ -644,6 +834,43 @@ void ParseStartGame(const LatestActDesc& desc, LatestActState& state,
             reader.I32();  // awardNum
         }
     }
+}
+
+// 883 的每次走棋都要读取完整 DTO，再原子发布下一张棋盘。
+void ParsePlayGame(LatestActState& state, const GamePacket& packet, size_t offset) {
+    ByteReader reader(packet.body, offset);
+    AdventureBoard board;
+    const int result = reader.I32();
+    board.score = reader.I32();
+    board.hp = reader.I32();
+    board.type = reader.I32();
+    const int boardLen = reader.I32();
+    // decodeGameMove 对所有结果都读取并发布棋盘，答错同样返回新题面。
+    if (!reader.ok() || board.hp < 0 || boardLen < 0 ||
+        static_cast<size_t>(boardLen) > reader.Remaining() / sizeof(int32_t)) return;
+    for (int i = 0; i < boardLen; ++i) {
+        const int tile = reader.I32();
+        if (i < kAdvBoardSlots) board.tiles[static_cast<std::size_t>(i)] = tile;
+    }
+    const int toolLen = reader.I32();
+    if (!reader.ok() || toolLen < 0 ||
+        static_cast<size_t>(toolLen) > reader.Remaining() / sizeof(int32_t)) return;
+    for (int i = 0; i < toolLen; ++i) reader.I32();
+    reader.I32();  // xz；奖励由服务端累计，不需回传
+    // 手动正常对局的成功回包在xz后结束；AS3的iAwardLen没有消费者。
+    // 仅在存在尾数据时尝试读取；缺省不能使完整题面被当成截断包丢弃。
+    if (result == 1 && reader.Remaining() != 0) reader.I32();  // 可选iAwardLen
+    if (!reader.ok()) return;
+    // 生命耗尽时不再求解，空棋盘也必须发布，让执行方走结束流程。
+    // 活着时仍保留题面形状校验，不能用补零数据发送一个猜出的答案。
+    board.ready = board.hp == 0 || IsValidAdvBoard(board.type, boardLen);
+    if (!board.ready) {
+        Notify(LatestAct::ACT_ADVENTURE, L"走子回包题面不支持（result=" +
+               std::to_wstring(result) + L"，type=" + std::to_wstring(board.type) +
+               L"，len=" + std::to_wstring(boardLen) + L"）");
+    }
+    std::lock_guard<std::mutex> lock(state.advMutex);
+    state.advBoard = board;
 }
 
 // 721 ActEndGameDto.as:21-38：三项计数后，读取至多十组奖励对。
@@ -702,6 +929,21 @@ void ParseSweepInfo(const LatestActDesc& desc, LatestActState& state,
             // 打完一局、2 = 次数不足、3 = 冷却中（Act808ErrorCode.errorCodeSweep）。
             state.sweepReady = (first == 0);
             break;
+        case LatestAct::ACT_ADVENTURE: {
+            // 883 KBAdventureModel.decodeSweepInfo:449-476 有**两个**前导 int：
+            // code 与 result，只有 code == 0 且 result ∈ {0,4} 才继续读
+            // medal/exp/coin、才允许开扫荡窗；否则弹
+            // 「需要成功进行一局游戏才可以扫荡哦！」。
+            // 这是本模块唯一一个首字段不是结果码的派发：first 是 code，
+            // 结果码必须再读一个 int 才拿得到。
+            state.sweepReady = false;
+            if (offset + 4 > size) {
+                break;
+            }
+            const int result = reader.I32();
+            state.sweepReady = (first == 0 && (result == 0 || result == 4));
+            break;
+        }
         case LatestAct::ACT_FIND_CORNEL:
             // 877 ActModel.as:292-321 result == 0 才读奖励。
             state.sweepReady = (first == 0);
@@ -771,6 +1013,13 @@ void ParseSweepResult(const LatestActDesc& desc, LatestActState& state,
             // 否则 1（还没成功打完一局）/2（次数不足）/3（冷却中）都会被当成扫成功。
             state.sweepReady = (result == 0 || result == 4);
             break;
+        case LatestAct::ACT_ADVENTURE:
+            // 883 的 GET_SWEEP 回包与 end_game 走同一个解码函数
+            // （KBAdventureModel.decodeEndGame:334-369，由 onSocketHandler:186-242
+            // 同时挂在 END_GAME 与 GET_SWEEP 上），result ∈ {0,4} 才算成功。
+            // 不能落到下面 fallback 的「!= 3」：883 的 1/2/3 都不是成功码。
+            state.sweepReady = (result == 0 || result == 4);
+            break;
         case LatestAct::ACT_FIND_CORNEL:
         case LatestAct::ACT_FIGHT_EVILS:
         case LatestAct::ACT_TREASURE:
@@ -830,6 +1079,25 @@ void ParseEndGame(const LatestActDesc& desc, LatestActState& state,
                 state.endStarCount = starCount;
                 state.endCoin = coin;
                 state.endLilian = lilian;
+                state.endSettled = true;
+            }
+            break;
+        }
+        case LatestAct::ACT_ADVENTURE: {
+            // 4 关联受伤离场，不是可以据此扫荡的满分标志。
+            state.endSettled = false;
+            state.advEndScore = -1;
+            if (result != 0 && result != 4) break;
+            reader.I32();  // playCount；流程通过 game_info 回查
+            reader.I32();  // coolTimeLeft
+            reader.I32();  // medal
+            reader.I32();  // exp
+            reader.I32();  // coin
+            const int score = reader.I32();
+            reader.I32();  // bestScore
+            std::string bonusJson;
+            if (reader.ok() && ReadBodyString(body, size, offset, bonusJson)) {
+                state.advEndScore = score;
                 state.endSettled = true;
             }
             break;
@@ -933,6 +1201,11 @@ std::vector<int32_t> BuildEndGameBody(const LatestActDesc& desc, int seed,
             return body;
         }
 
+        case LatestAct::ACT_ADVENTURE:
+            // [end_game, endFlag]：正常超时或主动退出时使用 0；
+            // 成绩由 play_game 累计，客户端结算请求不包含目标分。
+            return {0};
+
         default:
             return {score};
     }
@@ -963,6 +1236,12 @@ std::vector<int32_t> BuildStartGameBody(const LatestActDesc& desc, LatestActStat
             // [start_game, popRule]，KBQiaoControl.sendStartGame:47-51：
             //   popRule = KBDataCenter.instance.isPop = open_ui 的第 8 个 int。
             return {state.ruleFlag.load()};
+        case LatestAct::ACT_ADVENTURE:
+            // game_info.isPop=0只决定先显示说明，不是本次开始请求的最终参数。
+            // KBBatttleView.init将info.mc置于第1帧，startBtnHandler默认设置
+            // ruleIntroduce=1后才toStart；isPop=1则直接沿用1开局。
+            // 对齐该默认路径及手动正常对局抓包start_game [1]。
+            return {1};
         default:
             return {};
     }
@@ -973,6 +1252,7 @@ std::vector<int32_t> BuildStartGameBody(const LatestActDesc& desc, LatestActStat
 //   721 ActModel.decodeBeginGame:127-148  → 1 次数用光 / 2 冷却中 / 3 还在游戏中
 //   730 Act730ErrorCode.errorCodeStartGame → 10 游戏中 / 11 在冷却 / 12 没次数了 / 13 支付中
 //   808 Act808ErrorCode.errorCodeStartGame → 与 882 完全相同的 10/11/12/13
+//   883 KBAdventureModel.errorCodeStartGame → 与 882 完全相同的 10/11/12/13
 // 其余活动没有可引用的枚举，原样回显数字，别把猜测写成结论。
 std::wstring StartFailureText(const LatestActDesc& desc, int result) {
     if (desc.id == LatestAct::ACT_FIGHT_EVILS) {
@@ -990,9 +1270,11 @@ std::wstring StartFailureText(const LatestActDesc& desc, int result) {
             case 3: return L"result=3 还在游戏中";
             default: break;
         }
-    } else if (desc.id == LatestAct::ACT_PUMPKINS_PK || desc.id == LatestAct::ACT_QIAO) {
+    } else if (desc.id == LatestAct::ACT_PUMPKINS_PK || desc.id == LatestAct::ACT_QIAO ||
+               desc.id == LatestAct::ACT_ADVENTURE) {
         // 882 Act882ErrorCode.errorCodeStartGame:13-40 与 808
-        // Act808ErrorCode.errorCodeStartGame 是同一套数字：
+        // Act808ErrorCode.errorCodeStartGame 是同一套数字，883
+        // KBAdventureModel.errorCodeStartGame:29-56 又与前两者逐字相同：
         // 10 游戏中 / 11 在冷却 / 12 没次数了 / 13 支付中。
         switch (result) {
             case 10: return L"result=10 还在游戏中";
@@ -1003,6 +1285,63 @@ std::wstring StartFailureText(const LatestActDesc& desc, int result) {
         }
     }
     return L"result=" + std::to_wstring(result);
+}
+
+// 每次只按最新服务端棋盘提交一个动作；排列题可以需要多次交换。
+std::vector<int32_t> SolveAdvMove(int type, const std::array<int, kAdvBoardSlots>& b) {
+    switch (type) {
+        case kAdvTypeOddOneOut: {
+            int uniqueIndex = -1;
+            for (int i = 0; i < kAdvBoardSlots; ++i) {
+                int same = 0;
+                for (int value : b) if (value == b[static_cast<std::size_t>(i)]) ++same;
+                if (same == 1) {
+                    if (uniqueIndex >= 0) return {};
+                    uniqueIndex = i;
+                } else if (same != kAdvBoardSlots - 1) {
+                    return {};
+                }
+            }
+            return uniqueIndex >= 0 ? std::vector<int32_t>{uniqueIndex + 1, 0}
+                                    : std::vector<int32_t>{};
+        }
+        case kAdvTypeMatch: {
+            int match = -1;
+            for (int i = 1; i <= kAdvMatchCandidates; ++i) {
+                if (b[static_cast<std::size_t>(i)] == b[0]) {
+                    if (match >= 0) return {};
+                    match = i;
+                }
+            }
+            return match >= 0 ? std::vector<int32_t>{match + 1, 0}
+                              : std::vector<int32_t>{};
+        }
+        case kAdvTypeArrange: {
+            std::array<int, kAdvRowSlots> target{}, current{};
+            std::copy_n(b.begin(), kAdvRowSlots, target.begin());
+            std::copy_n(b.begin() + kAdvRowSlots, kAdvRowSlots, current.begin());
+            auto sortedTarget = target;
+            auto sortedCurrent = current;
+            std::sort(sortedTarget.begin(), sortedTarget.end());
+            std::sort(sortedCurrent.begin(), sortedCurrent.end());
+            if (sortedTarget != sortedCurrent) return {};
+            // AS3 每次提交两个下排槽号，不要求一次交换就整排归位。
+            // 只修正首个错位，下一步重新使用回包；不预发剩余交换。
+            for (int i = 0; i < kAdvRowSlots; ++i) {
+                if (target[static_cast<std::size_t>(i)] == current[static_cast<std::size_t>(i)]) continue;
+                for (int j = i + 1; j < kAdvRowSlots; ++j) {
+                    if (current[static_cast<std::size_t>(j)] == target[static_cast<std::size_t>(i)] &&
+                        current[static_cast<std::size_t>(j)] != target[static_cast<std::size_t>(j)]) {
+                        return {kAdvRowSlots + i + 1, kAdvRowSlots + j + 1};
+                    }
+                }
+                return {};
+            }
+            return {};
+        }
+        default:
+            return {};
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1433,23 +1772,48 @@ bool RefreshOneActivity(const LatestActDesc& desc, LatestActState& state) {
         if (!g_latestBatchRunning.load()) {
             return false;   // 已被要求停止，不再继续发查询
         }
-        state.playCount = -1;
-        {
-            PendingOpGuard guard(state, PendingOp::OpenUi);
-            if (!SendLatestPacket(desc.id, desc.openUiOp) ||
-                !WaitForResponse(state, kQueryTimeoutMs + kWaitMarginMs)) {
-                continue;
+        if (desc.id == LatestAct::ACT_ADVENTURE) {
+            {
+                std::lock_guard<std::mutex> lock(g_adventureProbeMutex);
+                if (state.advInterference.load()) return false;
+                state.playCount = -1;
             }
-        }
-        // waitingResponse 由响应处理器在解析完成后才清除，这里可直接读取解析结果。
-        if (state.playCount.load() >= 0) {
-            ReportActivityCount(desc.id, state.playCount.load());
-            return true;
+            bool answered = false;
+            {
+                AdventureRequest request(state, PendingOp::OpenUi, desc.openUiOp, {});
+                answered = request.sent && WaitForResponse(state, kQueryTimeoutMs + kWaitMarginMs);
+            }
+            std::lock_guard<std::mutex> lock(g_adventureProbeMutex);
+            if (state.advInterference.load()) return false;
+            if (answered && state.playCount.load() >= 0) {
+                ReportActivityCount(desc.id, state.playCount.load());
+                return true;
+            }
+        } else {
+            state.playCount = -1;
+            {
+                PendingOpGuard guard(state, PendingOp::OpenUi);
+                if (!SendLatestPacket(desc.id, desc.openUiOp) ||
+                    !WaitForResponse(state, kQueryTimeoutMs + kWaitMarginMs)) {
+                    continue;
+                }
+            }
+            // 响应处理器解析完成后才清除 waitingResponse。
+            if (state.playCount.load() >= 0) {
+                ReportActivityCount(desc.id, state.playCount.load());
+                return true;
+            }
         }
     }
 
-    // 查询彻底失败时上报「未知」(-1)，让前端显示 -- 而不是停留在过期次数上。
-    ReportActivityCount(desc.id, -1);
+    // 883 的回填与手动响应使用同一把锁，不能覆盖后续的未知状态。
+    if (desc.id == LatestAct::ACT_ADVENTURE) {
+        std::lock_guard<std::mutex> lock(g_adventureProbeMutex);
+        state.playCount = -1;
+        ReportActivityCount(desc.id, -1);
+    } else {
+        ReportActivityCount(desc.id, -1);
+    }
     return false;
 }
 
@@ -1481,9 +1845,263 @@ bool WaitForCooldown(const LatestActDesc& desc, LatestActState& state) {
     return true;
 }
 
+// 883 不接统一满分/扫荡流程：成绩和奖励由服务端逐题累计。
+bool RunAdventureUntilDone(const LatestActDesc& desc, LatestActState& state) {
+    std::mt19937 moveGapGenerator(std::random_device{}());
+    std::uniform_int_distribution<int> moveGapMs(kAdvMoveGapMinMs, kAdvMoveGapMaxMs);
+    if (!RefreshOneActivity(desc, state)) {
+        Notify(desc.id, L"获取活动信息失败");
+        return false;
+    }
+    if (!WaitForCooldown(desc, state)) {
+        Notify(desc.id, L"冷却未结束或任务已停止");
+        return false;
+    }
+
+    int battleRuns = 0;
+    int maxBattleRuns = 0;
+    for (;;) {
+        if (!g_latestBatchRunning.load() || ManagedThread::StopRequested() ||
+            state.advInterference.load()) return false;
+        const int before = state.playCount.load();
+        if (before <= 0) {
+            Notify(desc.id, before == 0 ? L"次数已用完" : L"次数未知，停止该活动");
+            return before == 0;
+        }
+        if (battleRuns == 0) {
+            maxBattleRuns = before + kAdvSafetyRunMargin;
+        }
+        if (battleRuns >= maxBattleRuns) {
+            Notify(desc.id, L"服务端次数未按预期推进，达到安全上限，停止该活动");
+            return false;
+        }
+        ++battleRuns;
+        Notify(desc.id, L"开始对局，请勿手动操作风焰神殿；剩余 " + std::to_wstring(before) + L" 次");
+        {
+            std::lock_guard<std::mutex> lock(state.advMutex);
+            state.advBoard = AdventureBoard{};
+        }
+        {
+            std::lock_guard<std::mutex> lock(g_adventureProbeMutex);
+            state.lastStartResult = -1;
+            state.lastEndResult = -1;
+            state.endSettled = false;
+            state.advEndScore = -1;
+            state.advEndReceived = false;
+            state.advClosing = false;
+            state.advAbortRound = false;
+            state.advAbortResult = -1;
+        }
+        bool startSent = false;
+        bool startAnswered = false;
+        {
+            AdventureRequest request(state, PendingOp::StartGame, "start_game",
+                                     BuildStartGameBody(desc, state));
+            startSent = request.sent;
+            if (startSent) {
+                startAnswered = WaitForCondition(
+                    [&state]() { return !state.waitingResponse.load() || state.advInterference.load(); },
+                    kActionTimeoutMs + kWaitMarginMs, 50) == WaitOutcome::Signalled;
+            }
+        }
+        const int startResult = state.lastStartResult.load();
+        if (state.advInterference.load()) {
+            Notify(desc.id, L"收到未匹配的活动回包，已停止；请检查游戏当前状态");
+            return false;
+        }
+        if (!startSent || (!startAnswered && startResult != 0)) {
+            Notify(desc.id, L"开局状态未知，请检查游戏对局后再重试");
+            return false;
+        }
+        if (startResult != 0) {
+            Notify(desc.id, L"开局被拒绝（" + StartFailureText(desc, startResult) + L"）");
+            return false;
+        }
+
+        const auto startedAt = std::chrono::steady_clock::now();
+        int movesSent = 0;
+        std::wstring lastMove;
+        bool cleanRound = true;
+        bool externalChange = false;
+        while (g_latestBatchRunning.load() && !ManagedThread::StopRequested()) {
+            if (state.advEndReceived.load()) break;
+            if (state.advInterference.load()) {
+                externalChange = true;
+                cleanRound = false;
+                break;
+            }
+            if (std::chrono::steady_clock::now() - startedAt >=
+                std::chrono::milliseconds(kAdvRoundDurationMs)) break;
+            AdventureBoard board;
+            {
+                std::lock_guard<std::mutex> lock(state.advMutex);
+                board = state.advBoard;
+            }
+            if (!board.ready) {
+                Notify(desc.id, L"棋盘回包不完整，结束本局并停止");
+                cleanRound = false;
+                break;
+            }
+            // iResult3 == 0 means the answer was wrong, not that the battle ended.
+            // AS3 calls start() again while life remains; only exhaustion ends this loop.
+            if (board.hp <= 0) {
+                Notify(desc.id, L"生命耗尽，结束本局");
+                break;
+            }
+            const auto args = SolveAdvMove(board.type, board.tiles);
+            if (args.empty()) {
+                Notify(desc.id, L"无法确定机关题的正确答案（type=" +
+                                std::to_wstring(board.type) + L"，score=" +
+                                std::to_wstring(board.score) + L"），结束本局并停止");
+                cleanRound = false;
+                break;
+            }
+            const auto sendNotBefore = std::chrono::steady_clock::now() +
+                                      std::chrono::milliseconds(moveGapMs(moveGapGenerator));
+            // 同时等服务端主动终局；停止或到时后不能因延迟队列再多发一步。
+            bool sendReady = true;
+            while (std::chrono::steady_clock::now() < sendNotBefore) {
+                if (!g_latestBatchRunning.load() || ManagedThread::StopRequested() ||
+                    state.advEndReceived.load() || state.advInterference.load() ||
+                    std::chrono::steady_clock::now() - startedAt >=
+                        std::chrono::milliseconds(kAdvRoundDurationMs)) {
+                    sendReady = false;
+                    break;
+                }
+                if (!ManagedThread::SleepCancellable(kAdvWaitSliceMs)) {
+                    sendReady = false;
+                    break;
+                }
+            }
+            if (!sendReady) break;
+            {
+                std::lock_guard<std::mutex> lock(state.advMutex);
+                state.advBoard.ready = false;
+            }
+            {
+                AdventureRequest request(state, PendingOp::PlayGame, "play_game", args);
+                if (!request.sent) {
+                    // 发送锁下终局可能刚好先到；这时停止走子不是发包失败。
+                    if (!state.advEndReceived.load()) cleanRound = false;
+                    break;
+                }
+                ++movesSent;
+                const auto sentAfterMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - startedAt).count();
+                lastMove = L"开局后 " + std::to_wstring(sentAfterMs) + L"ms，type=" + std::to_wstring(board.type) +
+                           L"，score=" + std::to_wstring(board.score) +
+                           L"，hp=" + std::to_wstring(board.hp) + L"，board=[";
+                for (std::size_t i = 0; i < board.tiles.size(); ++i) {
+                    if (i != 0) lastMove += L",";
+                    lastMove += std::to_wstring(board.tiles[i]);
+                }
+                lastMove += L"]，args=[" + std::to_wstring(args[0]) + L"," +
+                            std::to_wstring(args[1]) + L"]";
+                if (WaitForCondition(
+                        [&state]() { return !state.waitingResponse.load() || state.advInterference.load(); },
+                        kActionTimeoutMs + kWaitMarginMs, 50) != WaitOutcome::Signalled ||
+                    state.advInterference.load()) {
+                    cleanRound = false;
+                    break;
+                }
+            }
+            if (state.advEndReceived.load()) break;
+        }
+        if (!g_latestBatchRunning.load() || ManagedThread::StopRequested()) cleanRound = false;
+        if (state.advInterference.load()) externalChange = true;
+        if (externalChange) {
+            Notify(desc.id, L"收到未匹配的活动回包，已停止；请检查游戏当前状态");
+            return false;
+        }
+
+        // onEndBack 收到任意 end_game 后直接 game_info，不再次发送 end_game。
+        // 只有本地超时、生命耗尽、停止或无法继续且尚未收到终局时才提交结束。
+        {
+            // 即使走子超时也先锁存收尾阶段，迟到的 play 不能再冒充外部干扰。
+            std::lock_guard<std::mutex> lock(g_adventureProbeMutex);
+            state.advClosing = true;
+        }
+        if (!state.advEndReceived.load()) {
+            AdventureRequest request(state, PendingOp::EndGame, "end_game", {0}, true);
+            if (request.sent) {
+                // 即使全局停止也给收包线程有限时间完成结算确认。
+                std::unique_lock<std::mutex> lock(g_adventureProbeMutex);
+                g_adventureResponse.wait_for(
+                    lock, std::chrono::milliseconds(kAdvCleanupWaitMs),
+                    [&state]() { return !state.waitingResponse.load() || state.advInterference.load(); });
+            }
+        }
+        if (state.advInterference.load()) {
+            Notify(desc.id, L"收到未匹配的活动回包，已停止；请检查游戏当前状态");
+            return false;
+        }
+        if (!state.endSettled.load() || !cleanRound || state.advAbortRound.load()) {
+            const int cleanupResult = state.lastEndResult.load();
+            // 与 onEndBack 一样，拒绝/截断回包也刷新次数；不能把次数减少当作奖励到账。
+            const bool refreshed = g_latestBatchRunning.load() && !ManagedThread::StopRequested() &&
+                                   RefreshOneActivity(desc, state);
+            if (state.advAbortRound.load()) {
+                // 记录被终局打断前实际提交的协议字段，避免把 result=3 猜成动画问题。
+                const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - startedAt).count();
+                Notify(desc.id, L"终局前已发送 " + std::to_wstring(movesSent) +
+                       L" 次 play_game，耗时 " + std::to_wstring(elapsedMs) +
+                       L"ms；最后请求：" + (lastMove.empty() ? L"无" : lastMove));
+                Notify(desc.id, L"收到未确认的结束结果（result=" +
+                       std::to_wstring(state.advAbortResult.load()) + L"，剩余次数=" +
+                       (refreshed ? std::to_wstring(state.playCount.load()) : L"未知") +
+                       L"），已停止；未计为成功结算");
+            } else {
+                Notify(desc.id, state.endSettled.load() ? L"对局已结束，自动执行中止" :
+                       L"结算未确认（result=" + std::to_wstring(cleanupResult) +
+                       L"），请检查游戏后再重试");
+            }
+            return false;
+        }
+        Notify(desc.id, L"本局已结算，服务端成绩 " + std::to_wstring(state.advEndScore.load()));
+        // end_game 的处理器完成后，AS3 还会异步发送 game_info；第一次回查
+        // 可能看到旧次数，不能把这种时序差异误判为本局失败。
+        bool countAdvanced = false;
+        int after = -1;
+        for (int attempt = 0; attempt < kAdvSettlementRefreshAttempts; ++attempt) {
+            if (attempt > 0 &&
+                !ManagedThread::SleepCancellable(kAdvSettlementRefreshGapMs)) {
+                return false;
+            }
+            if (RefreshOneActivity(desc, state)) {
+                after = state.playCount.load();
+                if (after >= 0 && after < before) {
+                    countAdvanced = true;
+                    break;
+                }
+            }
+            if (attempt + 1 < kAdvSettlementRefreshAttempts) {
+                Notify(desc.id, L"等待服务端更新结算次数...");
+            }
+        }
+        if (!countAdvanced) {
+            Notify(desc.id, L"结算后次数未确认减少，停止该活动");
+            return false;
+        }
+        if (after == 0) {
+            Notify(desc.id, L"次数已用完");
+            return true;
+        }
+        if (!WaitForCooldown(desc, state)) {
+            Notify(desc.id, L"冷却未结束或任务已停止");
+            return false;
+        }
+    }
+}
+
 // 单活动循环执行：反复「扫荡 / 走一局」，直到次数耗尽、进入冷却或失败为止。
 void RunOneActivityUntilDone(const LatestActDesc& desc) {
     const uint32_t activityId = desc.id;
+    // 必须在扫荡判断之前拦截，不能仅靠 TryPlayOnce 的检查。
+    if (!desc.playable) {
+        Notify(activityId, L"暂不支持自动执行，请手动完成");
+        return;
+    }
     LatestActState* statePtr = StateOf(activityId);
     if (!statePtr) {
         return;
@@ -1492,9 +2110,12 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
 
     // 与次数探针互斥：二者共用同一响应通道（都会清 waitingResponse），
     // 抢不到占用就跳过本活动，避免探针的响应被这里误当成自己的回包。
+    std::unique_lock<std::mutex> adventureLock(g_adventureProbeMutex, std::defer_lock);
+    if (activityId == LatestAct::ACT_ADVENTURE) adventureLock.lock();
     int lockExpected = 0;
     if (!state.opLock.compare_exchange_strong(lockExpected, 1)) {
         Notify(activityId, L"正被其他流程占用，跳过");
+        if (activityId == LatestAct::ACT_ADVENTURE) g_latestBatchHadErrors = true;
         return;
     }
     // 离开（含所有提前 return）时归还占用、清等待标志与期望回包。
@@ -1503,6 +2124,8 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
     struct OpLockGuard {
         LatestActState* s;
         ~OpLockGuard() {
+            std::unique_lock<std::mutex> lock(g_adventureProbeMutex, std::defer_lock);
+            if (s == StateOf(LatestAct::ACT_ADVENTURE)) lock.lock();
             // 先清 pendingOp、再放锁：锁一旦归零，次数探针随时可能接手，
             // 若此时 pendingOp 还残留旧值，探针的回包会被匹配逻辑丢弃，
             // 次数就会被误报成「不可用」。顺序不能颠倒。
@@ -1512,6 +2135,13 @@ void RunOneActivityUntilDone(const LatestActDesc& desc) {
             s->opLock.compare_exchange_strong(expected, 0);
         }
     } guard{&state};
+
+    if (activityId == LatestAct::ACT_ADVENTURE) {
+        state.advInterference = false;
+        adventureLock.unlock();
+        if (!RunAdventureUntilDone(desc, state)) g_latestBatchHadErrors = true;
+        return;
+    }
 
     Notify(activityId, L"正在获取活动信息...");
     if (!RefreshOneActivity(desc, state)) {
@@ -1808,6 +2438,43 @@ int GetLatestActivityPlayCount(uint32_t activityId) {
     return state ? state->playCount.load() : -1;
 }
 
+void QueryAdventureActivityCount(DWORD timeoutMs) {
+    LatestActState& state = *StateOf(LatestAct::ACT_ADVENTURE);
+    const LatestActDesc& desc = *FindDesc(LatestAct::ACT_ADVENTURE);
+    struct ProbePendingGuard {
+        LatestActState& state;
+        ~ProbePendingGuard() {
+            std::lock_guard<std::mutex> lock(g_adventureProbeMutex);
+            if (g_adventureProbePending) {
+                g_adventureProbePending = false;
+                state.playCount = -1;
+            }
+        }
+    } pendingGuard{state};
+    bool sent = false;
+    {
+        // 登记和发送必须同锁，避免被手动操作取消后仍发出迟到查询。
+        std::lock_guard<std::mutex> lock(g_adventureProbeMutex);
+        g_adventureProbePending = true;
+        state.playCount = -1;
+        ReportActivityCount(desc.id, -1);
+        sent = SendLatestPacket(desc.id, desc.openUiOp) != FALSE;
+    }
+    if (sent) {
+        WaitForCondition([]() {
+            std::lock_guard<std::mutex> lock(g_adventureProbeMutex);
+            return !g_adventureProbePending;
+        }, timeoutMs);
+    }
+
+    std::lock_guard<std::mutex> lock(g_adventureProbeMutex);
+    if (!sent || g_adventureProbePending) {
+        g_adventureProbePending = false;
+        state.playCount = -1;
+        ReportActivityCount(desc.id, -1);
+    }
+}
+
 /// 把回包的 operation 串映射成本模块的等待类型；None 表示本模块不认识的操作。
 PendingOp PendingOpOf(const LatestActDesc& desc, const std::string& operation) {
     if (operation == desc.openUiOp) {
@@ -1825,7 +2492,54 @@ PendingOp PendingOpOf(const LatestActDesc& desc, const std::string& operation) {
     if (operation == "end_game") {
         return PendingOp::EndGame;
     }
+    if (desc.id == LatestAct::ACT_ADVENTURE && operation == "play_game") {
+        return PendingOp::PlayGame;
+    }
     return PendingOp::None;
+}
+
+const wchar_t* PendingOpName(PendingOp op) {
+    switch (op) {
+        case PendingOp::OpenUi: return L"game_info";
+        case PendingOp::StartGame: return L"start_game";
+        case PendingOp::PlayGame: return L"play_game";
+        case PendingOp::EndGame: return L"end_game";
+        case PendingOp::SweepInfo: return L"sweep_info";
+        case PendingOp::Sweep: return L"sweep";
+        case PendingOp::None: return L"无";
+    }
+    return L"未知";
+}
+
+void RecordAdventurePacketSend(const BYTE* data, size_t size, int sentBytes,
+                               bool nativeRequest, uintptr_t socketId, const wchar_t* outcome) {
+    std::lock_guard<std::mutex> lock(g_advTraceMutex);
+    size_t offset = 0;
+    ByteReader reader(data, size, offset);
+    // 一次socket发送可包含多个帧；只记录883，其他帧不进入日志。
+    while (reader.Remaining() >= PacketProtocol::HEADER_SIZE) {
+        const size_t frameStart = offset;
+        const uint16_t magic = reader.U16();
+        const uint16_t bodyLength = reader.U16();
+        const uint32_t opcode = reader.U32();
+        const uint32_t params = reader.U32();
+        if (magic != PacketProtocol::MAGIC_NORMAL || !reader.CanRead(bodyLength)) break;
+        if (opcode == Opcode::ACTIVITY_QINGYANG_NEW_SEND && params == LatestAct::ACT_ADVENTURE) {
+            AppendAdventureTraceLocked(
+                std::wstring(nativeRequest ? L"SEND native " : L"SEND client ") + outcome +
+                L" socket=" + std::to_wstring(socketId) + L" socketResult=" + std::to_wstring(sentBytes),
+                data + frameStart, PacketProtocol::HEADER_SIZE + bodyLength);
+        }
+        reader.Skip(bodyLength);
+    }
+}
+
+void RecordAdventurePacketReceive(const GamePacket& packet, uintptr_t socketId) {
+    if (packet.opcode != Opcode::ACTIVITY_QUERY_BACK || packet.params != LatestAct::ACT_ADVENTURE) return;
+    std::lock_guard<std::mutex> lock(g_advTraceMutex);
+    AppendAdventureTraceLocked(L"RECV socket=" + std::to_wstring(socketId) +
+        L" opcode=" + std::to_wstring(packet.opcode) + L" params=" +
+        std::to_wstring(packet.params) + L" body", packet.body.data(), packet.body.size());
 }
 
 void ProcessLatestActivityResponse(const GamePacket& packet) {
@@ -1844,13 +2558,103 @@ void ProcessLatestActivityResponse(const GamePacket& packet) {
         return;
     }
 
-    // play_game / game_event 这类过程包即使被服务端回送也不在本模块的解析范围内。
     const PendingOp op = PendingOpOf(*desc, operation);
+    if (desc->id == LatestAct::ACT_ADVENTURE) {
+        std::lock_guard<std::mutex> lock(g_adventureProbeMutex);
+        const int owner = state->opLock.load();
+        const auto pending = static_cast<PendingOp>(state->pendingOp.load());
+        // AS3 按 operation 独立派发结束事件（KBAdventureModel.decodeEndGame）。
+        // 在走子或间隔期收到它不代表外部干扰；结果码 3 也不能冒充 0/4 的有效 DTO。
+        const bool roundStarted = state->lastStartResult.load() == 0;
+        if (owner == 1 && roundStarted && op == PendingOp::EndGame &&
+            (pending == PendingOp::PlayGame || pending == PendingOp::None ||
+             pending == PendingOp::EndGame || state->advEndReceived.load() ||
+             (pending == PendingOp::StartGame && !state->waitingResponse.load()))) {
+            // 已确认的奖励快照不能被重复/迟到的拒绝回包覆盖。
+            if (!state->endSettled.load()) {
+                ParseEndGame(*desc, *state, packet, offset);
+                state->advEndReceived = true;
+                if (!state->endSettled.load() && !state->advAbortRound.load()) {
+                    state->advAbortResult = state->lastEndResult.load();
+                    state->advAbortRound = true;
+                }
+                state->playCount = -1;
+                ReportActivityCount(desc->id, -1);
+            }
+            if (pending == PendingOp::PlayGame || pending == PendingOp::EndGame) {
+                state->waitingResponse = false;
+            }
+            g_adventureResponse.notify_all();
+            return;
+        }
+        // 原游戏 onEndBack 无条件发 game_info；它可能先于本地收尾回包到达。
+        // 可以更新次数，但不能把它当作 end_game 的确认或取消收尾等待。
+        if (owner == 1 && state->advEndReceived.load() && op == PendingOp::OpenUi &&
+            pending != PendingOp::OpenUi) {
+            ParseOpenUI(*desc, *state, packet, offset);
+            ReportActivityCount(desc->id, state->playCount.load());
+            return;
+        }
+        // 终局之后迟到的走子回包不能再发布棋盘或取消 game_info 的等待。
+        if (owner == 1 && (state->advEndReceived.load() || state->advClosing.load()) &&
+            op == PendingOp::PlayGame) return;
+        if (owner == 1 && pending != PendingOp::None && pending == op &&
+            state->waitingResponse.load()) {
+            switch (op) {
+                case PendingOp::OpenUi: ParseOpenUI(*desc, *state, packet, offset); break;
+                case PendingOp::StartGame: ParseStartGame(*desc, *state, packet, offset); break;
+                case PendingOp::PlayGame: ParsePlayGame(*state, packet, offset); break;
+                case PendingOp::EndGame:
+                    ParseEndGame(*desc, *state, packet, offset);
+                    state->playCount = -1;
+                    break;
+                default: return;
+            }
+            state->waitingResponse = false;
+            g_adventureResponse.notify_all();
+            return;
+        }
+        if (owner == 2 && op == PendingOp::OpenUi && g_adventureProbePending) {
+            state->playCount = -1;
+            ParseOpenUI(*desc, *state, packet, offset);
+            g_adventureProbePending = false;
+            ReportActivityCount(desc->id, state->playCount.load());
+        } else if (op == PendingOp::StartGame || op == PendingOp::PlayGame ||
+                   op == PendingOp::EndGame || op == PendingOp::Sweep ||
+                   operation == "buy_game_cnt") {
+            // 未匹配回包可能是其他操作，也可能是重复或迟到的响应。
+            // 协议没有序号，无法安全地推断局面；保留操作与阶段供排查。
+            if (owner == 1 && !state->advInterference.exchange(true)) {
+                const wchar_t* received = operation == "buy_game_cnt"
+                    ? L"buy_game_cnt" : PendingOpName(op);
+                const bool waiting = state->waitingResponse.load();
+                ByteReader reader(packet.body, offset);
+                const int result = reader.I32();
+                const std::wstring resultText = reader.ok() ? std::to_wstring(result) : L"不完整";
+                Notify(desc->id, L"收到未匹配回包（操作=" + std::wstring(received) +
+                       L"，等待=" + PendingOpName(pending) +
+                       L"，等待中=" + (waiting ? L"是" : L"否") +
+                       L"，首字段=" + resultText + L"），请检查游戏状态");
+                g_adventureResponse.notify_all();
+            }
+            g_adventureProbePending = false;
+            state->playCount = -1;
+            ReportActivityCount(desc->id, -1);
+        }
+        return;
+    }
+
+    // 不在本模块解析范围内的过程包不参与等待。
     if (op == PendingOp::None) {
         // 721 的 game_event 回音不解析、只计数：RunPlayProcess 用它做事件间节拍。
         if (operation == "game_event") {
             state->playEventAcks.fetch_add(1, std::memory_order_relaxed);
         }
+        return;
+    }
+
+    // 不可自动执行的活动只处理次数查询；手动游戏的棋盘回包不能写入旧自动状态。
+    if (!desc->playable && op != PendingOp::OpenUi) {
         return;
     }
 
@@ -1869,6 +2673,10 @@ void ProcessLatestActivityResponse(const GamePacket& packet) {
             break;
         case PendingOp::StartGame:
             ParseStartGame(*desc, *state, packet, offset);
+            break;
+        case PendingOp::PlayGame:
+            // 883 的走子回包只更新棋盘，不碰次数：次数由 end_game 结算后回查。
+            ParsePlayGame(*state, packet, offset);
             break;
         case PendingOp::SweepInfo:
             ParseSweepInfo(*desc, *state, packet, offset);
@@ -1902,10 +2710,15 @@ BOOL StartOneKeyLatestActivitiesPacket(const std::vector<uint32_t>& activityIds)
         return FALSE;
     }
 
-    // 过滤掉本模块不认识的活动。
+    // 请求中包含暂不支持的活动时拒绝整批，避免静默跳过后误报全部完成。
     std::vector<const LatestActDesc*> targets;
     for (uint32_t activityId : activityIds) {
         const LatestActDesc* desc = FindDesc(activityId);
+        if (desc && !desc->playable) {
+            UIBridge::Instance().UpdateHelperText(
+                std::wstring(desc->name) + L"：暂不支持自动执行，请手动完成");
+            return FALSE;
+        }
         if (desc) {
             targets.push_back(desc);
         }
@@ -1914,15 +2727,24 @@ BOOL StartOneKeyLatestActivitiesPacket(const std::vector<uint32_t>& activityIds)
         return FALSE;
     }
 
-    bool expected = false;
-    if (!g_latestBatchRunning.compare_exchange_strong(expected, true)) {
-        UIBridge::Instance().UpdateHelperText(L"最新活动：一键执行进行中，请勿重复启动");
-        return FALSE;
+    {
+        std::lock_guard<std::mutex> lock(g_latestBatchMutex);
+        if (g_latestBatchActive) {
+            UIBridge::Instance().UpdateHelperText(L"最新活动：一键执行进行中或正在收尾，请稍候");
+            return FALSE;
+        }
+        g_latestBatchActive = true;
+        g_latestBatchRunning = true;
+        ++g_latestBatchGeneration;
     }
 
-    // 走受管线程：退出时 CleanupWpeHook 会 RequestStopAll/JoinAll，不再是一条没人等的裸线程。
-    const bool started = ManagedThread::Start(L"latest_activities", [targets]() {
+    // 工作线程自己释放 active；即使状态通知抛异常也必须放行等待者。
+    bool started = false;
+    try {
+        started = ManagedThread::Start(L"latest_activities", [targets]() {
+        LatestBatchCompletion completion;
         bool failed = false;
+        g_latestBatchHadErrors = false;
         try {
             for (const LatestActDesc* desc : targets) {
                 if (!g_latestBatchRunning.load() || ManagedThread::StopRequested()) {
@@ -1934,27 +2756,48 @@ BOOL StartOneKeyLatestActivitiesPacket(const std::vector<uint32_t>& activityIds)
             failed = true;
         }
 
-        const bool cancelled = !g_latestBatchRunning.load() || ManagedThread::StopRequested();
-        // 运行标志必须无条件放掉：否则一次异常就让「一键执行」永远报"进行中"。
-        g_latestBatchRunning = false;
+        const bool hadErrors = g_latestBatchHadErrors;
+        bool cancelled = false;
+        {
+            std::lock_guard<std::mutex> lock(g_latestBatchMutex);
+            cancelled = !g_latestBatchRunning.load() || ManagedThread::StopRequested();
+            g_latestBatchRunning = false;
+        }
         if (failed) {
             UIBridge::Instance().UpdateHelperText(L"最新活动：一键执行异常中止");
         } else if (cancelled) {
             UIBridge::Instance().UpdateHelperText(L"最新活动：一键执行已停止");
+        } else if (hadErrors) {
+            UIBridge::Instance().UpdateHelperText(L"最新活动：部分活动未完成，请查看活动状态");
         } else {
             UIBridge::Instance().UpdateHelperText(L"最新活动：一键执行完成");
         }
-    });
+        });
+    } catch (...) {
+        started = false;
+    }
     if (!started) {
-        g_latestBatchRunning = false;
+        LatestBatchCompletion completion;
         UIBridge::Instance().UpdateHelperText(L"最新活动：启动线程失败");
         return FALSE;
     }
     return TRUE;
 }
 
-void StopLatestActivities() {
+void RequestStopLatestActivities() {
+    std::lock_guard<std::mutex> lock(g_latestBatchMutex);
     if (g_latestBatchRunning.exchange(false)) {
         UIBridge::Instance().UpdateHelperText(L"最新活动：正在停止...");
     }
+}
+
+void StopLatestActivities() {
+    std::unique_lock<std::mutex> lock(g_latestBatchMutex);
+    const uint64_t generation = g_latestBatchGeneration;
+    if (g_latestBatchRunning.exchange(false)) {
+        UIBridge::Instance().UpdateHelperText(L"最新活动：正在停止...");
+    }
+    g_latestBatchStopped.wait(lock, [generation]() {
+        return g_latestBatchCompleted >= generation;
+    });
 }

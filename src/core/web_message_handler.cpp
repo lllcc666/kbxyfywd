@@ -748,7 +748,8 @@ void HandleStartLatestActivityCommand(const std::wstring& msg) {
 }
 
 void HandleStopLatestActivitiesCommand() {
-    StopLatestActivities();
+    // 完成通知由活动工作线程发送；不要阻塞 WebView2 消息线程。
+    RequestStopLatestActivities();
 }
 
 void HandleDecomposeLingyuIndicesCommand(const std::wstring& msg, const wchar_t* indicesKey) {

@@ -63,35 +63,36 @@ bool ManagedThread::Start(const std::wstring& name, std::function<void()> body) 
         return false;
     }
 
-    auto state = std::make_shared<ThreadState>();
-    state->name = name;
-
-    std::shared_ptr<ThreadState> holder = state;
     try {
-        state->thread = std::thread([holder, body]() {
-            t_currentThread = holder.get();
-            // 线程体里抛出的异常必须就地吃掉：让它跑出 std::thread 会直接 terminate 整个进程。
-            try {
-                body();
-            } catch (...) {
-                // 静默吞掉会让"为什么没跑"无从查起，至少留一条调试输出。
-                const std::wstring message = L"ManagedThread: 线程体抛出异常 name=" + holder->name;
-                OutputDebugStringW(message.c_str());
-            }
-            holder->finished.store(true);
-            t_currentThread = nullptr;
-        });
-    } catch (...) {
-        // 创建线程本身失败（句柄/内存耗尽）：按失败返回，别让异常穿给调用方。
-        return false;
-    }
+        auto state = std::make_shared<ThreadState>();
+        state->name = name;
 
-    {
+        // 先登记再启动，避免线程已运行但登记分配失败使调用方误判为启动失败。
+        // 持锁直到 thread 句柄就位，RequestStopAll/JoinAll 不会看到半初始化条目。
         std::lock_guard<std::mutex> lock(g_registryMutex);
         PruneFinishedLocked();
         g_registry.push_back(state);
+        try {
+            state->thread = std::thread([state, body]() {
+                t_currentThread = state.get();
+                try {
+                    body();
+                } catch (...) {
+                    OutputDebugStringW(L"ManagedThread: 线程体抛出异常 name=");
+                    OutputDebugStringW(state->name.c_str());
+                    OutputDebugStringW(L"\n");
+                }
+                state->finished.store(true);
+                t_currentThread = nullptr;
+            });
+        } catch (...) {
+            g_registry.pop_back();
+            return false;
+        }
+        return true;
+    } catch (...) {
+        return false;
     }
-    return true;
 }
 
 bool ManagedThread::StopRequested() {

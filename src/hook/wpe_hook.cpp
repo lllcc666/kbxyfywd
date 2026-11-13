@@ -699,11 +699,23 @@ void AppendPacketAndShow(const PACKET& packet) {
 namespace {
 
 thread_local bool g_sendPacketRequiresComplete = false;
+thread_local bool g_sendPacketAbortOnPartial = false;
 
 int SendAllOriginal(SOCKET socket, const char* data, int length, int flags) {
     if (!OriginalSend || !data || length < 0) {
         WSASetLastError(WSAEINVAL);
         return SOCKET_ERROR;
+    }
+
+    if (g_sendPacketAbortOnPartial && length > 0) {
+        // 不拆分副作用请求：否则续写可能和其他线程的封包交错。
+        const int result = OriginalSend(socket, data, length, flags);
+        if (result > 0 && result < length) {
+            // 半包无法撤回；尝试关闭该套接字的收发，避免继续写入损坏的数据流。
+            constexpr int kShutdownBothDirections = 2;  // Winsock 1 的 how 参数
+            shutdown(socket, kShutdownBothDirections);
+        }
+        return result;
     }
 
     int sent = 0;
@@ -721,9 +733,16 @@ int SendAllOriginal(SOCKET socket, const char* data, int length, int flags) {
 }
 
 struct SendPacketCompleteGuard {
-    bool previous = g_sendPacketRequiresComplete;
-    SendPacketCompleteGuard() { g_sendPacketRequiresComplete = true; }
-    ~SendPacketCompleteGuard() { g_sendPacketRequiresComplete = previous; }
+    bool previousComplete = g_sendPacketRequiresComplete;
+    bool previousAbortOnPartial = g_sendPacketAbortOnPartial;
+    explicit SendPacketCompleteGuard(bool abortOnPartial) {
+        g_sendPacketRequiresComplete = true;
+        g_sendPacketAbortOnPartial = abortOnPartial;
+    }
+    ~SendPacketCompleteGuard() {
+        g_sendPacketRequiresComplete = previousComplete;
+        g_sendPacketAbortOnPartial = previousAbortOnPartial;
+    }
 };
 
 // 每场战斗只回一次血。两个信号谁先到就由谁触发：
@@ -812,6 +831,8 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
             // 劫持成功：拦截或替换封包
             if (dwSize == 0) {
                 // 拦截：返回已发送的假象
+                RecordAdventurePacketSend(pData, static_cast<size_t>(len), 0,
+                                          g_sendPacketRequiresComplete, static_cast<uintptr_t>(s), L"hijack-blocked");
                 return len;
             } else if (!modifiedData.empty()) {
                 // 替换：发送修改后的封包
@@ -820,6 +841,11 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
                 int result = g_sendPacketRequiresComplete
                     ? SendAllOriginal(s, sendData, sendLength, flags)
                     : OriginalSend(s, sendData, sendLength, flags);
+                // 替换前后都保留883帧，不能拿“准备发送”当作原包实际送达。
+                RecordAdventurePacketSend(pData, static_cast<size_t>(len), result,
+                                          g_sendPacketRequiresComplete, static_cast<uintptr_t>(s), L"hijack-input");
+                RecordAdventurePacketSend(modifiedData.data(), static_cast<size_t>(dwSize), result,
+                                          g_sendPacketRequiresComplete, static_cast<uintptr_t>(s), L"hijack-output");
                 // 记录修改后的封包
                 if (g_bInterceptEnabled && g_bInterceptSend && g_bInitialized) {
                     PACKET packet;
@@ -830,6 +856,12 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
                     packet.dwTime = GetTickCount();
 
                     AppendPacketAndShow(packet);
+                }
+                // 单次副作用请求以替换包长度判断；成功后映射回调用者的原长度。
+                // 未完成的正数短写不能碰巧等于原长度而被误判为成功。
+                if (g_sendPacketAbortOnPartial) {
+                    if (result == sendLength) return len;
+                    if (result != SOCKET_ERROR) return 0;
                 }
                 return result;
             }
@@ -843,6 +875,8 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
     
     // 检查是否需要阻止发送
     if (len > 0 && ShouldBlockPacketSend(reinterpret_cast<const BYTE*>(buf), static_cast<DWORD>(len))) {
+        RecordAdventurePacketSend(reinterpret_cast<const BYTE*>(buf), static_cast<size_t>(len), 0,
+                                  g_sendPacketRequiresComplete, static_cast<uintptr_t>(s), L"opcode-blocked");
         return len;  // 欺骗调用者认为已发送
     }
 
@@ -880,6 +914,10 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
     const int sendResult = g_sendPacketRequiresComplete
         ? SendAllOriginal(s, buf, len, flags)
         : OriginalSend(s, buf, len, flags);
+    if (len > 0) {
+        RecordAdventurePacketSend(reinterpret_cast<const BYTE*>(buf), static_cast<size_t>(len),
+                                  sendResult, g_sendPacketRequiresComplete, static_cast<uintptr_t>(s), L"socket");
+    }
     return sendResult;
 }
 
@@ -1118,7 +1156,9 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
 
     int result = OriginalRecv(s, buf, len, flags);
 
-    if (result <= 0 || !g_bInitialized) {
+    // MSG_PEEK 不消费套接字数据；正式读取时会再次看到同一批字节。
+    // 不在预览时修改重组缓冲或派发，否则响应可能被处理两次。
+    if (result <= 0 || !g_bInitialized || (flags & MSG_PEEK) != 0) {
         return result;
     }
 
@@ -1142,6 +1182,8 @@ int WINAPI HookedRecv(SOCKET s, char* buf, int len, int flags) {
     for (size_t i = 0; i < gamePackets.size(); i++) {
         const auto& gp = gamePackets[i];
         const auto& packetBody = gp.body;
+        // 在异步业务队列之前记录，保留真实接收连接与先后顺序。
+        RecordAdventurePacketReceive(gp, static_cast<uintptr_t>(s));
         
         // 0. 默认屏蔽检查（无条件屏蔽，无需用户勾选）
         if (IsDefaultBlockedPacket(gp.opcode, gp.params,
@@ -1665,6 +1707,7 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
     registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_TREASURE, ProcessLatestActivityResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_PUMPKINS_PK, ProcessLatestActivityResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_QIAO, ProcessLatestActivityResponse);
+    registerParams(Opcode::ACTIVITY_QUERY_BACK, LatestAct::ACT_ADVENTURE, ProcessLatestActivityResponse);
 
     registerParams(Opcode::HEAVEN_FURUI_BACK, HeavenFurui::ACTIVITY_ID, ProcessHeavenFuruiResponse);
     registerParams(Opcode::ACTIVITY_QUERY_BACK, HeavenFurui::ACTIVITY_ID, ProcessHeavenFuruiResponse);
@@ -1715,14 +1758,16 @@ void ResponseDispatcher::InitializeDefaultHandlers() {
 
     // ============================================================================
 
-BOOL SendPacket(
+static BOOL SendPacketImpl(
     SOCKET s,
     const BYTE* pData,
     DWORD dwSize,
     uint32_t expectedOpcode,
     DWORD timeoutMs,
     uint32_t expectedParams,
-    bool matchExpectedParams) {
+    bool matchExpectedParams,
+    bool singleAttempt,
+    bool cleanup) {
     SOCKET targetSocket = (s != 0) ? s : g_LastGameSocket;
     if (targetSocket == 0) {
         return FALSE;
@@ -1744,8 +1789,10 @@ BOOL SendPacket(
         pendingResponseGuard.active = true;
     }
 
-    for (int attempt = 0; attempt < 3; ++attempt) {
-        if (ManagedThread::StopRequested()) {
+    constexpr int kNormalSendAttempts = 3;
+    const int maxAttempts = singleAttempt ? 1 : kNormalSendAttempts;
+    for (int attempt = 0; attempt < maxAttempts; ++attempt) {
+        if (!cleanup && ManagedThread::StopRequested()) {
             return FALSE;
         }
         if (attempt > 0) {
@@ -1760,10 +1807,14 @@ BOOL SendPacket(
         DWORD sendTimeout = WpeHook::TIMEOUT_SEND;
         DWORD originalTimeout = sendTimeout;
         int optLen = sizeof(originalTimeout);
-        getsockopt(targetSocket, SOL_SOCKET, SO_SNDTIMEO,
-                   reinterpret_cast<char*>(&originalTimeout), &optLen);
-        setsockopt(targetSocket, SOL_SOCKET, SO_SNDTIMEO,
-                   reinterpret_cast<char*>(&sendTimeout), sizeof(sendTimeout));
+        const int getTimeoutResult = getsockopt(
+            targetSocket, SOL_SOCKET, SO_SNDTIMEO,
+            reinterpret_cast<char*>(&originalTimeout), &optLen);
+        if (singleAttempt && getTimeoutResult == SOCKET_ERROR) return FALSE;
+        const int setTimeoutResult = setsockopt(
+            targetSocket, SOL_SOCKET, SO_SNDTIMEO,
+            reinterpret_cast<char*>(&sendTimeout), sizeof(sendTimeout));
+        if (singleAttempt && setTimeoutResult == SOCKET_ERROR) return FALSE;
 
         struct SocketTimeoutGuard {
             SOCKET socket = 0;
@@ -1779,7 +1830,8 @@ BOOL SendPacket(
 
         int result = SOCKET_ERROR;
         {
-            SendPacketCompleteGuard completeSendGuard;
+            // 副作用请求不重试或续写，短写时关闭损坏连接。
+            SendPacketCompleteGuard completeSendGuard(singleAttempt);
             result = HookedSend(targetSocket,
                                 reinterpret_cast<const char*>(pData),
                                 static_cast<int>(dwSize),
@@ -1814,6 +1866,22 @@ BOOL SendPacket(
     }
 
     return FALSE;
+}
+
+BOOL SendPacket(SOCKET s, const BYTE* pData, DWORD dwSize, uint32_t expectedOpcode,
+                DWORD timeoutMs, uint32_t expectedParams, bool matchExpectedParams) {
+    return SendPacketImpl(s, pData, dwSize, expectedOpcode, timeoutMs, expectedParams,
+                          matchExpectedParams, false, false);
+}
+
+BOOL SendPacketBytesOnce(const std::vector<BYTE>& packet) {
+    if (packet.empty()) return FALSE;
+    return SendPacketImpl(0, packet.data(), static_cast<DWORD>(packet.size()), 0, 0, 0, false, true, false);
+}
+
+BOOL SendPacketBytesForCleanup(const std::vector<BYTE>& packet) {
+    if (packet.empty()) return FALSE;
+    return SendPacketImpl(0, packet.data(), static_cast<DWORD>(packet.size()), 0, 0, 0, false, true, true);
 }
 
 BOOL SendPacketBytes(const std::vector<BYTE>& packet) {
